@@ -367,7 +367,7 @@ async function combination() {
   };
   const { page, errors } = await open(d);
   try {
-    await page.locator("[data-view=transfer]").click();
+    await page.locator("[data-view=transfer]").click();await page.locator("#legacy-transfer").evaluate(el=>el.open=true);
     await page.locator("#sources").selectOption(["helper"]);
     await page.locator("#review-combine").click();
     await page.locator("[data-view=editor]").click();
@@ -447,7 +447,7 @@ async function combinationRejection() {
     };
     const { page, errors } = await open(d);
     try {
-      await page.locator("[data-view=transfer]").click();
+      await page.locator("[data-view=transfer]").click();await page.locator("#legacy-transfer").evaluate(el=>el.open=true);
       await page.locator("#sources").selectOption(["helper"]);
       await page.locator("#review-combine").click();
       assert.match(
@@ -491,7 +491,7 @@ async function lockedPortablePrivacy() {
       await page.locator("[data-action=save-message]").isDisabled(),
       true,
     );
-    await page.locator("[data-view=transfer]").click();
+    await page.locator("[data-view=transfer]").click();await page.locator("#legacy-transfer").evaluate(el=>el.open=true);
     const pending = page.waitForEvent("download");
     await page.locator("#portable-export").click();
     const stream = await (await pending).createReadStream(),
@@ -630,7 +630,7 @@ async function validationAndWeekdays() {
   );
   const next = await open(d);
   try {
-    await next.page.locator("[data-view=transfer]").click();
+    await next.page.locator("[data-view=transfer]").click();await next.page.locator("#legacy-transfer").evaluate(el=>el.open=true);
     let pending = next.page.waitForEvent("download");
     await next.page.locator("#portable-export").click();
     let stream = await (await pending).createReadStream(),
@@ -725,7 +725,7 @@ async function clocksOccurrenceStatesAndHelp(){
  try{
  await page.clock.setFixedTime(new Date('2026-11-01T12:00:00Z'));
  assert.equal(await page.locator('[data-field=eventTime]').getAttribute('type'),'time');
- assert.ok(await page.locator('[data-field=eventTime]').getAttribute('title'));
+ assert.equal(await page.locator('[data-field=eventTime]').getAttribute('title'),null);assert.ok(await page.locator('[data-field=eventTime]').getAttribute('aria-description'));
  await page.locator('[data-field=eventDate]').fill('2026-10-30');await page.locator('[data-field=eventTime]').fill('20:00');
  assert.match(await page.locator('#next-occurrence').inputValue(),/Nov 6, 2026/);assert.notEqual(await page.locator('#next-occurrence').getAttribute('readonly'),null);
  await page.locator('[data-field=eventDate]').fill('2026-10-31');assert.match(await page.locator('#next-occurrence').inputValue(),/Nov 7, 2026/);await page.locator('[data-field=eventDate]').fill('2026-10-30');
@@ -785,6 +785,11 @@ async function timelineOrderingAndPoolPreview(){
  try{
  assert.equal(await page.locator('[data-field=eventTime]').locator('..').getAttribute('class'),'clock-control');
  assert.equal(await page.locator('.clock-control .clock-zone').first().textContent(),'ET');
+ assert.equal(await page.locator('.readonly-tag').count(),0);
+ assert.equal(await page.locator('[data-field=eventTime]').locator('xpath=ancestor::label').locator('.field-caption .help-icon').count(),1);
+ assert.equal(await page.locator('#detail [data-help][title]').count(),0);
+ const hint=page.locator('[data-field=eventTime]').locator('xpath=ancestor::label').locator('.help-icon');await hint.focus();assert.equal(await hint.locator('.help-bubble').isVisible(),true);
+ const positions=await page.locator('[data-field=commandName],[data-field=eventDate],[data-field=eventTime]').evaluateAll(xs=>xs.map(x=>x.getBoundingClientRect().top));assert.ok(Math.max(...positions)-Math.min(...positions)<2,'first-row controls align with and without help icons');
  const second=page.locator('.reminder[data-row="row-two"]');
  await second.locator('[data-field=label]').fill('Start till 2 days before');assert.equal(await second.locator('.heading h3').textContent(),'2. Start till 2 days before');
  await second.locator('.row-advanced').evaluate(el=>el.open=true);
@@ -804,7 +809,23 @@ async function timelineOrderingAndPoolPreview(){
  }finally{await page.close();}
 }
 
+async function batchEventSharing(){
+ const d=fixture(),a=d.Default['@fixture'].$AccountWide;
+ setLuaValue(a.commands,2,{id:'command-two',name:'Fishing'});setLuaValue(a.messages,2,{id:'fish-message',commandId:'command-two',guildName:'alpha',guildIndex:4,text:'Fish with us!',useCount:2});a.commandGuildSettings['command-two']={alpha:{runAt:'STARTUP',populateSound:'DUEL_START',openStatusPanelOnRun:true}};a.chatChannels['command-two']={alpha:'Group'};
+ const {page,errors}=await open(d);
+ try{
+ await page.locator('[data-view=transfer]').click();assert.equal(await page.locator('#legacy-transfer').evaluate(el=>el.open),false);
+ assert.equal(await page.locator('.bulk-export-choice:checked').count(),2);await page.locator('#clear-export').click();assert.equal(await page.locator('.bulk-export-choice:checked').count(),0);await page.locator('#select-all-export').click();
+ const pending=page.waitForEvent('download');await page.locator('#export-events').click();const stream=await (await pending).createReadStream(),chunks=[];for await(const c of stream)chunks.push(c);const bundle=JSON.parse(Buffer.concat(chunks).toString());assert.equal(bundle.items.length,2);assert.equal(bundle.items[1].settings.openStatusPanelOnRun,true);assert.equal(bundle.items[1].outputChannel,'Group');assert.doesNotMatch(JSON.stringify(bundle),/lastUsedAt|useCount/);
+ bundle.items[1].eventName='New Fishing';
+ await page.locator('#import-events-file').setInputFiles({name:'events.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(bundle))});assert.equal(await page.locator('.bulk-import-choice').count(),2);assert.match(await page.locator('#import-event-review').textContent(),/Update/);assert.match(await page.locator('#import-event-review').textContent(),/Create/);
+ await page.locator('#clear-import').click();await page.locator('.bulk-import-choice[value="1"]').check();await page.locator('#apply-event-import').click();assert.match(await page.locator('#status').textContent(),/Imported 1 event/);
+ const out=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(Object.keys(out.commands).length,3);assert.equal(out.messages[1].useCount,5);assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 try {
+  await batchEventSharing();
   await timelineOrderingAndPoolPreview();
   await populatedAccountDefault();
   await dayTimeline();
