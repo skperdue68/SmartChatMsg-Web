@@ -276,7 +276,7 @@ async function preservationAndEditing() {
       ),
       [added.id],
     );
-    await page.locator("details.message").last().locator("summary").click();
+    await page.locator("details.message").last().evaluate(el=>el.open=true);
     await page.locator("[data-action=delete-message]").last().click();
     assert.equal(await page.locator("details.message").count(), 1);
     const removed = (await downloadData(page)).Default["@fixture"].$AccountWide;
@@ -584,7 +584,7 @@ async function legacyMessageIsolation() {
   try {
     assert.equal(await second.page.locator("details.message").count(), 0);
     assert.match(
-      await second.page.locator("[role=alert]").textContent(),
+      await second.page.locator("[role=alert]:visible").textContent(),
       /cannot be resolved/,
     );
     const saved = await downloadData(second.page);
@@ -739,7 +739,75 @@ async function clocksOccurrenceStatesAndHelp(){
  }finally{await page.close();}
 }
 
+async function dayTimeline(){
+ const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;
+ cfg.runAt='SCHEDULED';cfg.schedule.eventDurationMinutes=120;
+ cfg.schedule.reminders=numeric([
+ {...cfg.schedule.reminders[1],finish:{kind:'OFFSET',minutes:-60},intervalMinutes:60},
+ {...cfg.schedule.reminders[1],id:'row-two',label:'Closer promotion',start:{kind:'OFFSET',minutes:-60},intervalMinutes:30}
+ ]);
+ const {page,errors}=await open(d);
+ try{
+ await page.locator('[data-view=calendar]').click();
+ await page.locator('#calendar [data-field=date]').fill('2026-10-27');
+ await page.locator('#calendar [data-field=date]').dispatchEvent('change');
+ await page.locator('#calendar [data-field=view]').selectOption('day');
+ assert.equal(await page.locator('.day-hour').count(),24);
+ assert.equal(await page.locator('.day-block').count(),3);
+ assert.equal(await page.locator('.day-actual-event').count(),1);
+ assert.match(await page.locator('.day-actual-event').getAttribute('title'),/8:00 PM.*10:00 PM/);
+ const colors=await page.locator('.day-block:not(.day-actual-event)').evaluateAll(xs=>xs.map(x=>x.style.background));assert.notEqual(colors[0],colors[1]);
+ await page.locator('#calendar [data-field=date]').fill('2026-11-01');await page.locator('#calendar [data-field=date]').dispatchEvent('change');
+ assert.equal(await page.locator('.day-hour').count(),25,'fall DST day has 25 actual hours');
+ await page.locator('#calendar [data-field=date]').fill('2026-10-27');await page.locator('#calendar [data-field=date]').dispatchEvent('change');
+ await page.locator('.day-actual-event').click();assert.equal(await page.locator('#editor').isVisible(),true);assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
+async function populatedAccountDefault(){
+ const d=fixture();d.Default={'@empty':{$AccountWide:{commands:{},messages:{},commandGuildSettings:{}}},...d.Default};
+ const {page,errors}=await open(d);
+ try{
+ assert.equal(await page.locator('#account').inputValue(),'@fixture','prefer saved event data over an empty first account');
+ assert.equal(await page.locator('#guild option[value=alpha]').count(),1);
+ await page.locator('#account').selectOption('@empty');assert.equal(await page.locator('#guild option[value=alpha]').count(),0);
+ await page.locator('#account').selectOption('@fixture');assert.equal(await page.locator('#guild option[value=alpha]').count(),1);
+ const saved=await downloadData(page);assert.deepEqual(saved,parseSavedVariables(writeSavedVariables(d)),'account selection must not change saved data');assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
+async function timelineOrderingAndPoolPreview(){
+ const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;cfg.runAt='SCHEDULED';
+ const one=cfg.schedule.reminders[1];one.label='First';one.finish.minutes=-60;
+ cfg.schedule.reminders=numeric([one,{...one,id:'row-two',label:'Second',start:{kind:'OFFSET',minutes:-60},finish:{kind:'OFFSET',minutes:0}}]);
+ d.Default['@fixture'].$AccountWide.messages[1].text='Meet %guild% %eventwhen% at %eventtime% (%eventcountdown%).';
+ const {page,errors}=await open(d);
+ try{
+ assert.equal(await page.locator('[data-field=eventTime]').locator('..').getAttribute('class'),'clock-control');
+ assert.equal(await page.locator('.clock-control .clock-zone').first().textContent(),'ET');
+ const second=page.locator('.reminder[data-row="row-two"]');
+ await second.locator('[data-field=label]').fill('Start till 2 days before');assert.equal(await second.locator('.heading h3').textContent(),'2. Start till 2 days before');
+ await second.locator('.row-advanced').evaluate(el=>el.open=true);
+ await second.locator('[data-field=label]').fill('');assert.equal(await second.locator('.heading h3').textContent(),'2. Reminder');await second.locator('[data-field=label]').fill('Second');
+ await second.locator('[data-field="start.minutes"]').fill('-180');await second.locator('[data-field="finish.minutes"]').fill('-120');await second.locator('[data-action=save]').click();
+ assert.equal(await page.locator('.reminder').first().getAttribute('data-row'),'row-two',await page.locator('#status').textContent());
+ await page.waitForFunction(()=>{const el=document.querySelector('.reminder[data-row="row-two"]');const r=el.getBoundingClientRect();return r.top>=0&&r.top<innerHeight;});
+ assert.equal(await second.locator('.row-advanced').evaluate(el=>el.open),true,'keep the edited reminder expanded after reordering');
+ assert.equal(await second.locator('[data-field=label]').evaluate(el=>el===document.activeElement),true);
+ await second.locator('[data-field="finish.minutes"]').fill('-90');assert.match(await page.locator('#timeline-conflicts').textContent(),/Overlapping periods.*Second.*First/);
+ await second.locator('[data-action=save]').click();assert.match(await page.locator('#status').textContent(),/Overlapping periods/);
+ await second.locator('[data-field="finish.minutes"]').fill('-120');
+ const pool=second.locator('.pool label').first();await pool.hover();assert.match(await page.locator('#pool-preview p').textContent(),/Meet alpha/);assert.doesNotMatch(await page.locator('#pool-preview p').textContent(),/%event(time|when|countdown)%/);assert.match(await page.locator('#pool-preview small').textContent(),/%eventtime%/);
+ await pool.locator('input').focus();assert.equal(await page.locator('#pool-preview').count(),1);await page.keyboard.press('Escape');assert.equal(await page.locator('#pool-preview').count(),0);
+ const saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
+ assert.equal(saved.reminders[1].id,'row-two');assert.equal(saved.reminders[1].finish.minutes,-120,'rejected overlap never changed saved data');assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 try {
+  await timelineOrderingAndPoolPreview();
+  await populatedAccountDefault();
+  await dayTimeline();
   await clocksOccurrenceStatesAndHelp();
   await relevantSettingsAndMigration();
   await preservationAndEditing();
