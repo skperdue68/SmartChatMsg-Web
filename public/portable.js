@@ -13,6 +13,7 @@ const scheduleKeys = [
   "rotationWeeks",
   "rotationFactions",
   "eventFold",
+  "eventDurationMinutes",
   "importantTimes",
   "reminders",
   "messageVariants",
@@ -98,6 +99,7 @@ export function portableEvent(event, messages) {
       lateMinutes: row.lateMinutes ?? 5,
       intervalMinutes: row.intervalMinutes ?? 60,
       timeSensitive: !!row.timeSensitive,
+      enabled:row.enabled!==false,paused:row.paused===true,allowAfterEventEnd:row.allowAfterEventEnd===true,
       messageIds: array(values(row.messageIds).filter((id) => ids.has(id))),
     })),
   );
@@ -232,7 +234,7 @@ export function validatePortable(p) {
         "onceUntilFinish",
         "lateMinutes",
         "intervalMinutes",
-        "timeSensitive",
+        "timeSensitive", "enabled", "paused", "allowAfterEventEnd",
         "messageIds",
       ],
       "reminder",
@@ -241,6 +243,7 @@ export function validatePortable(p) {
     if (rowIds.has(r.id)) throw Error("Duplicate reminder ID.");
     rowIds.add(r.id);
     if (
+      ["enabled","paused","allowAfterEventEnd"].some(key=>r[key]!==undefined&&typeof r[key]!=="boolean") ||
       typeof r.once !== "boolean" ||
       typeof r.timeSensitive !== "boolean" ||
       (r.onceUntilFinish !== undefined &&
@@ -264,6 +267,7 @@ export function validatePortable(p) {
       lateMinutes: num(r.lateMinutes, "late allowance", 1, 1440),
       intervalMinutes: num(r.intervalMinutes, "reminder interval", 1, 525600),
       timeSensitive: r.timeSensitive,
+      enabled:r.enabled!==false,paused:r.paused===true,allowAfterEventEnd:r.allowAfterEventEnd===true,
       messageIds: array(pool),
     });
   }

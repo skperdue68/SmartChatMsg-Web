@@ -344,7 +344,7 @@ export function projectedOccurrences(schedule, fromUtc, toUtc) {
   }
   return result;
 }
-export function reminderWindows(schedule, eventAtUtc) {
+export function reminderWindows(schedule, eventAtUtc, options = {}) {
   const z = schedule.timeZone || "ET";
   function resolve(a) {
     if (!a) return null;
@@ -367,12 +367,16 @@ export function reminderWindows(schedule, eventAtUtc) {
     return null;
   }
   return values(schedule.reminders).flatMap((row) => {
-    const start = resolve(row.start),
-      end =
+    const start = resolve(row.start);
+    let end =
         row.once && !row.onceUntilFinish
           ? start + Number(row.lateMinutes ?? 5) * 60
           : resolve(row.finish);
-    return start === null || end === null || end < start
+    if(!options.uncapped && schedule.eventDurationMinutes!==undefined && !row.allowAfterEventEnd){
+      const ending=eventAtUtc+schedule.eventDurationMinutes*60;
+      if(!(row.once && start===ending))end=Math.min(end,ending);
+    }
+    return start === null || end === null || end <= start
       ? []
       : [{ row, start, end, eventAtUtc }];
   });
@@ -443,7 +447,11 @@ export function simulateReminder(schedule, row, eventAtUtc, nowUtc) {
     { ...schedule, reminders: { 1: row } },
     eventAtUtc,
   )[0];
-  if (!window) return { status: "INVALID" };
+  if(schedule.paused)return {...window,status:"PAUSED"};
+  if(schedule.enabled===false)return {...window,status:"DISABLED"};
+  if(row.paused)return {...window,status:"PAUSED"};
+  if(row.enabled===false)return {...window,status:"DISABLED"};
+  if (!window) return { status: "EXPIRED" };
   const usage = schedule.timelineUsage?.[`${eventAtUtc}:${row.id}`] || {};
   const status =
     nowUtc < window.start
@@ -795,6 +803,8 @@ export function validateTimelineForAddon(schedule) {
     errors.push("Choose a valid recurrence and positive whole interval.");
   if (!["ET", "CT", "MT", "PT"].includes(schedule.timeZone || "ET"))
     errors.push("Choose ET, CT, MT, or PT for the addon timezone.");
+  if(schedule.eventDurationMinutes!==undefined && !integer(schedule.eventDurationMinutes,0,5256000))errors.push("Event duration must be zero or more whole minutes, or blank.");
+  for(const flag of ["enabled","paused"])if(schedule[flag]!==undefined&&typeof schedule[flag]!=="boolean")errors.push("Event state flags must be boolean values.");
   const eventDate = date(schedule.eventDate);
   if (
     !eventDate ||
@@ -860,6 +870,7 @@ export function validateTimelineForAddon(schedule) {
     if (typeof row.id !== "string" || !row.id || ids.has(row.id))
       errors.push(`${label}: use a unique stable ID.`);
     ids.add(row.id);
+    for(const flag of ["enabled","paused","allowAfterEventEnd"])if(row[flag]!==undefined&&typeof row[flag]!=="boolean")errors.push(`${label}: state flags must be boolean values.`);
     if (!integer(row.intervalMinutes ?? 60, 1, 5256000))
       errors.push(`${label}: interval must be a positive whole number.`);
     if (!integer(row.lateMinutes ?? 5, 1, 1440))
@@ -877,6 +888,7 @@ export function validateTimelineForAddon(schedule) {
         const window = reminderWindows(
           { ...schedule, reminders: { 1: row } },
           event,
+          {uncapped:true},
         )[0];
         if (!window || window.end <= window.start)
           errors.push(
