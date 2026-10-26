@@ -7,3 +7,5 @@ SavedVariables/
 coverage/
 playwright-report/
 test-results/
+
+browser-temp/
