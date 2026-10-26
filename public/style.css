@@ -651,3 +651,9 @@ label.check>.help-icon{flex:none;margin-left:4px}
 .message summary{display:flex;align-items:center;gap:10px}.message-summary-title{flex:1;min-width:0}
 .message-drag-handle{display:inline-flex;align-items:center;justify-content:center;flex:none;width:26px;height:26px;border:1px solid var(--line);border-radius:4px;cursor:grab;color:var(--muted);user-select:none}.message-drag-handle:active{cursor:grabbing}.message-drag-handle:focus{outline:2px solid #d9b66b}
 .message.message-drop-before{border-top:3px solid #d9b66b}.message.message-drop-after{border-bottom:3px solid #d9b66b}.message>label{margin:12px 0}
+
+.library-save{display:flex;align-items:flex-end;gap:12px;margin:18px 0 24px}.library-save label{flex:1}.library-save button{flex:none}
+#library-list{max-height:45vh;overflow:auto;display:grid;gap:8px}.library-file{display:block;width:100%;text-align:left;padding:12px}.library-file strong,.library-file small{display:block;overflow-wrap:anywhere}.library-file small{color:var(--muted);margin-top:5px}#library-status.error{color:#f0a18d}
+@media(max-width:600px){.library-save{align-items:stretch;flex-direction:column}}
+
+#library-status{white-space:pre-wrap;overflow-wrap:anywhere}

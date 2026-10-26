@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFile, mkdir } from "node:fs/promises";
+import { readFile, mkdir, mkdtemp, readdir, unlink, rmdir } from "node:fs/promises";
+import { createServer } from "../src/server.js";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
@@ -10,8 +11,8 @@ import {
   setLuaValue,
 } from "../src/lua-data.js";
 
-// These tests use synthetic accounts and intercept every browser request. They do
-// not need a listening server, network access, or a personal SavedVariables file.
+// Tests use synthetic accounts. Most intercept browser requests; the shared-library
+// integration test uses a temporary loopback server and disposable storage. No real account files are used.
 const root = fileURLToPath(new URL("../", import.meta.url));
 const temp = resolve(root, "browser-temp");
 await mkdir(temp, { recursive: true });
@@ -892,7 +893,62 @@ async function messageNamesAndDragOrder(){
  }finally{await page.close();}
 }
 
+async function sharedServerLibrary(){
+ const original=fixture(),initialLua=writeSavedVariables(original),{page,errors}=await open(original);
+ const files=new Map();let nextId=1;const add=(name,lua)=>{const id=(nextId++).toString(16).padStart(64,'0');const file={id,name,createdAt:'2026-10-26T12:00:00Z',bytes:Buffer.byteLength(lua),lua};files.set(id,file);return file;};
+ const existing=add('Earlier copy',initialLua),state={saveGate:null,loadGate:null,onSave:null,onLoad:null};
+ await page.route('**/api/library**',async route=>{
+   const request=route.request(),path=new URL(request.url()).pathname,reply=(status,body)=>route.fulfill({status,contentType:'application/json',body:JSON.stringify(body)});
+   if(path==='/api/library'&&request.method()==='GET')return reply(200,{files:[...files.values()].map(({lua,...metadata})=>metadata)});
+   if(path==='/api/library'&&request.method()==='POST'){
+     const payload=request.postDataJSON();state.onSave?.(payload);if(state.saveGate)await state.saveGate;
+     if([...files.values()].some(file=>file.name.toLowerCase()===payload.name.trim().toLowerCase()))return reply(409,{error:'That name already exists; choose a unique name.'});
+     const {lua,...file}=add(payload.name.trim(),payload.lua);return reply(201,{file});
+   }
+   const file=files.get(path.split('/').at(-1));state.onLoad?.();if(state.loadGate)await state.loadGate;
+   return file?route.fulfill({status:200,contentType:'text/plain',body:file.lua}):reply(404,{error:'Shared file not found.'});
+ });
+ try{
+   await page.locator('[data-field=commandName]').fill('Shared edit');await page.locator('#save-event').click();
+   const latest=parseSavedVariables(initialLua);latest.Default['@fixture'].$AccountWide.messages[1].useCount=99;
+   await page.locator('#latest').setInputFiles({name:'SmartChatMsg.lua',mimeType:'text/plain',buffer:Buffer.from(writeSavedVariables(latest))});await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('for merging'));
+   await page.locator('#save-server').click();await page.locator('#library-list [data-library-id]').first().waitFor();await page.locator('#library-name').fill('Shared version');await page.locator('#library-save').click();await page.waitForFunction(()=>document.querySelector('#library-status')?.textContent.includes('Saved “Shared version”'));
+   const saved=[...files.values()].find(file=>file.name==='Shared version'),savedData=parseSavedVariables(saved.lua).Default['@fixture'].$AccountWide;assert.equal(savedData.commands[1].name,'Shared edit');assert.equal(savedData.messages[1].useCount,99);
+   await page.locator('#library-name').fill('SHARED VERSION');await page.locator('#library-save').click();await page.waitForFunction(()=>document.querySelector('#library-status')?.textContent.includes('already exists'));assert.equal(files.size,2);assert.equal(files.get(saved.id).lua,saved.lua);await page.locator('#close-dialog').click();
+   await page.locator('[data-field=commandName]').fill('Before request');await page.locator('#save-event').click();await page.locator('#save-server').click();await page.locator('#library-name').fill('Delayed save');
+   let releaseSave,saveStarted;state.saveGate=new Promise(resolve=>releaseSave=resolve);const saving=new Promise(resolve=>saveStarted=resolve);state.onSave=saveStarted;
+   await page.locator('#library-save').click();await saving;await page.locator('#close-dialog').click();await page.locator('[data-field=commandName]').fill('Newer unsaved edit');await page.locator('#save-event').click();releaseSave();await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('earlier copy'));state.saveGate=null;state.onSave=null;
+   assert.equal(parseSavedVariables([...files.values()].find(file=>file.name==='Delayed save').lua).Default['@fixture'].$AccountWide.commands[1].name,'Before request');
+   page.removeAllListeners('dialog');let declined=0;page.on('dialog',async dialog=>{declined++;await dialog.dismiss();});await page.locator('#server-library').click();await page.locator(`[data-library-id="${existing.id}"]`).waitFor();await page.locator(`[data-library-id="${existing.id}"]`).click();assert.equal(declined,1,'newer edits still trigger unsaved confirmation after an earlier save completes');assert.equal(await page.locator('[data-field=commandName]').inputValue(),'Newer unsaved edit');await page.locator('#close-dialog').click();
+   page.removeAllListeners('dialog');page.on('dialog',dialog=>dialog.accept());await downloadData(page);
+   await page.locator('#server-library').click();await page.locator(`[data-library-id="${existing.id}"]`).waitFor();let releaseLoad,loadStarted;state.loadGate=new Promise(resolve=>releaseLoad=resolve);const loading=new Promise(resolve=>loadStarted=resolve);state.onLoad=loadStarted;
+   await page.locator(`[data-library-id="${existing.id}"]`).click();await loading;await page.locator('#close-dialog').click();await page.locator('[data-field=commandName]').fill('Edit while loading');await page.locator('#save-event').click();releaseLoad();await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('Server load canceled'));state.loadGate=null;state.onLoad=null;assert.equal(await page.locator('[data-field=commandName]').inputValue(),'Edit while loading');
+   await page.locator('#server-library').click();await page.locator(`[data-library-id="${saved.id}"]`).waitFor();await page.locator(`[data-library-id="${saved.id}"]`).click();await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('Loaded shared configuration'));
+   assert.equal(await page.locator('[data-field=commandName]').inputValue(),'Shared edit');await page.locator('[data-field=commandName]').fill('Changed after loading');await page.locator('#save-event').click();const downloaded=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(downloaded.commands[1].name,'Changed after loading');assert.equal(downloaded.messages[1].useCount,99);assert.equal(files.get(saved.id).lua,saved.lua,'loading/editing/downloading does not overwrite the server copy');
+   await page.reload();await page.locator('#server-library').click();await page.locator(`[data-library-id="${existing.id}"]`).waitFor();assert.equal(await page.locator('#library-save').isDisabled(),true);await page.locator(`[data-library-id="${existing.id}"]`).click();await page.locator('#workspace').waitFor({state:'visible'});assert.equal(await page.locator('[data-field=commandName]').inputValue(),'Example');assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
+async function libraryHttpIntegration(){
+ const directory=await mkdtemp(resolve(temp,'library-http-')),server=createServer({libraryDir:directory});
+ let page;
+ try{
+   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
+   const origin=`http://127.0.0.1:${server.address().port}`;
+   page=await browser.newPage();const errors=[];page.on('pageerror',error=>errors.push(error.message));page.on('dialog',dialog=>dialog.accept());
+   await page.goto(origin);await page.locator('#open').setInputFiles({name:'SmartChatMsg.lua',mimeType:'text/plain',buffer:Buffer.from(writeSavedVariables(fixture()))});await page.locator('#workspace').waitFor({state:'visible'});
+   await page.locator('[data-field=commandName]').fill('Real HTTP save');await page.locator('#save-event').click();await page.locator('#save-server').click();await page.locator('#library-name').fill('HTTP snapshot');await page.locator('#library-save').click();await page.waitForFunction(()=>document.querySelector('#library-status')?.textContent.includes('Saved “HTTP snapshot”'));
+   const files=(await(await fetch(origin+'/api/library')).json()).files;assert.equal(files.length,1);const stored=await(await fetch(origin+'/api/library/'+files[0].id)).text();assert.equal(parseSavedVariables(stored).Default['@fixture'].$AccountWide.commands[1].name,'Real HTTP save');
+   await page.locator('#close-dialog').click();await page.locator('[data-field=commandName]').fill('Temporary local edit');await page.locator('#save-event').click();await page.locator('#server-library').click();await page.locator('[data-library-id]').waitFor();await page.locator('[data-library-id]').click();await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('Loaded shared configuration'));assert.equal(await page.locator('[data-field=commandName]').inputValue(),'Real HTTP save');assert.deepEqual(errors,[]);
+ }finally{
+   if(page)await page.close();if(server.listening)await new Promise(resolve=>server.close(resolve));
+   for(const name of await readdir(directory))await unlink(resolve(directory,name));await rmdir(directory);
+ }
+}
+
 try {
+  await libraryHttpIntegration();
+  await sharedServerLibrary();
   await messageNamesAndDragOrder();
   await overviewDefaultsAndPlainHelp();
   await dragDayTimeline();

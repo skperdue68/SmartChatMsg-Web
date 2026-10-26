@@ -20,6 +20,7 @@ const $ = (s) => document.querySelector(s),
         })[c],
     );
 let lastRenderedKey;
+let editRevision=0;
 let base,
   data,
   latest,
@@ -78,6 +79,7 @@ function validateEditedTimelines(snapshot = data) {
     }
 }
 function changed() {
+  editRevision++;
   const schedule=selectedEvent()?.schedule;if(schedule?.timelineVersion===1)schedule.reminders=tableArray(model.orderedReminderRows(schedule,projectedNext(schedule)??model.scheduleEventUtc(schedule)));
   dirty = true;
   status(
@@ -158,6 +160,25 @@ async function readFile(file) {
     throw Error("Choose a file smaller than 20 MB.");
   return parseSavedVariables(await file.text());
 }
+function installWorkspace(parsed,sourceName){
+    if (!model.accounts(parsed).length)
+      throw Error("No account-wide SmartChatMsg data found.");
+    editRevision++;
+    base = parsed;
+    data = clone(base);
+    latest = null;
+    dirty = false;dayTimelineUndo=null;pendingEventImport=null;calMode='day';calDate='';
+    filename = sourceName.replace(/\.txt$/i, ".lua");
+    $("#workspace").hidden = false;
+    $("#welcome").hidden = true;
+    const availableAccounts=model.accounts(data);
+    const hasContent=a=>Object.keys(a.value.commands||{}).length>0||Object.keys(a.value.messages||{}).length>0;
+    const preferred=availableAccounts.find(hasContent)||availableAccounts[0];
+    $("#account").innerHTML = opts(availableAccounts.map(a=>[a.name,a.name+(hasContent(a)?'':' (no saved commands)')]),preferred.name);
+    accountName = $("#account").value;
+    refreshGuilds();
+    status(`Opened ${sourceName}. Account: ${accountName}${guild ? " / " + guild : " — no saved guild events in this account"}. Switch accounts above if needed.`);
+}
 $("#open").onchange = async (e) => {
   try {
     if (
@@ -167,22 +188,7 @@ $("#open").onchange = async (e) => {
       return;
     const f = e.target.files[0];
     const parsed = await readFile(f);
-    if (!model.accounts(parsed).length)
-      throw Error("No account-wide SmartChatMsg data found.");
-    base = parsed;
-    data = clone(base);
-    latest = null;
-    dirty = false;dayTimelineUndo=null;
-    filename = f.name.replace(/\.txt$/i, ".lua");
-    $("#workspace").hidden = false;
-    $("#welcome").hidden = true;
-    const availableAccounts=model.accounts(data);
-    const hasContent=a=>Object.keys(a.value.commands||{}).length>0||Object.keys(a.value.messages||{}).length>0;
-    const preferred=availableAccounts.find(hasContent)||availableAccounts[0];
-    $("#account").innerHTML = opts(availableAccounts.map(a=>[a.name,a.name+(hasContent(a)?'':' (no saved commands)')]),preferred.name);
-    accountName = $("#account").value;
-    refreshGuilds();
-    status(`Opened ${f.name}. Account: ${accountName}${guild ? " / " + guild : " — no saved guild events in this account"}. Switch accounts above if needed.`);
+    installWorkspace(parsed,f.name);
   } catch (err) {
     status(err.message, true);
   } finally {
@@ -195,7 +201,7 @@ snapshotButton.onclick=ev=>{if(ev.target.closest('.help-bubble'))ev.preventDefau
 $("#latest").onchange = async (e) => {
   try {
     const file=e.target.files[0];if(!file)return;
-    latest = await readFile(file);
+    latest = await readFile(file);editRevision++;
     status(`Read ${file.name} for merging when you download. Your current edits and the file on disk have not been overwritten.`);
   } catch (err) {
     status(err.message, true);
@@ -533,6 +539,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
   detail.onkeydown=ev=>{if(nonnegative(ev.target)&&!ev.ctrlKey&&!ev.metaKey&&['-','+','e','E','.'].includes(ev.key))ev.preventDefault();};
   detail.onbeforeinput=ev=>{if(nonnegative(ev.target)&&ev.data?.includes('-'))ev.preventDefault();};
   detail.oninput=ev=>{
+    editRevision++;
     const el=ev.target;
     if(nonnegative(el)){
       if(el.value!==''&&Number(el.value)<0){el.value=numericValues.get(el)||'';status(el.dataset.field==='eventDurationMinutes'?'Event duration must be zero or a positive whole number.':'This field requires a positive whole number.',true);}
@@ -540,7 +547,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
     }
     refreshEffectiveTimes();
   };
-  detail.onchange=refreshEffectiveTimes;
+  detail.onchange=()=>{editRevision++;refreshEffectiveTimes();};
   const eventPanel=document.querySelector('#detail>.panel.event-settings');
   const fold=eventPanel.querySelector('[data-field=eventFold]').closest('label');
   const advanced=document.createElement('details');advanced.id='event-clock-options';advanced.innerHTML='<summary>Advanced clock options</summary>';advanced.open=s.eventFold==='SECOND';fold.parentElement.append(advanced);advanced.append(fold);
@@ -1671,43 +1678,74 @@ function download(text, name, type = "text/plain") {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-$("#export").onclick = () => {
-  try {
-    validateEditedTimelines();
-    const result = model.mergeSavedVariables(base, data, latest || base);
-    if (result.conflicts.length) {
-      dialog(
-        "Configuration conflicts · export stopped",
-        result.conflicts
-          .map(
-            (c) =>
-              `${c.path}\nEdited: ${JSON.stringify(c.edited)}\nLatest: ${JSON.stringify(c.latest)}`,
-          )
-          .join("\n\n") +
-          "\n\nResolve these edits in a fresh snapshot before downloading.",
-      );
-      return;
-    }
-    if (
-      !confirm(
-        "Exit ESO completely before replacing SavedVariables. Keep a backup of the current SmartChatMsg.lua.\n\nDownload the reviewed configuration now?",
-      )
-    )
-      return;
-    for(const entry of model.accounts(result.data))for(const event of model.events(entry.value)){
-      const original=base.Default?.[entry.name]?.$AccountWide?.commandGuildSettings?.[event.commandId]?.[event.guild]?.schedule;
-      if(event.schedule.timelineVersion===1&&JSON.stringify(event.schedule)!==JSON.stringify(original))event.schedule.reminders=tableArray(model.orderedReminderRows(event.schedule));
-    }
-    validateEditedTimelines(result.data);
-    download(writeSavedVariables(result.data), "SmartChatMsg.lua");
-    dirty = false;
-    status(
-      "Downloaded SmartChatMsg.lua. Exit ESO, back up the original, then replace it with this file.",
-    );
-  } catch (err) {
-    status(err.message, true);
+function prepareCurrentLua(){
+  if(!data)throw Error('Open a SavedVariables file first.');
+  validateEditedTimelines();
+  const result=model.mergeSavedVariables(base,data,latest||base);
+  if(result.conflicts.length){
+    const detail=result.conflicts.map(c=>`${c.path}\nEdited: ${JSON.stringify(c.edited)}\nLatest: ${JSON.stringify(c.latest)}`).join('\n\n');
+    throw Error('Configuration conflicts · save stopped\n\n'+detail+'\n\nResolve these edits in a fresh snapshot before saving or downloading.');
   }
+  for(const entry of model.accounts(result.data))for(const event of model.events(entry.value)){
+    const original=base.Default?.[entry.name]?.$AccountWide?.commandGuildSettings?.[event.commandId]?.[event.guild]?.schedule;
+    if(event.schedule.timelineVersion===1&&JSON.stringify(event.schedule)!==JSON.stringify(original))event.schedule.reminders=tableArray(model.orderedReminderRows(event.schedule));
+  }
+  validateEditedTimelines(result.data);return writeSavedVariables(result.data);
+}
+$('#export').onclick=()=>{
+  try{
+    const lua=prepareCurrentLua();
+    if(!confirm('Exit ESO completely before replacing SavedVariables. Keep a backup of the current SmartChatMsg.lua.\n\nDownload the reviewed configuration now?'))return;
+    download(lua,'SmartChatMsg.lua');dirty=false;status('Downloaded SmartChatMsg.lua. Exit ESO, back up the original, then replace it with this file.');
+  }catch(error){if(error.message.startsWith('Configuration conflicts'))dialog('Configuration conflicts · export stopped',error.message);else status(error.message,true);}
 };
+async function libraryRequest(path,options={}){
+  const response=await fetch('/api/library'+path,options);
+  if(!response.ok){const body=await response.json().catch(()=>null);throw Error(body?.error||`Unable to access the server library (HTTP ${response.status}).`);}
+  return response;
+}
+async function showServerLibrary(focusSave=false){
+  $('#dialog-body').innerHTML=`<h2>Shared server library</h2><p class="help">Full Lua configurations saved here are public: anyone can load all their accounts and messages, including locked messages. Names must be unique; saved files cannot be overwritten. Apply editor changes before saving.</p><section class="library-save"><label>Save current configuration as<input id="library-name" maxlength="120" placeholder="For example: Alphabet Mafia — November v1" ${data?'':'disabled'}></label><button id="library-save" class="gold" ${data?'':'disabled'}>Save to server</button></section>${data?'':'<p class="help">Open a local file or load a shared configuration before saving.</p>'}<div class="heading"><h3>Saved configurations</h3><button id="library-refresh">Refresh list</button></div><p id="library-status" role="status" class="help">Loading saved files…</p><div id="library-list"></div><p class="help">Loading opens a copy in this editor. It does not change your ESO files or remap accounts. Use event import/export to transfer events into another account. Download updated Lua when you are ready to install it.</p>`;
+  $('#dialog').showModal();let requestVersion=0;const listNode=$('#library-list');
+  const isActive=()=>$('#dialog').open&&$('#library-list')===listNode;
+  const libraryStatus=(text,error=false)=>{const el=$('#library-status');if(isActive()&&el){el.textContent=text;el.classList.toggle('error',error);}};
+  async function refresh(){
+    if(!isActive())return;const version=++requestVersion;
+    try{
+      const payload=await(await libraryRequest('')).json();if(version!==requestVersion||!isActive())return;
+      if(!Array.isArray(payload.files))throw Error('The server returned an invalid library list.');
+      const files=payload.files.filter(file=>/^[a-f0-9]{64}$/.test(file.id)&&typeof file.name==='string');
+      $('#library-list').innerHTML=files.map(file=>`<button class="library-file" data-library-id="${esc(file.id)}"><strong>${esc(file.name)}</strong><small>Saved ${esc(new Date(file.createdAt).toLocaleString())} · ${esc(Math.ceil(file.bytes/1024))} KB</small></button>`).join('')||'<p class="empty">No configurations saved yet.</p>';
+      $('#library-list').querySelectorAll('[data-library-id]').forEach(button=>button.onclick=async()=>{
+        if(dirty&&!confirm('Discard unsaved edits and load this shared configuration?'))return;
+        button.disabled=true;const revision=editRevision;
+        try{
+          const lua=await(await libraryRequest('/'+button.dataset.libraryId)).text();
+          if(!isActive()){status('Server load canceled. Your current workspace was not replaced.');return;}
+          if(revision!==editRevision)throw Error('Your workspace changed while loading. Click the saved name again to review replacing it.');
+          const parsed=parseSavedVariables(lua),name=files.find(file=>file.id===button.dataset.libraryId).name;
+          installWorkspace(parsed,name+'.lua');$('#dialog').close();status(`Loaded shared configuration “${name}”. Choose the account and guild to edit; local ESO files are unchanged.`);
+        }catch(error){libraryStatus(error.message,true);button.disabled=false;}
+      });
+      libraryStatus(`${files.length} saved configuration(s). Click a name to load it.`);
+    }catch(error){if(version===requestVersion)libraryStatus(error.message,true);}
+  }
+  $('#library-refresh').onclick=refresh;
+  $('#library-save').onclick=async()=>{
+    const button=$('#library-save'),field=$('#library-name'),name=field.value.trim();
+    if(!name){libraryStatus('Enter a unique name for this configuration.',true);field.focus();return;}
+    button.disabled=true;field.disabled=true;
+    try{
+      const lua=prepareCurrentLua(),revision=editRevision;
+      await libraryRequest('',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,lua})});
+      const unchanged=revision===editRevision;if(unchanged)dirty=false;field.value='';if(isActive())await refresh();libraryStatus(`Saved “${name}”. This name is now reserved; choose a different name for future versions.`);status(unchanged?`Saved a shared server copy named “${name}”. Local ESO files are unchanged.`:`Saved the earlier copy named “${name}”. Newer workspace edits were not marked as saved.`);
+    }catch(error){libraryStatus(error.message,true);}
+    finally{button.disabled=false;field.disabled=false;}
+  };
+  if(focusSave&&data)$('#library-name').focus();await refresh();
+}
+$('#server-library').onclick=()=>showServerLibrary();
+$('#save-server').onclick=()=>showServerLibrary(true);
 window.addEventListener("beforeunload", (e) => {
   if (dirty) {
     e.preventDefault();

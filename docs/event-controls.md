@@ -18,7 +18,7 @@ When Run at is Scheduled, Insert substitution offers event date/day/time/countdo
 
 Create a named time such as tickets before selecting it as an anchor. You can enter its offset directly or select a date and guild-local clock relative to the next actual occurrence. Date/time selections are saved as offsets, so recurring events carry that important time forward automatically. The interface explains this rather than pretending that an old absolute date repeats forever.
 
-Hosting is configured separately in .env. None of these controls upload SavedVariables to a server or write into ESO's live folders.
+Hosting is configured separately in .env. Opening and editing files does not upload them. The explicit Save to server action shares the complete configuration publicly under a unique name. No controls write into ESO's live folders.
 
 
 ## Day timeline
@@ -103,3 +103,7 @@ Drag the arrow handle on a message summary to place it before/after another mess
 The optional `name` and `displayOrder` fields are saved with each message, preserved by full Lua download/latest-runtime merge, and included in portable event sharing. Locked messages remain excluded from shared exports, and their local names/order are not overwritten by import. The matching ESO addon changes in PR #34 preserve these fields on startup and through addon text import/export; editing names/order is currently provided by the web editor.
 
 Compatibility audit: previews retain unsupported tokens literally, and monthly weekday projection follows the anchor's ordinal week as the addon does. A future reminder clock that falls into the spring DST gap is skipped on that occurrence without suppressing other valid reminders (addon PR #34 fix).
+
+## Public saved configurations
+
+Server library lists complete configurations saved by visitors. Loading one opens a browser editing copy; downloading includes that copy plus applied edits. Saving an edited revision to the server requires a new unique name. The original is never overwritten. Full files retain their stored account context, locked messages and cooldowns; use event import/export for selected cross-account transfers.
