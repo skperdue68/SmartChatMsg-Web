@@ -193,10 +193,11 @@ async function preservationAndEditing() {
     );
     await page.locator("#guild-timezone").selectOption("PT");
     assert.equal(
-      await page.locator("input[readonly]").first().inputValue(),
+      await page.locator('label').filter({hasText:'Scheduling timezone (guild)'}).locator('input').inputValue(),
       "PT",
     );
-    await page.locator("#add-message").click();
+    await page.locator("[data-field=settingsRunAt]").selectOption("SCHEDULED");await page.locator("#save-event").click();
+  await page.locator("#add-message").click();
     assert.equal(await page.locator("details.message").count(), 2);
     const message = page.locator("details.message").last();
     await message.locator("summary").click();
@@ -238,7 +239,8 @@ async function preservationAndEditing() {
       ),
       false,
     );
-    const latest = fixture();
+    await page.locator("[data-field=settingsRunAt]").selectOption("ON_DEMAND");await page.locator("#save-event").click();
+  const latest = fixture();
     latest.Default["@fixture"].$AccountWide.messages[1].lastUsedAt = 999;
     await page
       .locator("#latest")
@@ -658,7 +660,7 @@ async function rawWindowParentConversion() {
     const {page,errors}=await open(d);
     try {
       await page.locator('[data-field=eventDate]').fill('2026-10-27');
-      await page.locator('[data-field=eventTime]').fill('08:00 PM');
+      await page.locator('[data-field=eventTime]').fill('20:00');
       if(applyFirst)await page.locator('#save-event').click();
       await page.locator('#convert-legacy').click();
       assert.doesNotMatch(await page.locator('#status').textContent(),/stopped/i);
@@ -717,7 +719,28 @@ async function relevantSettingsAndMigration() {
  try{assert.equal(await loaded.page.locator('#migration-panel').isVisible(),true);assert.equal(await loaded.page.locator('#convert-legacy').isVisible(),true);assert.match(await loaded.page.locator('#migration-panel').textContent(),/actual event date/i);}finally{await loaded.page.close();}
 }
 
+async function clocksOccurrenceStatesAndHelp(){
+ const d=fixture();d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule.timelineUsage={historic:{lastSentAt:111,nextDueAt:222}};
+ const {page,errors}=await open(d);
+ try{
+ await page.clock.setFixedTime(new Date('2026-11-01T12:00:00Z'));
+ assert.equal(await page.locator('[data-field=eventTime]').getAttribute('type'),'time');
+ assert.ok(await page.locator('[data-field=eventTime]').getAttribute('title'));
+ await page.locator('[data-field=eventDate]').fill('2026-10-30');await page.locator('[data-field=eventTime]').fill('20:00');
+ assert.match(await page.locator('#next-occurrence').inputValue(),/Nov 6, 2026/);assert.notEqual(await page.locator('#next-occurrence').getAttribute('readonly'),null);
+ await page.locator('[data-field=eventDate]').fill('2026-10-31');assert.match(await page.locator('#next-occurrence').inputValue(),/Nov 7, 2026/);await page.locator('[data-field=eventDate]').fill('2026-10-30');
+ await page.locator('details.message summary').first().click();assert.equal(await page.locator('[data-insert-token] option[value="%eventtime%"]').count(),0,'on demand hides event tokens');
+ await page.locator('[data-field=settingsRunAt]').selectOption('SCHEDULED');await page.locator('[data-field=eventDurationMinutes]').fill('120');await page.locator('[data-field=eventState]').selectOption('PAUSED');await page.locator('#save-event').click();
+ await page.locator('details.message summary').first().click();assert.equal(await page.locator('[data-insert-token] option[value="%eventtime-1h%"]').count(),1);
+ const row=page.locator('.reminder').first();await row.locator('[data-field=rowState]').selectOption('DISABLED');await row.locator('[data-action=save]').click();
+ const mark=page.locator('.mark').first();await mark.locator('[data-field=markMode]').selectOption('DATE');await mark.locator('[data-field=markDate]').fill('2026-11-06');await mark.locator('[data-field=markTime]').fill('19:00');await mark.locator('[data-action=save-mark]').click();
+ const saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
+ assert.equal(saved.eventDate,'2026-10-30','projection never changes anchor');assert.equal(saved.eventTime,'08:00 PM');assert.equal(saved.eventDurationMinutes,120);assert.equal(saved.paused,true);assert.equal(saved.enabled,true);assert.equal(saved.reminders[1].enabled,false);assert.equal(saved.importantTimes.tickets.offsetMinutes,-60);assert.equal(saved.timelineUsage.historic.lastSentAt,111);await page.locator('[data-field=eventDurationMinutes]').fill('');await page.locator('#save-event').click();const uncapped=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(uncapped.eventDurationMinutes,undefined);assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 try {
+  await clocksOccurrenceStatesAndHelp();
   await relevantSettingsAndMigration();
   await preservationAndEditing();
   await combination();

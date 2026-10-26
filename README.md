@@ -16,6 +16,8 @@ npm start
 
 Open http://127.0.0.1:4173. Set `PORT` to choose another port. The server binds to loopback. Selected SavedVariables stay in your browser and are never uploaded. Exit ESO before replacing a downloaded file; the editor does not write directly into game directories.
 
+See [event controls and next occurrence](docs/event-controls.md) for clocks, tooltips, period states, duration and named deadlines.
+
 ## Workflow
 
 1. Open the latest `SmartChatMsg.lua` and select the intended account and guild.
