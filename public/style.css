@@ -583,3 +583,7 @@ button:focus-visible,
 .migration li{margin:.65rem 0;line-height:1.55}.migration h2{margin-bottom:1rem}
 #weekday-options,#event-clock-options{padding:12px;border:1px solid var(--line);border-radius:6px;margin-top:14px}
 #weekday-options summary,#event-clock-options summary{cursor:pointer;color:var(--muted);font-size:13px;margin-bottom:10px}
+
+/* Calculated and inherited values remain selectable for copying. */
+input[readonly],textarea[readonly]{background:rgba(255,255,255,.025);border-style:dashed;color:var(--muted);cursor:default}
+.readonly-tag{display:inline-block;margin-left:6px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
