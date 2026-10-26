@@ -21,3 +21,5 @@ test('uses calendar days and important times and detects recurring self-overlap'
  s.reminders[2].start={kind:'DAY',days:0,time:'07:00 PM'};assert.equal(timelineConflicts(s).length,0);
  const weekly=schedule([row('long',-8*1440,0)]);weekly.recurrence='WEEKLY';assert.ok(timelineConflicts(weekly).length);
 });
+
+test('once-within-window periods conflict across their full eligibility window',()=>{const a=row('once window',-120,-30,true);a.onceUntilFinish=true;assert.equal(timelineConflicts(schedule([a,row('repeat',-60,0)])).length,1);});

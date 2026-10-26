@@ -626,3 +626,12 @@ input[readonly],textarea[readonly]{background:rgba(255,255,255,.025);border-styl
 label.check>.help-icon{flex:none;margin-left:4px}
 
 .effective-reminder-time{font-size:11px;line-height:1.6;color:var(--muted);margin:0 0 14px}.effective-reminder-time.invalid{color:#e7ab94}
+
+.day-navigation{margin:10px 0 16px}.day-navigation .help{flex:1;margin:0}
+.day-context{position:absolute;top:0;bottom:0;background:#b894501b;pointer-events:none;border-inline:1px dashed #b8945060}
+.day-editable{cursor:grab;touch-action:none;user-select:none;padding-inline:12px}.day-editable.day-dragging{cursor:grabbing;outline:2px solid #f6d48c;z-index:4}
+.day-resize{position:absolute;top:0;bottom:0;width:9px;cursor:ew-resize;background:#ffffff25}.day-resize.start{left:0}.day-resize.finish{right:0}.day-resize:focus{outline:2px solid white;outline-offset:-2px}
+.day-continues{position:absolute;top:4px;font-size:14px;text-shadow:0 1px 3px #000}.day-continues.start{left:0}.day-continues.finish{right:0}
+#day-drag-feedback{position:fixed;z-index:1100;max-width:350px;padding:10px;background:#24415c;border:1px solid #c1a364;border-radius:6px;box-shadow:0 7px 20px #0008;color:#fff;font-size:12px;pointer-events:none}
+
+.day-timeline-header{min-height:50px}.day-timeline-header .day-context{padding-top:27px;text-align:center;font-size:9px;color:var(--muted)}

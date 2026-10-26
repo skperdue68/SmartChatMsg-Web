@@ -752,13 +752,13 @@ async function dayTimeline(){
  await page.locator('#calendar [data-field=date]').fill('2026-10-27');
  await page.locator('#calendar [data-field=date]').dispatchEvent('change');
  await page.locator('#calendar [data-field=view]').selectOption('day');
- assert.equal(await page.locator('.day-hour').count(),24);
+ assert.equal(await page.locator('.day-hour').count(),28);
  assert.equal(await page.locator('.day-block').count(),3);
  assert.equal(await page.locator('.day-actual-event').count(),1);
  assert.match(await page.locator('.day-actual-event').getAttribute('title'),/8:00 PM.*10:00 PM/);
  const colors=await page.locator('.day-block:not(.day-actual-event)').evaluateAll(xs=>xs.map(x=>x.style.background));assert.notEqual(colors[0],colors[1]);
  await page.locator('#calendar [data-field=date]').fill('2026-11-01');await page.locator('#calendar [data-field=date]').dispatchEvent('change');
- assert.equal(await page.locator('.day-hour').count(),25,'fall DST day has 25 actual hours');
+ assert.equal(await page.locator('.day-hour').count(),29,'fall DST day plus context has 29 actual hours');
  await page.locator('#calendar [data-field=date]').fill('2026-10-27');await page.locator('#calendar [data-field=date]').dispatchEvent('change');
  await page.locator('.day-actual-event').click();assert.equal(await page.locator('#editor').isVisible(),true);assert.deepEqual(errors,[]);
  }finally{await page.close();}
@@ -842,7 +842,28 @@ async function effectiveReminderDatesAndNumericBounds(){
  }finally{await page.close();}
 }
 
+async function dragDayTimeline(){
+ const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;cfg.runAt='SCHEDULED';cfg.schedule.eventDurationMinutes=120;
+ const {page,errors}=await open(d);
+ try{
+ await page.locator('[data-view=calendar]').click();await page.locator('#calendar [data-field=date]').fill('2026-10-27');await page.locator('#calendar [data-field=date]').dispatchEvent('change');await page.locator('#calendar [data-field=view]').selectOption('day');
+ let block=page.locator('.day-block:not(.day-actual-event)'),track=block.locator('..');const original=await block.getAttribute('title'),r=await block.boundingBox(),t=await track.boundingBox();
+ await page.mouse.move(r.x+r.width/2,r.y+r.height/2);await page.mouse.down();await page.mouse.move(r.x+r.width/2+t.width/28,r.y+r.height/2,{steps:6});assert.equal(await page.locator('#day-drag-feedback').count(),1);await page.mouse.up();
+ assert.equal(await page.locator('#calendar').isVisible(),true);assert.match(await page.locator('#status').textContent(),/Timeline updated/);assert.notEqual(await page.locator('.day-block:not(.day-actual-event)').getAttribute('title'),original);
+ let saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(saved.reminders[1].start.minutes,-60);assert.equal(saved.reminders[1].finish.minutes,60);
+ await page.locator('[data-day-undo]').click();saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(saved.reminders[1].start.minutes,-120);
+ await page.locator('.day-actual-event [data-edge=finish]').scrollIntoViewIfNeeded();const handle=await page.locator('.day-actual-event [data-edge=finish]').boundingBox(),eventTrack=await page.locator('.day-actual-event').locator('..').boundingBox();await page.mouse.move(handle.x+handle.width/2,handle.y+handle.height/2);await page.mouse.down();await page.mouse.move(handle.x+handle.width/2+eventTrack.width/56,handle.y+handle.height/2,{steps:4});await page.mouse.up();saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(saved.eventDurationMinutes,150);await page.locator('[data-day-undo]').click();
+ await page.locator('.day-actual-event [data-edge=finish]').focus();await page.keyboard.press('ArrowRight');saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(saved.eventDurationMinutes,125);
+ await page.locator('.day-actual-event').focus();await page.keyboard.press('ArrowRight');saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(saved.eventTime,'08:05 PM');
+ await page.locator('[data-day-step="1"]').click();assert.equal(await page.locator('#calendar [data-field=date]').inputValue(),'2026-10-28');await page.locator('[data-day-step="-1"]').click();assert.equal(await page.locator('#calendar [data-field=date]').inputValue(),'2026-10-27');assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+ const long=fixture(),s=long.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha; s.runAt='SCHEDULED';s.schedule.reminders[1].start.minutes=-3000;s.schedule.reminders[1].finish.minutes=600;
+ const second=await open(long);
+ try{await second.page.locator('[data-view=calendar]').click();await second.page.locator('#calendar [data-field=date]').fill('2026-10-27');await second.page.locator('#calendar [data-field=date]').dispatchEvent('change');await second.page.locator('#calendar [data-field=view]').selectOption('day');const b=second.page.locator('.day-block:not(.day-actual-event)');assert.equal(await b.locator('.day-continues').count(),2);assert.equal(await b.locator('[data-edge]').count(),0);assert.deepEqual(second.errors,[]);}finally{await second.page.close();}
+}
+
 try {
+  await dragDayTimeline();
   await effectiveReminderDatesAndNumericBounds();
   await batchEventSharing();
   await timelineOrderingAndPoolPreview();

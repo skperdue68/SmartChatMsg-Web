@@ -394,18 +394,71 @@ export function timelineConflicts(schedule) {
   const windows=occurrences.flatMap(at=>reminderWindows(schedule,at)).sort((a,b)=>a.start-b.start);
   const conflicts=[],seen=new Set();let active=[];
   for(const current of windows){
-    active=active.filter(w=>w.row.once?w.start>=current.start:w.end>current.start);
+    active=active.filter(w=>w.row.once&&!w.row.onceUntilFinish?w.start>=current.start:w.end>current.start);
     for(const previous of active){
-      // Once announcements are points; their retry grace is not a window.
-      const overlaps=previous.row.once?previous.start===current.start:previous.end>current.start;
+      // Fixed once notices are points; once-within-window periods retain their full range.
+      const previousPoint=previous.row.once&&!previous.row.onceUntilFinish,currentPoint=current.row.once&&!current.row.onceUntilFinish;
+      const overlaps=previousPoint?previous.start===current.start:previous.end>current.start;
       if(!overlaps)continue;
       const key=[previous.row.id,current.row.id].sort().join('|');
       if(seen.has(key))continue;seen.add(key);
-      conflicts.push({first:previous.row,second:current.row,start:current.start,end:previous.row.once||current.row.once?current.start:Math.min(previous.end,current.end)});
+      conflicts.push({first:previous.row,second:current.row,start:current.start,end:previousPoint||currentPoint?current.start:Math.min(previous.end,current.end)});
     }
     active.push(current);
   }
   return conflicts;
+}
+export function editDayTimeline(source,eventAtUtc,rowId,edge,deltaMinutes){
+  if(source.timelineVersion!==1)throw Error('Convert this legacy schedule before dragging.');
+  if(!['move','start','finish'].includes(edge)||!Number.isInteger(deltaMinutes)||!Number.isFinite(eventAtUtc))throw Error('Invalid timeline edit.');
+  const schedule=cloneSavedData(source),zone=schedule.timeZone||'ET';let notice='';
+  const formatClock=c=>`${String(c[3]%12||12).padStart(2,'0')}:${String(c[4]).padStart(2,'0')} ${c[3]>=12?'PM':'AM'}`;
+  const foldAt=t=>utc(civil(t,zone),zone,'FIRST')===t?'FIRST':'SECOND';
+  const shiftEvent=()=>{
+    const old=civil(eventAtUtc,zone),next=civil(eventAtUtc+deltaMinutes*60,zone),base=civil(scheduleEventUtc(source),zone);
+    const days=Math.round((stamp(next.slice(0,3))-stamp(old.slice(0,3)))/86400),newDate=civil(stamp(base.slice(0,3))+days*86400,'UTC');
+    const cycle=(schedule.recurrence==='BIWEEKLY'?2:1)*(schedule.interval||schedule.recurrenceInterval||1);
+    if(days&&['WEEKLY','BIWEEKLY'].includes(schedule.recurrence)&&cycle>1){
+      const anchorWeekday=new Date(stamp(base.slice(0,3))*1000).getUTCDay(),anchorShift=Math.floor((anchorWeekday+days)/7);
+      if(Object.entries(schedule.weekdays||{}).some(([key,value])=>value&&Math.floor((Number(key)-1+days)/7)!==anchorShift))throw Error('Moving across this week boundary would change the multi-week weekday pattern. Edit recurrence/weekday settings instead.');
+    }
+    schedule.eventDate=`${newDate[0]}-${String(newDate[1]).padStart(2,'0')}-${String(newDate[2]).padStart(2,'0')}`;
+    schedule.eventTime=formatClock(next);schedule.eventFold=foldAt(eventAtUtc+deltaMinutes*60);
+    schedule.eventAtUtc=scheduleEventUtc(schedule);if(schedule.eventAtUtc===null)throw Error('This clock does not exist at the recurrence anchor.');
+    const weekdays={};for(const [key,value] of Object.entries(schedule.weekdays||{}))if(value)setLuaValue(weekdays,((Number(key)-1+days)%7+7)%7+1,true);schedule.weekdays=weekdays;
+    if(!projectedOccurrences(schedule,eventAtUtc+deltaMinutes*60-1,eventAtUtc+deltaMinutes*60+1).includes(eventAtUtc+deltaMinutes*60))throw Error('This move cannot preserve the selected occurrence with the current recurrence pattern. Edit recurrence settings instead.');
+    notice='Event recurrence updated; minute-offset reminders follow it, fixed calendar clocks retain their clock time.';
+  };
+  if(rowId===null){
+    if(edge==='move'||edge==='start')shiftEvent();
+    if(edge!=='move'){
+      if(!Number.isInteger(source.eventDurationMinutes))throw Error('Set an event duration before resizing.');
+      schedule.eventDurationMinutes=source.eventDurationMinutes+(edge==='finish'?deltaMinutes:-deltaMinutes);
+      if(schedule.eventDurationMinutes<0)throw Error('Event duration cannot be negative.');
+    }
+  }else{
+    const row=values(schedule.reminders).find(r=>r.id===rowId),window=reminderWindows(source,eventAtUtc).find(w=>w.row.id===rowId);
+    if(!row||!window)throw Error('This reminder has no editable window.');
+    if(row.once&&!row.onceUntilFinish&&edge!=='move')throw Error('Move a one-time marker; its expiry is edited in settings.');
+    const anchorAt=(original,t)=>{
+      if(original?.kind==='DAY'){
+        const c=civil(t,zone),event=civil(eventAtUtc,zone);
+        return {kind:'DAY',days:Math.round((stamp(c.slice(0,3))-stamp(event.slice(0,3)))/86400),time:formatClock(c),fold:foldAt(t)};
+      }
+      if(original?.kind==='MARK')notice='Moved important-time edge is now an independent offset; the shared important time is unchanged.';
+      return {kind:'OFFSET',minutes:Math.round((t-eventAtUtc)/60)};
+    };
+    if(edge==='move'||edge==='start')row.start=anchorAt(row.start,window.start+deltaMinutes*60);
+    if((!row.once||row.onceUntilFinish)&&(edge==='move'||edge==='finish'))row.finish=anchorAt(row.finish,window.end+deltaMinutes*60);
+    const nextWindow=reminderWindows(schedule,eventAtUtc).find(w=>w.row.id===rowId);
+    if(!nextWindow)throw Error('Reminder start must be before its stop time and within event duration.');
+    if(edge==='finish'&&nextWindow.end!==window.end+deltaMinutes*60)throw Error('Reminder stop cannot exceed event duration; change duration or the event-end exception first.');
+    if(edge==='move'&&(!row.once||row.onceUntilFinish)&&nextWindow.end-nextWindow.start!==window.end-window.start)throw Error('Moving here would shorten the window at the event end.');
+  }
+  const errors=validateTimelineForAddon(schedule);if(errors.length)throw Error(errors.join(' '));
+  const conflicts=timelineConflicts(schedule);if(conflicts.length)throw Error(`Overlapping periods: ${conflicts[0].first.label} and ${conflicts[0].second.label}.`);
+  const sorted=orderedReminderRows(schedule);schedule.reminders={};sorted.forEach((row,i)=>setLuaValue(schedule.reminders,i+1,row));
+  return {schedule,notice};
 }
 export function eventVariant(schedule, eventAtUtc) {
   const zone = schedule.timeZone || "ET";

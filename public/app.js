@@ -171,7 +171,7 @@ $("#open").onchange = async (e) => {
     base = parsed;
     data = clone(base);
     latest = null;
-    dirty = false;
+    dirty = false;dayTimelineUndo=null;
     filename = f.name.replace(/\.txt$/i, ".lua");
     $("#workspace").hidden = false;
     $("#welcome").hidden = true;
@@ -1112,8 +1112,8 @@ function renderCalendar() {
         ).getUTCDate();
   const endCivil = new Date(civil);
   endCivil.setUTCDate(endCivil.getUTCDate() + days);
-  const start = calendarBoundary(civil.toISOString().slice(0, 10), zone),
-    end = calendarBoundary(endCivil.toISOString().slice(0, 10), zone),
+  const start = calendarBoundary(civil.toISOString().slice(0, 10), zone)-(calMode==='day'?7200:0),
+    end = calendarBoundary(endCivil.toISOString().slice(0, 10), zone)+(calMode==='day'?7200:0),
     items = [];
   for (const e of list()) {
     if (e.settings.runAt !== "SCHEDULED" && calState !== "all") continue;
@@ -1144,7 +1144,7 @@ function renderCalendar() {
             at,
             end: at + Number(e.schedule.eventDurationMinutes || 0)*60,
             e,
-            label: "Actual event",
+            label: "Actual event",eventAtUtc:at,
             milestone: !Number(e.schedule.eventDurationMinutes),
             event: true,
           });
@@ -1158,10 +1158,10 @@ function renderCalendar() {
             continue;
           items.push({
             at: w.start,
-            end: w.end,
+            end: w.end,rowId:w.row.id,eventAtUtc:at,
             e,
             label: w.row.label+(w.row.paused?" [Paused]":w.row.enabled===false?" [Disabled]":""),
-            milestone: w.row.once,
+            milestone: w.row.once&&!w.row.onceUntilFinish,once:w.row.once,
             interval: w.row.intervalMinutes,
           });
         }
@@ -1237,8 +1237,15 @@ function renderCalendar() {
     $("#calendar-grid").append(day);
   }
 }
+let dayTimelineUndo=null;
 function renderDayTimeline(items,from,until,zone){
   const root=document.querySelector('#calendar-grid');root.className='day-timeline-scroll';
+  const nav=document.createElement('div');nav.className='actions day-navigation';nav.innerHTML='<button data-day-step="-1">← Previous day</button><button data-day-today>Today</button><button data-day-step="1">Next day →</button><span class="help">5-minute snapping · Drag a block to move; drag a visible end to resize.</span><button data-day-undo>Undo last timeline edit</button>';
+  nav.querySelectorAll('[data-day-step]').forEach(b=>b.onclick=()=>{const d=new Date(calDate+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+Number(b.dataset.dayStep));calDate=d.toISOString().slice(0,10);renderCalendar();});
+  nav.querySelector('[data-day-today]').onclick=()=>{calDate='';renderCalendar();};
+  const undo=nav.querySelector('[data-day-undo]');undo.disabled=!dayTimelineUndo||dayTimelineUndo.account!==accountName||dayTimelineUndo.guild!==guild;
+  undo.onclick=()=>{try{const edit=dayTimelineUndo,event=all().find(e=>e.commandId===edit.commandId&&e.guild===guild);if(!event||JSON.stringify(event.schedule)!==edit.after)throw Error('This event changed since the drag; Undo cannot overwrite newer edits.');event.settings.schedule=clone(edit.before);selected=event.commandId;dayTimelineUndo=null;changed();renderCalendar();status('Timeline edit undone.');}catch(error){status(error.message,true);}};
+  root.before(nav);
   const visible=items.filter(x=>x.at<until&&(x.milestone?x.at>=from:x.end>from));
   const clock=t=>new Date(t*1000).toLocaleTimeString('en-US',{timeZone:zoneNames[zone],hour:'numeric',minute:'2-digit',timeZoneName:'short'});
   const x=t=>100*(Math.max(from,Math.min(until,t))-from)/(until-from);
@@ -1247,7 +1254,9 @@ function renderDayTimeline(items,from,until,zone){
   const header=document.createElement('div');header.className='day-timeline-row day-timeline-header';
   header.innerHTML='<strong>Event / announcement</strong><div class="day-track"></div>';
   const ticks=[];for(let t=from;t<until;t+=3600)ticks.push(t);
-  ticks.forEach(t=>{const label=document.createElement('span');label.className='day-hour';label.style.left=x(t)+'%';label.textContent=new Date(t*1000).toLocaleTimeString('en-US',{timeZone:zoneNames[zone],hour:'numeric',hour12:false});label.title=clock(t);header.lastElementChild.append(label);});shell.append(header);
+  const addContext=track=>{for(const [a,b,text] of [[from,from+7200,'Previous day'],[until-7200,until,'Next day']]){const shade=document.createElement('span');shade.className='day-context';shade.style.left=x(a)+'%';shade.style.width=(x(b)-x(a))+'%';shade.title=text;track.append(shade);}};
+  addContext(header.lastElementChild);header.querySelectorAll('.day-context').forEach(el=>el.textContent=el.title);
+  ticks.forEach(t=>{const label=document.createElement('span');label.className='day-hour';label.style.left=x(t)+'%';label.textContent=new Date(t*1000).toLocaleTimeString('en-US',{timeZone:zoneNames[zone],hour:'numeric',hourCycle:'h23'});label.title=new Date(t*1000).toLocaleString('en-US',{timeZone:zoneNames[zone],timeZoneName:'short'});header.lastElementChild.append(label);});shell.append(header);
   const frequencies=[...new Set(visible.filter(x=>!x.event&&!x.milestone).map(x=>Number(x.interval||0)))].sort((a,b)=>a-b);
   const groups=new Map();visible.forEach(item=>{if(!groups.has(item.e.commandId))groups.set(item.e.commandId,[]);groups.get(item.e.commandId).push(item);});
   let colorIndex=0;
@@ -1257,23 +1266,56 @@ function renderDayTimeline(items,from,until,zone){
     for(const item of group){
       const row=document.createElement('div');row.className='day-timeline-row';
       const label=document.createElement('div');label.className='day-row-label';label.innerHTML=`<strong>${esc(item.e.command.name)}</strong><small>${esc(item.label)}</small>`;
-      const track=document.createElement('div');track.className='day-track';
+      const track=document.createElement('div');track.className='day-track';addContext(track);
       ticks.forEach(t=>{const line=document.createElement('span');line.className='day-gridline';line.style.left=x(t)+'%';track.append(line);});
       const button=document.createElement('button');button.className='day-block'+(item.milestone?' day-milestone':'')+(item.event?' day-actual-event':'');
       button.style.left=x(item.at)+'%';button.style.width=(item.milestone?0:Math.max(.3,x(item.end)-x(item.at)))+'%';
       // Each frequency gets a stable color, so a changed cadence is visible.
-      const frequency=Number(item.interval||0);button.style.background=item.event?hue:item.milestone?'#b58a3b':`hsl(${(frequencies.indexOf(frequency)*137.508+205)%360} 45% 38%)`;
-      const frequencyText=item.event?'Event in progress':item.milestone?'Once':`Every ${frequency} minutes`;
+      const frequency=Number(item.interval||0);button.style.background=item.event?hue:(item.milestone||item.once)?'#b58a3b':`hsl(${(frequencies.indexOf(frequency)*137.508+205)%360} 45% 38%)`;
+      const frequencyText=item.event?'Event in progress':item.milestone?'Once':item.once?'Once within window':`Every ${frequency} minutes`;
       const detail=`${item.e.command.name} — ${item.label}: ${clock(item.at)}${item.end!==item.at?' – '+clock(item.end):''} · ${frequencyText}`;
       button.textContent=item.milestone?'◆':frequencyText;button.title=detail;button.setAttribute('aria-label',detail);
-      button.onclick=()=>{selected=item.e.commandId;document.querySelector('[data-view=editor]').click();renderList();};
+      const clippedStart=item.at<from,clippedFinish=item.end>until;
+      for(const [edge,clipped,arrow] of [['start',clippedStart,'◀'],['finish',clippedFinish,'▶']]){
+        if(clipped){const marker=document.createElement('span');marker.className='day-continues '+edge;marker.textContent=arrow;marker.title='Continues '+(edge==='start'?'before':'after')+' the visible range; navigate to its actual edge to resize.';button.append(marker);}
+        else if(!item.milestone&&item.e.schedule.timelineVersion===1){const handle=document.createElement('span');handle.className='day-resize '+edge;handle.dataset.edge=edge;handle.tabIndex=0;handle.setAttribute('role','separator');handle.setAttribute('aria-orientation','vertical');handle.setAttribute('aria-label','Resize '+edge+' of '+item.label);button.append(handle);}
+      }
+      let suppressClick=false;
+      const apply=(edge,delta)=>{
+        if(!delta)return;
+        try{
+          const before=clone(item.e.schedule),result=model.editDayTimeline(before,item.eventAtUtc,item.event?null:item.rowId,edge,delta);
+          item.e.settings.schedule=result.schedule;selected=item.e.commandId;changed();
+          dayTimelineUndo={account:accountName,guild,commandId:item.e.commandId,before,after:JSON.stringify(item.e.settings.schedule)};
+          renderCalendar();status('Timeline updated.'+(result.notice?' '+result.notice:''));
+        }catch(error){renderCalendar();status(error.message,true);}
+      };
+      button.onclick=ev=>{if(suppressClick||ev.target.closest('[data-edge]')){suppressClick=false;ev.preventDefault();return;}selected=item.e.commandId;document.querySelector('[data-view=editor]').click();renderList();};
+      if(item.e.schedule.timelineVersion===1){
+        button.classList.add('day-editable');let drag=null;
+        button.onpointerdown=ev=>{
+          if(ev.button!==0)return;button.removeAttribute('title');drag={x:ev.clientX,edge:ev.target.closest('[data-edge]')?.dataset.edge||'move',delta:0,moved:false};button.setPointerCapture(ev.pointerId);
+        };
+        button.onpointermove=ev=>{
+          if(!drag)return;const pixels=ev.clientX-drag.x;if(Math.abs(pixels)>4)drag.moved=true;if(!drag.moved)return;
+          drag.delta=Math.round(pixels/track.getBoundingClientRect().width*(until-from)/300)*5;
+          const start=item.at+(drag.edge==='finish'?0:drag.delta*60),end=item.end+(drag.edge==='start'?0:drag.delta*60);
+          button.style.left=x(start)+'%';button.style.width=(item.milestone?0:Math.max(.3,x(end)-x(start)))+'%';button.classList.add('day-dragging');
+          let feedback=document.querySelector('#day-drag-feedback');if(!feedback){feedback=document.createElement('div');feedback.id='day-drag-feedback';feedback.setAttribute('role','status');document.body.append(feedback);}
+          const fullClock=t=>new Date(t*1000).toLocaleString('en-US',{timeZone:zoneNames[zone],month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});
+          feedback.textContent=item.label+': '+fullClock(start)+(item.milestone?'':' → '+fullClock(end));feedback.style.left=Math.max(8,Math.min(ev.clientX,innerWidth-360))+'px';feedback.style.top=Math.max(8,ev.clientY-66)+'px';
+        };
+        button.onpointerup=ev=>{if(!drag)return;const saved=drag;drag=null;document.querySelector('#day-drag-feedback')?.remove();if(!saved.moved)button.title=detail;if(saved.moved){suppressClick=true;ev.preventDefault();if(saved.delta)apply(saved.edge,saved.delta);else renderCalendar();}};
+        button.onpointercancel=()=>{drag=null;document.querySelector('#day-drag-feedback')?.remove();renderCalendar();};
+        button.onkeydown=ev=>{if(ev.key==='Escape'&&drag){drag=null;document.querySelector('#day-drag-feedback')?.remove();renderCalendar();ev.preventDefault();return;}if(!['ArrowLeft','ArrowRight'].includes(ev.key))return;ev.preventDefault();ev.stopPropagation();apply(ev.target.closest('[data-edge]')?.dataset.edge||'move',ev.key==='ArrowRight'?5:-5);};
+      }
       track.append(button);row.append(label,track);shell.append(row);
       const note=document.createElement('div');note.className='day-row-detail';note.textContent=detail;shell.append(note);
     }
   }
   if(!visible.length){const empty=document.createElement('p');empty.className='empty';empty.textContent='No matching events or announcements on this day.';shell.append(empty);}
   root.append(shell);
-  const help=document.createElement('p');help.className='help';help.textContent=`Times use ${zone}. Blocks show eligible announcement windows, not guaranteed sends. Each announcement has its own row to keep overlaps visible. Event bars show the configured duration. On daylight-saving transitions, the axis includes the actual 23 or 25 hours (hover hour labels to identify the timezone). Click a block to edit its event.`;root.before(help);
+  const help=document.createElement('p');help.className='help';help.textContent=`Times use ${zone}. Blocks show eligible announcement windows, not guaranteed sends. Each announcement has its own row to keep overlaps visible. Shaded margins show two hours of the previous/next day. Arrows indicate hidden ends; those ends cannot be resized. Event bars show the configured duration. Moving an event changes its recurring anchor: minute-offset reminders follow, fixed day/clock reminders retain their clocks. On daylight-saving transitions, the axis includes the actual 23 or 25 hours (hover hour labels to identify the timezone). Click a block to edit its event.`;root.before(help);
 }
 function anchorText(a, s) {
   if (a.kind === "DAY") return `${a.days} days at ${a.time}`;
