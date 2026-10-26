@@ -12,4 +12,4 @@ test('DAY edge keeps the selected repeated-hour fold when moved through fall DST
 
 test('once-within-window periods resize while instantaneous milestones only move',()=>{const s=fixture();s.reminders[1].once=true;s.reminders[1].onceUntilFinish=true;const at=scheduleEventUtc(s);assert.equal(editDayTimeline(s,at,'r','finish',15).schedule.reminders[1].finish.minutes,-45);s.reminders[1].onceUntilFinish=false;assert.throws(()=>editDayTimeline(s,at,'r','finish',15),/one-time marker/);assert.equal(editDayTimeline(s,at,'r','move',15).schedule.reminders[1].start.minutes,-105);});
 
-test('monthly last-weekday moves cannot silently jump to another occurrence',()=>{const s=fixture();s.recurrence='MONTHLY_WEEKDAY';s.monthWeek='LAST';s.eventDate='2026-10-31';const at=scheduleEventUtc(s);assert.throws(()=>editDayTimeline(s,at,null,'move',1440),/selected occurrence/);});
+test('monthly ordinal-weekday moves cannot silently jump to another occurrence',()=>{const s=fixture();s.recurrence='MONTHLY_WEEKDAY';s.eventDate='2026-01-24';const at=Date.parse('2026-03-29T00:00:00Z')/1000;assert.throws(()=>editDayTimeline(s,at,null,'move',10080),/selected occurrence/);});

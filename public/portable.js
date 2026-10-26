@@ -1,4 +1,4 @@
-import { validateTimelineForAddon, cloneSavedData, events, timelineConflicts, orderedReminderRows } from "/model.js";
+import { validateTimelineForAddon, cloneSavedData, events, timelineConflicts, orderedReminderRows, orderedMessageEntries } from "/model.js";
 import { setLuaValue } from "/lua-data.js";
 const values = (x) => Object.values(x || {});
 const scheduleKeys = [
@@ -78,11 +78,18 @@ function validClock(x) {
   const m = /^(\d{1,2}):(\d{2})\s?(AM|PM)$/i.exec(x);
   return m && +m[1] >= 1 && +m[1] <= 12 && +m[2] < 60;
 }
+function messageMetadata(message,index){
+  const result={};
+  if(message.name!==undefined){if(typeof message.name!=='string'||message.name.length>60)throw Error('Message name must be at most 60 characters.');if(message.name.trim())result.name=message.name.trim();}
+  if(message.displayOrder!==undefined)result.displayOrder=num(message.displayOrder,'message display order',1,1000000);
+  else if(index!==undefined)result.displayOrder=index+1;
+  return result;
+}
 export function portableEvent(event, messages) {
   const schedule = {};
   for (const key of scheduleKeys)
     if (event.schedule[key] !== undefined) schedule[key] = event.schedule[key];
-  const unlocked = messages.filter((m) => m.locked !== true),
+  const unlocked = orderedMessageEntries(messages.filter((m) => m.locked !== true)),
     ids = new Set(unlocked.map((m) => m.id));
   schedule.reminders = array(
     values(schedule.reminders).map((row) => ({
@@ -114,7 +121,8 @@ export function portableEvent(event, messages) {
     eventName: event.command.name,
     guild: event.guild,
     schedule,
-    messages: unlocked.map((m) => ({
+    messages: unlocked.map((m,index) => ({
+      ...messageMetadata(m,index),
       id: m.id,
       text: m.text,
       variant: schedule.messageVariants[m.id] || "ALL",
@@ -174,7 +182,8 @@ export function validatePortable(p) {
     throw Error("Invalid message collection.");
   const ids = new Set();
   for (const m of p.messages) {
-    exact(m, ["id", "text", "variant"], "message");
+    exact(m, ["id", "text", "variant", "name", "displayOrder"], "message");
+    messageMetadata(m);
     text(m.id, "message ID");
     text(m.text, "message text", 100000);
     if (ids.has(m.id)) throw Error("Duplicate message ID.");
@@ -297,7 +306,7 @@ export function stageImport(p, event, existingMessages, guild) {
         m.guildName?.trim().toLowerCase() === guild &&
         Number.isInteger(m.guildIndex),
     )?.guildIndex;
-  for (const m of p.messages) {
+  for (const [index,m] of p.messages.entries()) {
     const id = crypto.randomUUID();
     ids.set(m.id, id);
     newMessages.push({
@@ -310,6 +319,7 @@ export function stageImport(p, event, existingMessages, guild) {
           }
         : {}),
       text: m.text,
+      ...messageMetadata(m,index),
       useCount: 0,
     });
   }
@@ -349,7 +359,7 @@ export function exportEventBundle(account,guild,selectedIds){
     const settings=commandConfig(event.settings),scheduled=settings.runAt==='SCHEDULED';
     if(scheduled&&event.schedule.timelineVersion!==1)throw Error('Convert legacy event before sharing: '+event.command.name);
     const portable=scheduled?portableEvent(event,messages):null;
-    items.push({eventName:event.command.name,guild:event.guild,settings,outputChannel:account.chatChannels?.[event.commandId]?.[event.guild]||'Guild',schedule:portable?.schedule||null,messages:portable?.messages||messages.map(m=>({id:m.id,text:m.text,variant:'ALL'}))});
+    items.push({eventName:event.command.name,guild:event.guild,settings,outputChannel:account.chatChannels?.[event.commandId]?.[event.guild]||'Guild',schedule:portable?.schedule||null,messages:portable?.messages||orderedMessageEntries(messages).map((m,index)=>({id:m.id,text:m.text,variant:'ALL',...messageMetadata(m,index)}))});
   }
   if(!items.length)throw Error('Select at least one exportable event.');
   return {format:'SmartChatMsgEvents',version:1,items};
@@ -374,7 +384,7 @@ export function readEventBundle(document){
     }else{
       if(!['ON_DEMAND','STARTUP'].includes(settings.runAt)||item.schedule!==null)throw Error('Invalid command/event schedule.');
       if(!Array.isArray(messages)||messages.length>10000)throw Error('Invalid messages.');
-      const ids=new Set();messages=messages.map(m=>{exact(m,['id','text','variant'],'message');text(m.id,'message ID');text(m.text,'message text',100000);if(ids.has(m.id))throw Error('Duplicate message ID.');ids.add(m.id);return {id:m.id,text:m.text,variant:'ALL'};});
+      const ids=new Set();messages=messages.map(m=>{exact(m,['id','text','variant','name','displayOrder'],'message');text(m.id,'message ID');text(m.text,'message text',100000);if(ids.has(m.id))throw Error('Duplicate message ID.');ids.add(m.id);return {id:m.id,text:m.text,variant:'ALL',...messageMetadata(m)};});
     }
     return {...item,settings,schedule,messages};
   })};
@@ -413,10 +423,10 @@ export function importEventBundle(account,document,selectedIndices){
     const guildSlots=new Set(values(result.messages).filter(m=>normalized(m.guildName)===normalized(guild)&&Number.isInteger(m.guildIndex)).map(m=>m.guildIndex));
     const guildIndex=destination?.guildIndex??(guildSlots.size===1?[...guildSlots][0]:undefined);
     const messageIds=new Map(),variantsByMessage=new Map(oldMessages.map(m=>[m.id,prior.messageVariants?.[m.id]||'ALL']));
-    for(const incoming of entry.messages){
+    for(const [importIndex,incoming] of entry.messages.entries()){
       let message=oldMessages.find(m=>m.id===incoming.id&&!m.locked)||oldMessages.find(m=>m.text===incoming.text&&variantsByMessage.get(m.id)===incoming.variant);
-      if(!message){const id=values(result.messages).some(m=>m.id===incoming.id)?crypto.randomUUID():incoming.id;message={id,commandId,guildName:guild,useCount:0,...(guildIndex!==undefined?{guildIndex}:{})};append(result.messages,message);oldMessages.push(message);}
-      if(!message.locked)message.text=incoming.text;
+      if(!message){const id=values(result.messages).some(m=>m.id===incoming.id)?crypto.randomUUID():incoming.id;message={id,commandId,guildName:guild,useCount:0,...messageMetadata(incoming,importIndex),...(guildIndex!==undefined?{guildIndex}:{})};append(result.messages,message);oldMessages.push(message);}
+      if(!message.locked){message.text=incoming.text;Object.assign(message,messageMetadata(incoming));}
       messageIds.set(incoming.id,message.id);variantsByMessage.set(message.id,incoming.variant);
     }
     Object.assign(settings,entry.settings);

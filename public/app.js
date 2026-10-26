@@ -20,6 +20,7 @@ const $ = (s) => document.querySelector(s),
         })[c],
     );
 let lastRenderedKey;
+let editRevision=0;
 let base,
   data,
   latest,
@@ -78,6 +79,7 @@ function validateEditedTimelines(snapshot = data) {
     }
 }
 function changed() {
+  editRevision++;
   const schedule=selectedEvent()?.schedule;if(schedule?.timelineVersion===1)schedule.reminders=tableArray(model.orderedReminderRows(schedule,projectedNext(schedule)??model.scheduleEventUtc(schedule)));
   dirty = true;
   status(
@@ -92,6 +94,7 @@ const opts = (options, value) =>
     })
     .join("");
 const fieldHelp = {
+ messageName:'Optional short editor label, up to 60 characters. It is saved with the message but is never included in outgoing chat.',
  eventDate:'The real event date. Recurrence starts from this date; reminder days do not change the actual event.',
  eventTime:'The real event clock in the displayed scheduling timezone. Native clock controls use your browser clock format; the Lua file keeps an AM/PM clock.',
  recurrence:'How actual event dates repeat. Reminder windows repeat around each actual event occurrence.',
@@ -157,6 +160,25 @@ async function readFile(file) {
     throw Error("Choose a file smaller than 20 MB.");
   return parseSavedVariables(await file.text());
 }
+function installWorkspace(parsed,sourceName){
+    if (!model.accounts(parsed).length)
+      throw Error("No account-wide SmartChatMsg data found.");
+    editRevision++;
+    base = parsed;
+    data = clone(base);
+    latest = null;
+    dirty = false;dayTimelineUndo=null;pendingEventImport=null;calMode='day';calDate='';
+    filename = sourceName.replace(/\.txt$/i, ".lua");
+    $("#workspace").hidden = false;
+    $("#welcome").hidden = true;
+    const availableAccounts=model.accounts(data);
+    const hasContent=a=>Object.keys(a.value.commands||{}).length>0||Object.keys(a.value.messages||{}).length>0;
+    const preferred=availableAccounts.find(hasContent)||availableAccounts[0];
+    $("#account").innerHTML = opts(availableAccounts.map(a=>[a.name,a.name+(hasContent(a)?'':' (no saved commands)')]),preferred.name);
+    accountName = $("#account").value;
+    refreshGuilds();
+    status(`Opened ${sourceName}. Account: ${accountName}${guild ? " / " + guild : " — no saved guild events in this account"}. Switch accounts above if needed.`);
+}
 $("#open").onchange = async (e) => {
   try {
     if (
@@ -166,22 +188,7 @@ $("#open").onchange = async (e) => {
       return;
     const f = e.target.files[0];
     const parsed = await readFile(f);
-    if (!model.accounts(parsed).length)
-      throw Error("No account-wide SmartChatMsg data found.");
-    base = parsed;
-    data = clone(base);
-    latest = null;
-    dirty = false;dayTimelineUndo=null;
-    filename = f.name.replace(/\.txt$/i, ".lua");
-    $("#workspace").hidden = false;
-    $("#welcome").hidden = true;
-    const availableAccounts=model.accounts(data);
-    const hasContent=a=>Object.keys(a.value.commands||{}).length>0||Object.keys(a.value.messages||{}).length>0;
-    const preferred=availableAccounts.find(hasContent)||availableAccounts[0];
-    $("#account").innerHTML = opts(availableAccounts.map(a=>[a.name,a.name+(hasContent(a)?'':' (no saved commands)')]),preferred.name);
-    accountName = $("#account").value;
-    refreshGuilds();
-    status(`Opened ${f.name}. Account: ${accountName}${guild ? " / " + guild : " — no saved guild events in this account"}. Switch accounts above if needed.`);
+    installWorkspace(parsed,f.name);
   } catch (err) {
     status(err.message, true);
   } finally {
@@ -194,7 +201,7 @@ snapshotButton.onclick=ev=>{if(ev.target.closest('.help-bubble'))ev.preventDefau
 $("#latest").onchange = async (e) => {
   try {
     const file=e.target.files[0];if(!file)return;
-    latest = await readFile(file);
+    latest = await readFile(file);editRevision++;
     status(`Read ${file.name} for merging when you download. Your current edits and the file on disk have not been overwritten.`);
   } catch (err) {
     status(err.message, true);
@@ -326,13 +333,13 @@ function guildSlot(e) {
 }
 function eventMessages(e) {
   const slot = guildSlot(e);
-  return vals(account().messages).filter(
+  return model.orderedMessageEntries(vals(account().messages).filter(
     (m) =>
       m.commandId === e.commandId &&
       (typeof m.guildName === "string" && m.guildName.trim()
         ? m.guildName.trim().toLowerCase() === e.guild
         : slot !== null && m.guildIndex === slot),
-  );
+  ));
 }
 function ambiguousMessages(e) {
   return (
@@ -440,13 +447,14 @@ function decorateFieldLabels(root=document.querySelector('#detail')){
   });
   root.querySelectorAll('[data-help]').forEach(el=>{el.removeAttribute('title');if(el.dataset.help)el.setAttribute('aria-description',el.dataset.help);});
 }
-function renderDetail(focusReminderId = null) {
+function renderDetail(focusReminderId = null,focusMessageId = null) {
   document.querySelector("#pool-preview")?.remove();
   const renderKey = accountName + "|" + guild + "|" + selected,
     preserveScroll = lastRenderedKey === renderKey,
     scrollY = window.scrollY;
   const detailKey=d=>d.id?'id:'+d.id:d.closest('.reminder')?'row:'+d.closest('.reminder').dataset.row+':'+[...d.closest('.reminder').querySelectorAll('details')].indexOf(d):d.closest('.message')?'message:'+d.closest('.message').dataset.id:null;
   const openDetails=new Map(preserveScroll?[...document.querySelectorAll('#detail details')].map(d=>[detailKey(d),d.open]).filter(([key])=>key):[]);
+  const messageDrafts=new Map(preserveScroll?[...document.querySelectorAll('#detail .message')].map(el=>[el.dataset.id,{text:el.querySelector('textarea')?.value,variant:el.querySelector('[data-field=variant]')?.value}]):[]);
   lastRenderedKey = renderKey;
   const e = selectedEvent();
   if (!e) {
@@ -475,7 +483,7 @@ function renderDetail(focusReminderId = null) {
         ["FIRST", "First occurrence"],
         ["SECOND", "Second occurrence"],
       ],
-    )}</div><details id="weekday-options" ${vals(s.weekdays).some(Boolean)?'open':''}><summary>Event happens on multiple weekdays (advanced)</summary><label class="check"><input id="use-event-weekdays" type="checkbox" ${vals(s.weekdays).some(Boolean)?'checked':''}>Choose event weekdays instead of following Event Date</label><p class="help" id="weekday-explanation"></p><div class="actions weekdays" id="event-weekday-choices">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<label class="check"><input type="checkbox" data-weekday="${i + 1}" ${s.weekdays?.[i + 1] ? "checked" : ""}>${d.slice(0, 3)}</label>`).join("")}</div></details><div class="actions" style="margin-top:18px">${select("Event state", "eventState", stateOf(s), [["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}<button id="save-event" class="gold">Apply event settings</button></div><p class="help">Enter the real event date and time. Reminder offsets are measured from this moment; calendar-day anchors use the event timezone.</p></section><section class="panel"><div class="heading"><h2>Reminder timeline</h2><button id="add-row" class="gold">+ Add reminder</button></div>${s.timelineVersion !== 1 ? '<p class="help">This event still uses legacy scheduling. Convert this schedule to review its existing timing and message pools before adding reminders.</p>' : ""}<p class="help">Periods are automatically ordered by start time when applied. Windows cannot overlap within this event; one may finish exactly when the next starts.</p><div id="timeline-conflicts" class="timeline-conflicts" role="alert"></div><div id="rows">${rows.map((r, i) => `<article class="reminder ${r.once ? "milestone" : ""}" data-row="${esc(r.id)}"><div class="heading"><h3>${i + 1}. ${esc(r.label || "Reminder")}</h3>${reminderBadge(r)}</div><p class="effective-reminder-time" data-effective-times></p><div class="grid">${input("Reminder label", "label", r.label || "")}${select("Reminder state","rowState",stateOf(r),[["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}${input("Repeat every (minutes)", "intervalMinutes", r.intervalMinutes ?? 60, "number")}${input("Late allowance (minutes)", "lateMinutes", r.lateMinutes ?? 5, "number")}</div><h3>Starts</h3><div class="grid">${anchorMarkup(r.start, "start", s)}</div><div data-finish-window><h3>Finishes</h3><div class="grid">${anchorMarkup(r.finish || r.start, "finish", s)}</div></div><div class="actions">${check("Send once", "once", r.once)}${check("Time-sensitive", "timeSensitive", r.timeSensitive)}${check("Allow a brief notice after event end (advanced)","allowAfterEventEnd",r.allowAfterEventEnd)}${check("Allow this announcement anytime within its window", "onceUntilFinish", r.onceUntilFinish)}</div><details class="row-advanced"><summary>Advanced event-end exception</summary>${check("Allow a brief announcement after the event ends","allowAfterEventEnd",r.allowAfterEventEnd)}</details><p class="help">Choose a message pool. The addon selects a message from this pool when the reminder is due.</p><div class="pool">${messages.map((m, j) => `<label class="check" title="${esc(m.text)}"><input type="checkbox" data-message="${esc(m.id)}" ${vals(r.messageIds).includes(m.id) ? "checked" : ""}><span>${j + 1}. ${esc(m.text)}</span></label>`).join("") || '<span class="help">Add a message below first.</span>'}</div><div class="actions"><button data-action="save">Apply reminder</button><button data-action="preview">Preview here</button><button data-action="remove" class="danger">Remove</button></div></article>`).join("") || '<div class="empty">No timeline reminders yet.</div>'}</div></section><section class="panel"><div class="heading"><h2>Important times</h2><button id="add-mark">+ Add time</button></div><p class="help">Name an important moment, such as doors opening or ticket sales closing, and reuse it in reminder anchors.</p><details class="important-time-guide" id="important-time-guide"><summary>How to use important times</summary><ol><li>Add a key such as <code>tickets</code>, with a label such as Ticket sales close.</li><li>Use <strong>-60</strong> minutes for one hour before the event (-30 means 30 minutes before). Positive values mean after. Click <strong>Apply</strong>.</li><li>For a reminder start or stop, choose <strong>Anchor → Important time</strong> and select it.</li><li>In messages, use <code>%eventwhen:tickets%</code>, <code>%eventtime:tickets%</code>, <code>%eventdate:tickets%</code> or <code>%eventcountdown:tickets%</code>. The key after the colon must match the key you created.</li></ol><p class="help">For an 8 PM event, tickets at -60 means 7 PM on that event day. It follows each recurring event automatically. The Pick date and time option calculates the same reusable offset, not a separate one-off date.</p></details>${Object.entries(
+    )}</div><details id="weekday-options" ${vals(s.weekdays).some(Boolean)?'open':''}><summary>Event happens on multiple weekdays (advanced)</summary><label class="check"><input id="use-event-weekdays" type="checkbox" ${vals(s.weekdays).some(Boolean)?'checked':''}>Choose event weekdays instead of following Event Date</label><p class="help" id="weekday-explanation"></p><div class="actions weekdays" id="event-weekday-choices">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<label class="check"><input type="checkbox" data-weekday="${i + 1}" ${s.weekdays?.[i + 1] ? "checked" : ""}>${d.slice(0, 3)}</label>`).join("")}</div></details><div class="actions" style="margin-top:18px">${select("Event state", "eventState", stateOf(s), [["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}<button id="save-event" class="gold">Apply event settings</button></div><p class="help">Enter the real event date and time. Reminder offsets are measured from this moment; calendar-day anchors use the event timezone.</p></section><section class="panel"><div class="heading"><h2>Reminder timeline</h2><button id="add-row" class="gold">+ Add reminder</button></div>${s.timelineVersion !== 1 ? '<p class="help">This event still uses legacy scheduling. Convert this schedule to review its existing timing and message pools before adding reminders.</p>' : ""}<p class="help">Periods are automatically ordered by start time when applied. Windows cannot overlap within this event; one may finish exactly when the next starts.</p><div id="timeline-conflicts" class="timeline-conflicts" role="alert"></div><div id="rows">${rows.map((r, i) => `<article class="reminder ${r.once ? "milestone" : ""}" data-row="${esc(r.id)}"><div class="heading"><h3>${i + 1}. ${esc(r.label || "Reminder")}</h3>${reminderBadge(r)}</div><p class="effective-reminder-time" data-effective-times></p><div class="grid">${input("Reminder label", "label", r.label || "")}${select("Reminder state","rowState",stateOf(r),[["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}${input("Repeat every (minutes)", "intervalMinutes", r.intervalMinutes ?? 60, "number")}${input("Late allowance (minutes)", "lateMinutes", r.lateMinutes ?? 5, "number")}</div><h3>Starts</h3><div class="grid">${anchorMarkup(r.start, "start", s)}</div><div data-finish-window><h3>Finishes</h3><div class="grid">${anchorMarkup(r.finish || r.start, "finish", s)}</div></div><div class="actions">${check("Send once", "once", r.once)}${check("Time-sensitive", "timeSensitive", r.timeSensitive)}${check("Allow a brief notice after event end (advanced)","allowAfterEventEnd",r.allowAfterEventEnd)}${check("Allow this announcement anytime within its window", "onceUntilFinish", r.onceUntilFinish)}</div><details class="row-advanced"><summary>Advanced event-end exception</summary>${check("Allow a brief announcement after the event ends","allowAfterEventEnd",r.allowAfterEventEnd)}</details><p class="help">Choose a message pool. The addon selects a message from this pool when the reminder is due.</p><div class="pool">${messages.map((m, j) => `<label class="check" title="${esc(m.text)}"><input type="checkbox" data-message="${esc(m.id)}" ${vals(r.messageIds).includes(m.id) ? "checked" : ""}><span data-pool-message-label="${esc(m.id)}">${esc(model.messageDisplayName(m,j))}: ${esc(m.text)}</span></label>`).join("") || '<span class="help">Add a message below first.</span>'}</div><div class="actions"><button data-action="save">Apply reminder</button><button data-action="preview">Preview here</button><button data-action="remove" class="danger">Remove</button></div></article>`).join("") || '<div class="empty">No timeline reminders yet.</div>'}</div></section><section class="panel"><div class="heading"><h2>Important times</h2><button id="add-mark">+ Add time</button></div><p class="help">Name an important moment, such as doors opening or ticket sales closing, and reuse it in reminder anchors.</p><details class="important-time-guide" id="important-time-guide"><summary>How to use important times</summary><ol><li>Add a key such as <code>tickets</code>, with a label such as Ticket sales close.</li><li>Use <strong>-60</strong> minutes for one hour before the event (-30 means 30 minutes before). Positive values mean after. Click <strong>Apply</strong>.</li><li>For a reminder start or stop, choose <strong>Anchor → Important time</strong> and select it.</li><li>In messages, use <code>%eventwhen:tickets%</code>, <code>%eventtime:tickets%</code>, <code>%eventdate:tickets%</code> or <code>%eventcountdown:tickets%</code>. The key after the colon must match the key you created.</li></ol><p class="help">For an 8 PM event, tickets at -60 means 7 PM on that event day. It follows each recurring event automatically. The Pick date and time option calculates the same reusable offset, not a separate one-off date.</p></details>${Object.entries(
       s.importantTimes || {},
     )
       .map(
@@ -484,7 +492,7 @@ function renderDetail(focusReminderId = null) {
       )
       .join(
         "",
-      )}</section><section class="panel"><div class="heading"><h2>Message library <span class="badge">${messages.length} VARIANTS</span></h2><button id="add-message">+ Add message</button></div><p class="help">Existing IDs, usage and private locks are preserved. Dynamic placeholders are expanded by the addon.</p>${ambiguousMessages(e) ? '<p class="help" role="alert">Some legacy messages have no guild name and their guild slot cannot be resolved safely. They are omitted from this editor and remain untouched in the file.</p>' : ""}${messages.map((m, i) => `<details class="message" data-id="${esc(m.id)}"><summary>Message ${i + 1} ${m.locked ? " - Locked" : ""} - ${esc(m.text.slice(0, 65))}${m.text.length > 65 ? "..." : ""}</summary><div class="heading"><strong>Message ${i + 1}</strong>${select("Variant", "variant", s.messageVariants?.[m.id] || "ALL", variantChoices(s,s.messageVariants?.[m.id]||"ALL"))}</div><textarea aria-label="Message ${i + 1}" ${m.locked ? "readonly" : ""}>${esc(m.text)}</textarea><div class="actions"><button data-action="save-message" ${m.locked ? "disabled" : ""}>Apply message</button><button data-action="delete-message" class="danger" ${m.locked ? "disabled" : ""}>Delete message</button><select data-insert-token aria-label="Insert substitution"><option value="">Insert substitution...</option>${opts(insertableTokens(s))}</select></div></details>`).join("")}</section>`;
+      )}</section><section class="panel"><div class="heading"><h2>Message library <span class="badge">${messages.length} VARIANTS</span></h2><button id="add-message">+ Add message</button></div><p class="help">Drag a message handle to reorder, or focus it and use Up/Down arrows. Optional names are limited to 60 characters and are not sent in chat. Order is for display only; selection remains randomized.</p>${ambiguousMessages(e) ? '<p class="help" role="alert">Some legacy messages have no guild name and their guild slot cannot be resolved safely. They are omitted from this editor and remain untouched in the file.</p>' : ""}${messages.map((m, i) => `<details class="message" data-id="${esc(m.id)}"><summary><span class="message-drag-handle" draggable="true" tabindex="0" role="button" aria-label="Reorder ${esc(model.messageDisplayName(m,i))}; drag or use Up and Down arrows">↕</span><span class="message-summary-title">${esc(model.messageDisplayName(m,i))} ${m.locked ? " - Locked" : ""} - ${esc(m.text.slice(0, 65))}${m.text.length > 65 ? "..." : ""}</span></summary>${input("Message name (optional)","messageName",model.messageDisplayName(m,i))}<div class="heading"><strong class="message-full-name">${esc(model.messageDisplayName(m,i))}</strong>${select("Variant", "variant", s.messageVariants?.[m.id] || "ALL", variantChoices(s,s.messageVariants?.[m.id]||"ALL"))}</div><textarea aria-label="Message ${i + 1}" ${m.locked ? "readonly" : ""}>${esc(m.text)}</textarea><div class="actions"><button data-action="save-message" ${m.locked ? "disabled" : ""}>Apply message</button><button data-action="delete-message" class="danger" ${m.locked ? "disabled" : ""}>Delete message</button><select data-insert-token aria-label="Insert substitution"><option value="">Insert substitution...</option>${opts(insertableTokens(s))}</select></div></details>`).join("")}</section>`;
   function refreshOverlapWarning(){
     const note=document.querySelector('#timeline-conflicts');
     try{
@@ -531,6 +539,7 @@ function renderDetail(focusReminderId = null) {
   detail.onkeydown=ev=>{if(nonnegative(ev.target)&&!ev.ctrlKey&&!ev.metaKey&&['-','+','e','E','.'].includes(ev.key))ev.preventDefault();};
   detail.onbeforeinput=ev=>{if(nonnegative(ev.target)&&ev.data?.includes('-'))ev.preventDefault();};
   detail.oninput=ev=>{
+    editRevision++;
     const el=ev.target;
     if(nonnegative(el)){
       if(el.value!==''&&Number(el.value)<0){el.value=numericValues.get(el)||'';status(el.dataset.field==='eventDurationMinutes'?'Event duration must be zero or a positive whole number.':'This field requires a positive whole number.',true);}
@@ -538,7 +547,7 @@ function renderDetail(focusReminderId = null) {
     }
     refreshEffectiveTimes();
   };
-  detail.onchange=refreshEffectiveTimes;
+  detail.onchange=()=>{editRevision++;refreshEffectiveTimes();};
   const eventPanel=document.querySelector('#detail>.panel.event-settings');
   const fold=eventPanel.querySelector('[data-field=eventFold]').closest('label');
   const advanced=document.createElement('details');advanced.id='event-clock-options';advanced.innerHTML='<summary>Advanced clock options</summary>';advanced.open=s.eventFold==='SECOND';fold.parentElement.append(advanced);advanced.append(fold);
@@ -782,7 +791,9 @@ function renderDetail(focusReminderId = null) {
     );
   $("#add-message").onclick = () => {
     account().messages ??= {};
+    const existingMessages=eventMessages(e);existingMessages.forEach((message,i)=>message.displayOrder=i+1);
     append(account().messages, {
+      name:model.nextMessageName(existingMessages),displayOrder:existingMessages.length+1,
       id: crypto.randomUUID(),
       commandId: e.commandId,
       guildName: guild,
@@ -793,9 +804,32 @@ function renderDetail(focusReminderId = null) {
     changed();
     renderDetail();
   };
+  let draggedMessageId=null;
+  const reorderLibrary=(sourceId,targetId,after)=>{
+    const reordered=model.reorderMessageEntries(eventMessages(e),sourceId,targetId,after),updates=new Map(reordered.map(m=>[m.id,m]));
+    vals(account().messages).forEach(m=>{if(updates.has(m.id))Object.assign(m,updates.get(m.id));});
+    changed();renderDetail(null,sourceId);
+  };
   $("#detail")
     .querySelectorAll(".message")
     .forEach((el) => {
+      const message=messages.find(m=>m.id===el.dataset.id),index=messages.indexOf(message),nameInput=el.querySelector('[data-field=messageName]'),handle=el.querySelector('.message-drag-handle');
+      nameInput.maxLength=60;
+      nameInput.oninput=()=>{
+        if(nameInput.value.length>60){nameInput.setCustomValidity('Use at most 60 characters.');nameInput.reportValidity();return;}nameInput.setCustomValidity('');
+        if(nameInput.value.trim())message.name=nameInput.value.trim();else delete message.name;
+        const name=model.messageDisplayName(message,index);el.querySelector('.message-summary-title').textContent=name+(message.locked?' - Locked':'')+' - '+message.text.slice(0,65)+(message.text.length>65?'...':'');el.querySelector('.message-full-name').textContent=name;
+        handle.setAttribute('aria-label','Reorder '+name+'; drag or use Up and Down arrows');
+        document.querySelectorAll('[data-pool-message-label]').forEach(label=>{if(label.dataset.poolMessageLabel===message.id)label.textContent=name+': '+message.text;});changed();
+      };
+      handle.onclick=ev=>{ev.preventDefault();ev.stopPropagation();};
+      handle.onkeydown=ev=>{if(!['ArrowUp','ArrowDown'].includes(ev.key))return;ev.preventDefault();ev.stopPropagation();const next=index+(ev.key==='ArrowUp'?-1:1);if(messages[next])reorderLibrary(message.id,messages[next].id,ev.key==='ArrowDown');};
+      handle.ondragstart=ev=>{draggedMessageId=message.id;ev.dataTransfer.effectAllowed='move';ev.dataTransfer.setData('text/plain',message.id);};
+      handle.ondragend=()=>{draggedMessageId=null;document.querySelectorAll('.message').forEach(card=>card.classList.remove('message-drop-before','message-drop-after'));};
+      el.ondragover=ev=>{if(!draggedMessageId||draggedMessageId===message.id)return;ev.preventDefault();ev.dataTransfer.dropEffect='move';const rect=el.querySelector('summary').getBoundingClientRect(),after=ev.clientY>rect.y+rect.height/2;el.classList.toggle('message-drop-before',!after);el.classList.toggle('message-drop-after',after);};
+      el.ondragleave=ev=>{if(!el.contains(ev.relatedTarget))el.classList.remove('message-drop-before','message-drop-after');};
+      el.ondrop=ev=>{if(!draggedMessageId)return;ev.preventDefault();ev.stopPropagation();const rect=el.querySelector('summary').getBoundingClientRect(),source=draggedMessageId;draggedMessageId=null;reorderLibrary(source,message.id,ev.clientY>rect.y+rect.height/2);};
+      const draft=messageDrafts.get(message.id);if(draft){if(draft.text!==undefined)el.querySelector('textarea').value=draft.text;if(draft.variant!==undefined)el.querySelector('[data-field=variant]').value=draft.variant;}
       el.querySelector("[data-insert-token]").onchange = (ev) => {
         const area = el.querySelector("textarea");
         if (area.readOnly) return;
@@ -846,7 +880,8 @@ function renderDetail(focusReminderId = null) {
     });
   decorateFieldLabels();refreshEffectiveTimes();
   document.querySelectorAll('#detail details').forEach(d=>{const key=detailKey(d);if(openDetails.has(key))d.open=openDetails.get(key);});
-  if(focusReminderId){
+  if(focusMessageId){requestAnimationFrame(()=>{const message=[...document.querySelectorAll('#detail .message')].find(el=>el.dataset.id===focusMessageId);if(message){message.querySelector('.message-drag-handle')?.focus({preventScroll:true});message.scrollIntoView({block:'nearest',behavior:'instant'});}});}
+  else if(focusReminderId){
     requestAnimationFrame(()=>{
       const card=[...document.querySelectorAll('#rows .reminder')].find(el=>el.dataset.row===focusReminderId);
       if(!card)return;
@@ -1643,43 +1678,74 @@ function download(text, name, type = "text/plain") {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-$("#export").onclick = () => {
-  try {
-    validateEditedTimelines();
-    const result = model.mergeSavedVariables(base, data, latest || base);
-    if (result.conflicts.length) {
-      dialog(
-        "Configuration conflicts · export stopped",
-        result.conflicts
-          .map(
-            (c) =>
-              `${c.path}\nEdited: ${JSON.stringify(c.edited)}\nLatest: ${JSON.stringify(c.latest)}`,
-          )
-          .join("\n\n") +
-          "\n\nResolve these edits in a fresh snapshot before downloading.",
-      );
-      return;
-    }
-    if (
-      !confirm(
-        "Exit ESO completely before replacing SavedVariables. Keep a backup of the current SmartChatMsg.lua.\n\nDownload the reviewed configuration now?",
-      )
-    )
-      return;
-    for(const entry of model.accounts(result.data))for(const event of model.events(entry.value)){
-      const original=base.Default?.[entry.name]?.$AccountWide?.commandGuildSettings?.[event.commandId]?.[event.guild]?.schedule;
-      if(event.schedule.timelineVersion===1&&JSON.stringify(event.schedule)!==JSON.stringify(original))event.schedule.reminders=tableArray(model.orderedReminderRows(event.schedule));
-    }
-    validateEditedTimelines(result.data);
-    download(writeSavedVariables(result.data), "SmartChatMsg.lua");
-    dirty = false;
-    status(
-      "Downloaded SmartChatMsg.lua. Exit ESO, back up the original, then replace it with this file.",
-    );
-  } catch (err) {
-    status(err.message, true);
+function prepareCurrentLua(){
+  if(!data)throw Error('Open a SavedVariables file first.');
+  validateEditedTimelines();
+  const result=model.mergeSavedVariables(base,data,latest||base);
+  if(result.conflicts.length){
+    const detail=result.conflicts.map(c=>`${c.path}\nEdited: ${JSON.stringify(c.edited)}\nLatest: ${JSON.stringify(c.latest)}`).join('\n\n');
+    throw Error('Configuration conflicts · save stopped\n\n'+detail+'\n\nResolve these edits in a fresh snapshot before saving or downloading.');
   }
+  for(const entry of model.accounts(result.data))for(const event of model.events(entry.value)){
+    const original=base.Default?.[entry.name]?.$AccountWide?.commandGuildSettings?.[event.commandId]?.[event.guild]?.schedule;
+    if(event.schedule.timelineVersion===1&&JSON.stringify(event.schedule)!==JSON.stringify(original))event.schedule.reminders=tableArray(model.orderedReminderRows(event.schedule));
+  }
+  validateEditedTimelines(result.data);return writeSavedVariables(result.data);
+}
+$('#export').onclick=()=>{
+  try{
+    const lua=prepareCurrentLua();
+    if(!confirm('Exit ESO completely before replacing SavedVariables. Keep a backup of the current SmartChatMsg.lua.\n\nDownload the reviewed configuration now?'))return;
+    download(lua,'SmartChatMsg.lua');dirty=false;status('Downloaded SmartChatMsg.lua. Exit ESO, back up the original, then replace it with this file.');
+  }catch(error){if(error.message.startsWith('Configuration conflicts'))dialog('Configuration conflicts · export stopped',error.message);else status(error.message,true);}
 };
+async function libraryRequest(path,options={}){
+  const response=await fetch('/api/library'+path,options);
+  if(!response.ok){const body=await response.json().catch(()=>null);throw Error(body?.error||`Unable to access the server library (HTTP ${response.status}).`);}
+  return response;
+}
+async function showServerLibrary(focusSave=false){
+  $('#dialog-body').innerHTML=`<h2>Shared server library</h2><p class="help">Full Lua configurations saved here are public: anyone can load all their accounts and messages, including locked messages. Names must be unique; saved files cannot be overwritten. Apply editor changes before saving.</p><section class="library-save"><label>Save current configuration as<input id="library-name" maxlength="120" placeholder="For example: Alphabet Mafia — November v1" ${data?'':'disabled'}></label><button id="library-save" class="gold" ${data?'':'disabled'}>Save to server</button></section>${data?'':'<p class="help">Open a local file or load a shared configuration before saving.</p>'}<div class="heading"><h3>Saved configurations</h3><button id="library-refresh">Refresh list</button></div><p id="library-status" role="status" class="help">Loading saved files…</p><div id="library-list"></div><p class="help">Loading opens a copy in this editor. It does not change your ESO files or remap accounts. Use event import/export to transfer events into another account. Download updated Lua when you are ready to install it.</p>`;
+  $('#dialog').showModal();let requestVersion=0;const listNode=$('#library-list');
+  const isActive=()=>$('#dialog').open&&$('#library-list')===listNode;
+  const libraryStatus=(text,error=false)=>{const el=$('#library-status');if(isActive()&&el){el.textContent=text;el.classList.toggle('error',error);}};
+  async function refresh(){
+    if(!isActive())return;const version=++requestVersion;
+    try{
+      const payload=await(await libraryRequest('')).json();if(version!==requestVersion||!isActive())return;
+      if(!Array.isArray(payload.files))throw Error('The server returned an invalid library list.');
+      const files=payload.files.filter(file=>/^[a-f0-9]{64}$/.test(file.id)&&typeof file.name==='string');
+      $('#library-list').innerHTML=files.map(file=>`<button class="library-file" data-library-id="${esc(file.id)}"><strong>${esc(file.name)}</strong><small>Saved ${esc(new Date(file.createdAt).toLocaleString())} · ${esc(Math.ceil(file.bytes/1024))} KB</small></button>`).join('')||'<p class="empty">No configurations saved yet.</p>';
+      $('#library-list').querySelectorAll('[data-library-id]').forEach(button=>button.onclick=async()=>{
+        if(dirty&&!confirm('Discard unsaved edits and load this shared configuration?'))return;
+        button.disabled=true;const revision=editRevision;
+        try{
+          const lua=await(await libraryRequest('/'+button.dataset.libraryId)).text();
+          if(!isActive()){status('Server load canceled. Your current workspace was not replaced.');return;}
+          if(revision!==editRevision)throw Error('Your workspace changed while loading. Click the saved name again to review replacing it.');
+          const parsed=parseSavedVariables(lua),name=files.find(file=>file.id===button.dataset.libraryId).name;
+          installWorkspace(parsed,name+'.lua');$('#dialog').close();status(`Loaded shared configuration “${name}”. Choose the account and guild to edit; local ESO files are unchanged.`);
+        }catch(error){libraryStatus(error.message,true);button.disabled=false;}
+      });
+      libraryStatus(`${files.length} saved configuration(s). Click a name to load it.`);
+    }catch(error){if(version===requestVersion)libraryStatus(error.message,true);}
+  }
+  $('#library-refresh').onclick=refresh;
+  $('#library-save').onclick=async()=>{
+    const button=$('#library-save'),field=$('#library-name'),name=field.value.trim();
+    if(!name){libraryStatus('Enter a unique name for this configuration.',true);field.focus();return;}
+    button.disabled=true;field.disabled=true;
+    try{
+      const lua=prepareCurrentLua(),revision=editRevision;
+      await libraryRequest('',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,lua})});
+      const unchanged=revision===editRevision;if(unchanged)dirty=false;field.value='';if(isActive())await refresh();libraryStatus(`Saved “${name}”. This name is now reserved; choose a different name for future versions.`);status(unchanged?`Saved a shared server copy named “${name}”. Local ESO files are unchanged.`:`Saved the earlier copy named “${name}”. Newer workspace edits were not marked as saved.`);
+    }catch(error){libraryStatus(error.message,true);}
+    finally{button.disabled=false;field.disabled=false;}
+  };
+  if(focusSave&&data)$('#library-name').focus();await refresh();
+}
+$('#server-library').onclick=()=>showServerLibrary();
+$('#save-server').onclick=()=>showServerLibrary(true);
 window.addEventListener("beforeunload", (e) => {
   if (dirty) {
     e.preventDefault();

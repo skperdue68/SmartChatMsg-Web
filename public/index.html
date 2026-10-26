@@ -11,7 +11,7 @@
     <header>
       <img src="/logo.svg" alt="SmartChatMsg" />
       <div><strong>SmartChatMsg</strong><small>EVENT STUDIO</small></div>
-      <span class="local">● LOCAL WORKSPACE</span
+      <span class="local">● BROWSER EDITOR</span
       ><label class="button gold"
         >Open SavedVariables<input
           id="open"
@@ -19,6 +19,7 @@
           accept=".lua,.txt"
           hidden
       /></label>
+      <button id="server-library">Server library</button>
     </header>
     <section class="banner">
       <p class="eyebrow">YOUR GUILD. PERFECT TIMING.</p>
@@ -27,7 +28,7 @@
       <span class="sigil" aria-hidden="true">◷</span>
     </section>
     <div id="status" role="status">
-      Open SmartChatMsg.lua to begin. Your data stays in this browser.
+      Open SmartChatMsg.lua or choose a configuration from the shared server library.
     </div>
     <div id="workspace" hidden>
       <div class="toolbar">
@@ -41,7 +42,7 @@
             type="file"
             accept=".lua,.txt"
             hidden /></label
-        ><button id="export" class="gold">Download updated Lua</button>
+        ><button id="save-server">Save to server</button><button id="export" class="gold">Download updated Lua</button>
       </div>
       <nav>
         <button data-view="editor" class="active">Event editor</button
@@ -96,7 +97,7 @@
     </section>
     <footer>
       SmartChatMsg Event Studio
-      <span>Local companion · SmartChatMsg 2.1.0 required for timelines · No uploads</span>
+      <span>SmartChatMsg 2.1.0 required for timelines · Local editing · Optional public server saves</span>
     </footer>
     <dialog id="dialog">
       <div id="dialog-body"></div>
