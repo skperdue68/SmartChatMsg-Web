@@ -624,3 +624,5 @@ input[readonly],textarea[readonly]{background:rgba(255,255,255,.025);border-styl
 
 .help-bubble{background:#24415c;border-color:#b29b69;color:#f4f7fb;box-shadow:0 9px 26px #000a,0 1px 3px #0008;padding:12px;border-radius:7px}
 label.check>.help-icon{flex:none;margin-left:4px}
+
+.effective-reminder-time{font-size:11px;line-height:1.6;color:var(--muted);margin:0 0 14px}.effective-reminder-time.invalid{color:#e7ab94}

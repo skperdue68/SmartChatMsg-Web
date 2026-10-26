@@ -824,7 +824,26 @@ async function batchEventSharing(){
  }finally{await page.close();}
 }
 
+async function effectiveReminderDatesAndNumericBounds(){
+ const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;cfg.runAt='SCHEDULED';cfg.schedule.eventDate='2026-11-03';cfg.schedule.eventDurationMinutes=120;
+ const {page,errors}=await open(d);
+ try{
+ await page.clock.setFixedTime(new Date('2026-11-01T12:00:00Z'));await page.locator('[data-field=eventDate]').dispatchEvent('input');
+ const row=page.locator('.reminder').first(),summary=row.locator('[data-effective-times]');
+ assert.match(await summary.textContent(),/Nov 3, 2026.*6:00 PM EST/);
+ await row.locator('[data-field="start.minutes"]').fill('-180');assert.match(await summary.textContent(),/5:00 PM EST/);
+ await row.locator('[data-field="start.kind"]').selectOption('DAY');await row.locator('[data-field="start.days"]').fill('-1');await row.locator('[data-field="start.time"]').fill('20:00');assert.match(await summary.textContent(),/Nov 2, 2026.*8:00 PM EST/);
+ await page.locator('[data-field=eventTime]').fill('21:00');assert.match(await summary.textContent(),/Stops:.*9:00 PM EST/);
+ await page.locator('[data-field=recurrenceInterval]').fill('-2');assert.notEqual(await page.locator('[data-field=recurrenceInterval]').inputValue(),'-2');
+ await page.locator('[data-field=eventDurationMinutes]').fill('-5');assert.notEqual(await page.locator('[data-field=eventDurationMinutes]').inputValue(),'-5');
+ await page.locator('[data-field=eventDurationMinutes]').fill('0');assert.equal(await page.locator('[data-field=eventDurationMinutes]').evaluate(el=>el.checkValidity()),true);
+ await page.locator('[data-field=recurrenceInterval]').fill('0');assert.equal(await page.locator('[data-field=recurrenceInterval]').evaluate(el=>el.checkValidity()),false);
+ assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 try {
+  await effectiveReminderDatesAndNumericBounds();
   await batchEventSharing();
   await timelineOrderingAndPoolPreview();
   await populatedAccountDefault();

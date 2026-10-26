@@ -50,3 +50,10 @@ Existing command IDs and matching message/period IDs are reused. Repeated import
 Older single-event `SmartChatMsgTimeline` JSON files are accepted by the new import review too. The old manual single-event tools and legacy helper consolidation remain under **Advanced: legacy conversion and older single-event tools**, collapsed by default. Opening a full SavedVariables Lua file is separate from importing shared events and does not automatically combine it with another account.
 
 Help uses custom shaded popups via question-mark icons (hover, focus, or click), with no duplicate browser tooltip over the popup. Message pool choices similarly use their full preview popup without a second native tooltip.
+
+
+## Live effective reminder dates
+
+A small line beneath each reminder heading shows its effective **Starts**, **Stops** and reference **Event** date/time for the next calculated event occurrence. Values use the guild scheduling timezone and its daylight-saving abbreviation. The line updates while editing event dates/clocks, recurrence, day/minute offsets, important-time definitions, one-time late allowance or event duration. It uses the same window calculation as the overview, including duration limits and one-time expiry. Invalid or empty windows show an explanation instead of misleading dates. Applying remains necessary to save edits.
+
+Recurrence intervals must be positive whole numbers (1 or greater). Event duration is optional; when supplied it must be a whole number of zero or greater. These nonnegative controls reject negative typing/paste attempts; invalid zero recurrence values or fractions cannot be applied. Day/minute offsets remain signed so you can schedule before or after an event.
