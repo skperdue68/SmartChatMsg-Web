@@ -599,6 +599,7 @@ async function validationAndWeekdays() {
   const { page, errors } = await open(fixture());
   try {
     const row = page.locator(".reminder").first();
+    await row.locator("[data-field=once]").check();
     await row.locator("[data-field=lateMinutes]").fill("0");
     await row.locator("[data-action=save]").click();
     assert.match(
@@ -606,6 +607,7 @@ async function validationAndWeekdays() {
       /lateness|late allowance/i,
     );
     await row.locator("[data-field=lateMinutes]").fill("5");
+    await row.locator("[data-field=once]").uncheck();
     await row.locator("[data-field=intervalMinutes]").fill("1.5");
     await row.locator("[data-action=save]").click();
     assert.match(await page.locator("#status").textContent(), /whole/);
@@ -673,7 +675,50 @@ async function rawWindowParentConversion() {
   }
 }
 
+async function relevantSettingsAndMigration() {
+ const d=fixture();const a=d.Default['@fixture'].$AccountWide;
+ a.commandGuildSettings['command-one'].alpha.runAt='SCHEDULED';
+ const {page,errors}=await open(d);
+ try {
+  assert.equal(await page.locator('[data-field=rotationWeeks]').isVisible(),false,'faction controls start hidden');
+  await page.locator('details.message summary').first().click();
+  assert.equal(await page.locator('.message [data-field=variant]').first().isVisible(),false,'message variants are hidden without a special pattern');
+  assert.equal(await page.locator('[data-weekday]').first().isVisible(),false,'default weekday override starts collapsed');
+  await page.locator('#weekday-options summary').click();
+  await page.locator('#use-event-weekdays').check();
+  await page.locator('[data-weekday="3"]').check();
+  assert.match(await page.locator('#weekday-explanation').textContent(),/event.*not.*reminder|reminder.*any day/i);
+  await page.locator('[data-field=recurrence]').first().selectOption('MONTHLY_DATE');
+  assert.equal(await page.locator('#weekday-options').isVisible(),false);
+  await page.locator('[data-field=recurrence]').first().selectOption('WEEKLY');
+  await page.locator('[data-field=specialPattern]').selectOption('FACTION_ROTATION');
+  assert.equal(await page.locator('[data-field=rotationWeeks]').isVisible(),true);
+  assert.equal(await page.locator('.message [data-field=variant]').first().isVisible(),true);
+  assert.equal(await page.locator('.message [data-field=variant]').first().locator('option[value=FINAL]').count(),0,'month-final variants are not offered for faction rotation');
+  await page.locator('[data-field=recurrence]').first().selectOption('NONE');
+  assert.equal(await page.locator('[data-field=specialPattern]').isVisible(),false);
+  assert.equal(await page.locator('[data-field=recurrenceInterval]').isVisible(),false);
+  const row=page.locator('.reminder').first();
+  assert.equal(await row.locator('[data-field=lateMinutes]').isVisible(),false);
+  await row.locator('[data-field=once]').check();
+  assert.equal(await row.locator('[data-field=intervalMinutes]').isVisible(),false);
+  assert.equal(await row.locator('[data-field=lateMinutes]').isVisible(),true);
+  assert.equal(await row.locator('[data-field="finish.kind"]').isVisible(),false);
+  await row.locator('[data-field=onceUntilFinish]').check();
+  assert.equal(await row.locator('[data-field="finish.kind"]').isVisible(),true);
+  assert.equal(await row.locator('[data-field=lateMinutes]').isVisible(),false);
+  assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+ const allDays=fixture();const chosen=allDays.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;chosen.weekdays={};for(let day=1;day<=7;day++)setLuaValue(chosen.weekdays,day,true);
+ const repeated=await open(allDays);
+ try{const page=repeated.page;assert.equal(await page.locator('[data-weekday]:checked').count(),7);assert.match(await page.locator('#weekday-explanation').textContent(),/All seven selected/);await page.locator('#use-event-weekdays').uncheck();await page.locator('#save-event').click();const saved=await downloadData(page);assert.equal(Object.keys(saved.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule.weekdays).length,0,'explicitly disabling override follows anchor weekday');}finally{await repeated.page.close();}
+ const legacy=fixture();delete legacy.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule.timelineVersion;
+ const loaded=await open(legacy);
+ try{assert.equal(await loaded.page.locator('#migration-panel').isVisible(),true);assert.equal(await loaded.page.locator('#convert-legacy').isVisible(),true);assert.match(await loaded.page.locator('#migration-panel').textContent(),/actual event date/i);}finally{await loaded.page.close();}
+}
+
 try {
+  await relevantSettingsAndMigration();
   await preservationAndEditing();
   await combination();
   await lockedPortablePrivacy();

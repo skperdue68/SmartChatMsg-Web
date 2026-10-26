@@ -62,3 +62,13 @@ location / {
 If Node runs in a container or the proxy is on another machine, set `HOST=0.0.0.0` and use the reachable service address/port in your proxy. For a direct LAN test, set `PUBLIC_ORIGIN=http://YOUR-SERVER-IP:4173` and open that exact address. Do not use `0.0.0.0` as the browser URL.
 
 The public deployment serves the editor only. SavedVariables remain in each visitor's browser; the server does not accept file uploads, save account data, or expose a write API. Hostnames and Origin headers must match the configured public origin or the local workspace. `.env` is ignored by Git. This application has no account login because it does not store visitor data.
+
+## Migrating a legacy schedule
+
+Open the file and select the account, guild and event. Enter the actual activity date and time at the top of the event editor, review its recurrence and weekday override, and click **Apply event settings**. The highlighted legacy panel offers **Review and convert this event**. Review its periods and selected messages, then confirm. If the old event used several helper commands, select the actual parent event in **Combine & transfer**, select only its related helpers, and review the combined result. Source schedules are archived and backed up, not silently deleted. Load a latest snapshot before export if ESO has updated usage since opening the file. Download the Lua, close ESO, back up the current file and replace it.
+
+## Event weekdays are not advertising weekdays
+
+The optional advanced weekday override chooses which dates count as event occurrences. It never filters the weekdays on which reminders may run. For weekly Tuesday Tours, leave the override off and use a Tuesday event date, or select Tuesday only. A reminder window beginning Monday still runs on Monday. Selecting Tuesday and Thursday schedules two separate event occurrences each eligible week, each with its own reminder windows. Imported selections are preserved; disable the override and Apply event settings if you want to return to the anchor date's weekday.
+
+Only relevant controls are shown: faction settings for faction rotation; repeat intervals for recurring schedules; weekday overrides for supported recurrence types; and frequency, lateness or finish windows according to a reminder's repeat/once configuration.
