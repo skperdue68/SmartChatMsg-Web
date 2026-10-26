@@ -328,6 +328,44 @@ function anchorMarkup(a, prefix, s) {
           )
   }`;
 }
+function variantChoices(schedule,current){
+ const pattern=schedule.specialPattern;
+ const values=pattern==='MONTH_FINAL'?['ALL','REGULAR','FINAL']:pattern==='FACTION_ROTATION'?['ALL',...vals(schedule.rotationFactions||{1:'AD',2:'EP',3:'DC'}).filter(code=>['AD','EP','DC'].includes(code))]:['ALL'];
+ const choices=[...new Set(values)];
+ if(current&&!choices.includes(current))return [...choices,[current,current+' (not active for this pattern)']];
+ return choices;
+}
+function legacyMigrationBanner(event) {
+ if(event.schedule.timelineVersion===1)return '';
+ return `<section class="panel migration" id="migration-panel"><p class="eyebrow">LEGACY SCHEDULE</p><h2>Switch this event to the new reminder timeline</h2><ol><li>Enter the <strong>actual event date and time</strong> at the top of this page, such as Tuesday Tours on Tuesday at 8 PM. Set the recurrence and click <strong>Apply event settings</strong> to save changes to the event and weekday override.</li><li>Choose <strong>Review and convert this event</strong>. Review the reminder periods before confirming.</li><li>If older helper commands belong to this event, combine them afterward in <strong>Combine &amp; transfer</strong>.</li></ol><p class="help">Conversion keeps message IDs, usage and cooldown history, and a backup of the original schedule. Nothing changes in ESO until you download and install the updated file.</p><button class="gold" id="convert-legacy">Review and convert this event</button></section>`;
+}
+function showField(root,key,show){const field=root.querySelector(`[data-field="${key}"]`);if(field)field.closest('label').hidden=!show;}
+function refreshEventRelevance(){
+ const panel=document.querySelector('#detail>.panel.event-settings');if(!panel)return;
+ const recurrence=panel.querySelector('[data-field=recurrence]').value;
+ const repeating=recurrence!=='NONE';
+ const faction=repeating&&panel.querySelector('[data-field=specialPattern]').value==='FACTION_ROTATION';
+ showField(panel,'recurrenceInterval',repeating);showField(panel,'specialPattern',repeating);
+ showField(panel,'rotationWeeks',faction);showField(panel,'rotationFactions',faction);
+ const pattern=repeating?panel.querySelector('[data-field=specialPattern]').value:'NONE';
+ document.querySelectorAll('.message [data-field=variant]').forEach(field=>{const value=field.value;field.closest('label').hidden=pattern==='NONE';field.innerHTML=opts(variantChoices({...selectedEvent().schedule,specialPattern:pattern},value),value);});
+
+ const weekday=['DAILY','WEEKLY','BIWEEKLY'].includes(recurrence);
+ document.querySelector('#weekday-options').hidden=!weekday;
+ const enabled=document.querySelector('#use-event-weekdays').checked;
+ document.querySelector('#event-weekday-choices').hidden=!enabled;
+ const count=panel.querySelectorAll('[data-weekday]:checked').length;
+ const date=panel.querySelector('[data-field=eventDate]').value;
+ const weekdayName=/^\d{4}-\d{2}-\d{2}$/.test(date)?new Date(date+'T12:00:00Z').toLocaleDateString(undefined,{weekday:'long',timeZone:'UTC'}):'the event date';
+ document.querySelector('#weekday-explanation').textContent='These select event occurrences, not reminder days. Reminders may run on any day inside their own windows. '+(enabled?(count===0?'No override days selected; the event date determines the weekday.':count===7?'All seven selected: an event occurs every day in each eligible period.':count+' event day(s) selected in each eligible period.'):(recurrence==='DAILY'?'Default: the daily recurrence determines event dates.':'Default: follow '+weekdayName+' from the event date.'));
+}
+function refreshReminderRelevance(card){
+ const once=card.querySelector('[data-field=once]').checked;
+ const whole=card.querySelector('[data-field=onceUntilFinish]').checked;
+ showField(card,'intervalMinutes',!once);showField(card,'lateMinutes',once&&!whole);
+ showField(card,'onceUntilFinish',once);
+ card.querySelector('[data-finish-window]').hidden=once&&!whole;
+}
 function renderDetail() {
   const renderKey = accountName + "|" + guild + "|" + selected,
     preserveScroll = lastRenderedKey === renderKey,
@@ -343,7 +381,7 @@ function renderDetail() {
     messages = eventMessages(e),
     rows = vals(s.reminders);
   $("#detail").innerHTML =
-    `<section class="panel"><div class="heading"><div><p class="eyebrow">EVENT SETTINGS</p><h2>${esc(e.command?.name)}</h2></div><span class="badge">${s.timelineVersion === 1 ? "TIMELINE" : "LEGACY SCHEDULE"}</span></div><div class="grid">${input("Event name", "commandName", e.command.name)}${input("Actual event date", "eventDate", s.eventDate || "", "date")}${input("Actual event clock", "eventTime", s.eventTime || "08:00 PM")}<label>Scheduling timezone (guild)<input value="${esc(guildZone())}" readonly></label>${select("Output channel", "outputChannel", account().chatChannels?.[e.commandId]?.[guild] || "Guild", ["Guild", "Officer", "Zone", "Group"])}${select(
+    `<section class="panel event-settings"><div class="heading"><div><p class="eyebrow">EVENT SETTINGS</p><h2>${esc(e.command?.name)}</h2></div><span class="badge">${s.timelineVersion === 1 ? "TIMELINE" : "LEGACY SCHEDULE"}</span></div><div class="grid">${input("Event name", "commandName", e.command.name)}${input("Actual event date", "eventDate", s.eventDate || "", "date")}${input("Actual event clock", "eventTime", s.eventTime || "08:00 PM")}<label>Scheduling timezone (guild)<input value="${esc(guildZone())}" readonly></label>${select("Output channel", "outputChannel", account().chatChannels?.[e.commandId]?.[guild] || "Guild", ["Guild", "Officer", "Zone", "Group"])}${select(
       "Run at",
       "settingsRunAt",
       e.settings.runAt || "ON_DEMAND",
@@ -360,7 +398,7 @@ function renderDetail() {
         ["FIRST", "First occurrence"],
         ["SECOND", "Second occurrence"],
       ],
-    )}</div><p class="help">Weekly weekdays (leave empty to use the event date's weekday)</p><div class="actions weekdays">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<label class="check"><input type="checkbox" data-weekday="${i + 1}" ${s.weekdays?.[i + 1] ? "checked" : ""}>${d.slice(0, 3)}</label>`).join("")}</div><div class="actions" style="margin-top:18px">${check("Enabled", "enabled", s.enabled !== false)}${check("Paused", "paused", s.paused)}<button id="save-event" class="gold">Apply event settings</button></div><p class="help">Enter the real event date and time. Reminder offsets are measured from this moment; calendar-day anchors use the event timezone.</p></section><section class="panel"><div class="heading"><h2>Reminder timeline</h2>${s.timelineVersion !== 1 ? '<button id="convert-legacy">Review legacy conversion</button>' : ""}<button id="add-row" class="gold">+ Add reminder</button></div>${s.timelineVersion !== 1 ? '<p class="help">This event still uses legacy scheduling. Convert this schedule to review its existing timing and message pools before adding reminders.</p>' : ""}<div id="rows">${rows.map((r, i) => `<article class="reminder ${r.once ? "milestone" : ""}" data-row="${esc(r.id)}"><div class="heading"><h3>${i + 1}. ${esc(r.label || "Reminder")}</h3><span class="badge">${r.once ? "◆ MILESTONE" : "↻ FREQUENCY WINDOW"}</span></div><div class="grid">${input("Reminder label", "label", r.label || "")}${input("Repeat every (minutes)", "intervalMinutes", r.intervalMinutes ?? 60, "number")}${input("Late allowance (minutes)", "lateMinutes", r.lateMinutes ?? 5, "number")}</div><h3>Starts</h3><div class="grid">${anchorMarkup(r.start, "start", s)}</div><h3>Finishes</h3><div class="grid">${anchorMarkup(r.finish || r.start, "finish", s)}</div><div class="actions">${check("Send once", "once", r.once)}${check("Time-sensitive", "timeSensitive", r.timeSensitive)}${check("Once may send until window finishes", "onceUntilFinish", r.onceUntilFinish)}</div><p class="help">Choose a message pool. The addon selects a message from this pool when the reminder is due.</p><div class="pool">${messages.map((m, j) => `<label class="check"><input type="checkbox" data-message="${esc(m.id)}" ${vals(r.messageIds).includes(m.id) ? "checked" : ""}><span>${j + 1}. ${esc(m.text)}</span></label>`).join("") || '<span class="help">Add a message below first.</span>'}</div><div class="actions"><button data-action="save">Apply reminder</button><button data-action="preview">Preview here</button><button data-action="up" ${i === 0 ? "disabled" : ""}>↑</button><button data-action="down" ${i === rows.length - 1 ? "disabled" : ""}>↓</button><button data-action="remove" class="danger">Remove</button></div></article>`).join("") || '<div class="empty">No timeline reminders yet.</div>'}</div></section><section class="panel"><div class="heading"><h2>Important times</h2><button id="add-mark">+ Add time</button></div><p class="help">Name an important moment, such as doors opening or ticket sales closing, and reuse it in reminder anchors.</p>${Object.entries(
+    )}</div><details id="weekday-options" ${vals(s.weekdays).some(Boolean)?'open':''}><summary>Choose different or additional event days (advanced)</summary><label class="check"><input id="use-event-weekdays" type="checkbox" ${vals(s.weekdays).some(Boolean)?'checked':''}>Override the weekday from the event date</label><p class="help" id="weekday-explanation"></p><div class="actions weekdays" id="event-weekday-choices">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<label class="check"><input type="checkbox" data-weekday="${i + 1}" ${s.weekdays?.[i + 1] ? "checked" : ""}>${d.slice(0, 3)}</label>`).join("")}</div></details><div class="actions" style="margin-top:18px">${check("Enabled", "enabled", s.enabled !== false)}${check("Paused", "paused", s.paused)}<button id="save-event" class="gold">Apply event settings</button></div><p class="help">Enter the real event date and time. Reminder offsets are measured from this moment; calendar-day anchors use the event timezone.</p></section><section class="panel"><div class="heading"><h2>Reminder timeline</h2><button id="add-row" class="gold">+ Add reminder</button></div>${s.timelineVersion !== 1 ? '<p class="help">This event still uses legacy scheduling. Convert this schedule to review its existing timing and message pools before adding reminders.</p>' : ""}<div id="rows">${rows.map((r, i) => `<article class="reminder ${r.once ? "milestone" : ""}" data-row="${esc(r.id)}"><div class="heading"><h3>${i + 1}. ${esc(r.label || "Reminder")}</h3><span class="badge">${r.once ? "◆ MILESTONE" : "↻ FREQUENCY WINDOW"}</span></div><div class="grid">${input("Reminder label", "label", r.label || "")}${input("Repeat every (minutes)", "intervalMinutes", r.intervalMinutes ?? 60, "number")}${input("Late allowance (minutes)", "lateMinutes", r.lateMinutes ?? 5, "number")}</div><h3>Starts</h3><div class="grid">${anchorMarkup(r.start, "start", s)}</div><div data-finish-window><h3>Finishes</h3><div class="grid">${anchorMarkup(r.finish || r.start, "finish", s)}</div></div><div class="actions">${check("Send once", "once", r.once)}${check("Time-sensitive", "timeSensitive", r.timeSensitive)}${check("Once may send until window finishes", "onceUntilFinish", r.onceUntilFinish)}</div><p class="help">Choose a message pool. The addon selects a message from this pool when the reminder is due.</p><div class="pool">${messages.map((m, j) => `<label class="check"><input type="checkbox" data-message="${esc(m.id)}" ${vals(r.messageIds).includes(m.id) ? "checked" : ""}><span>${j + 1}. ${esc(m.text)}</span></label>`).join("") || '<span class="help">Add a message below first.</span>'}</div><div class="actions"><button data-action="save">Apply reminder</button><button data-action="preview">Preview here</button><button data-action="up" ${i === 0 ? "disabled" : ""}>↑</button><button data-action="down" ${i === rows.length - 1 ? "disabled" : ""}>↓</button><button data-action="remove" class="danger">Remove</button></div></article>`).join("") || '<div class="empty">No timeline reminders yet.</div>'}</div></section><section class="panel"><div class="heading"><h2>Important times</h2><button id="add-mark">+ Add time</button></div><p class="help">Name an important moment, such as doors opening or ticket sales closing, and reuse it in reminder anchors.</p>${Object.entries(
       s.importantTimes || {},
     )
       .map(
@@ -369,7 +407,13 @@ function renderDetail() {
       )
       .join(
         "",
-      )}</section><section class="panel"><div class="heading"><h2>Message library <span class="badge">${messages.length} VARIANTS</span></h2><button id="add-message">+ Add message</button></div><p class="help">Existing IDs, usage and private locks are preserved. Dynamic placeholders are expanded by the addon.</p>${ambiguousMessages(e) ? '<p class="help" role="alert">Some legacy messages have no guild name and their guild slot cannot be resolved safely. They are omitted from this editor and remain untouched in the file.</p>' : ""}${messages.map((m, i) => `<details class="message" data-id="${esc(m.id)}"><summary>Message ${i + 1} ${m.locked ? " - Locked" : ""} - ${esc(m.text.slice(0, 65))}${m.text.length > 65 ? "..." : ""}</summary><div class="heading"><strong>Message ${i + 1}</strong>${select("Variant", "variant", s.messageVariants?.[m.id] || "ALL", ["ALL", "REGULAR", "FINAL", "AD", "EP", "DC"])}</div><textarea aria-label="Message ${i + 1}" ${m.locked ? "readonly" : ""}>${esc(m.text)}</textarea><div class="actions"><button data-action="save-message" ${m.locked ? "disabled" : ""}>Apply message</button><button data-action="delete-message" class="danger" ${m.locked ? "disabled" : ""}>Delete message</button><select data-insert-token aria-label="Insert substitution"><option value="">Insert substitution...</option>${opts(["%guild%", "%greeting%", "%zone%", ...Object.keys(s.importantTimes || {}).flatMap((key) => ["eventwhen", "eventtime", "eventdate", "eventcountdown"].map((token) => "%" + token + ":" + key + "%"))])}</select></div></details>`).join("")}</section>`;
+      )}</section><section class="panel"><div class="heading"><h2>Message library <span class="badge">${messages.length} VARIANTS</span></h2><button id="add-message">+ Add message</button></div><p class="help">Existing IDs, usage and private locks are preserved. Dynamic placeholders are expanded by the addon.</p>${ambiguousMessages(e) ? '<p class="help" role="alert">Some legacy messages have no guild name and their guild slot cannot be resolved safely. They are omitted from this editor and remain untouched in the file.</p>' : ""}${messages.map((m, i) => `<details class="message" data-id="${esc(m.id)}"><summary>Message ${i + 1} ${m.locked ? " - Locked" : ""} - ${esc(m.text.slice(0, 65))}${m.text.length > 65 ? "..." : ""}</summary><div class="heading"><strong>Message ${i + 1}</strong>${select("Variant", "variant", s.messageVariants?.[m.id] || "ALL", variantChoices(s,s.messageVariants?.[m.id]||"ALL"))}</div><textarea aria-label="Message ${i + 1}" ${m.locked ? "readonly" : ""}>${esc(m.text)}</textarea><div class="actions"><button data-action="save-message" ${m.locked ? "disabled" : ""}>Apply message</button><button data-action="delete-message" class="danger" ${m.locked ? "disabled" : ""}>Delete message</button><select data-insert-token aria-label="Insert substitution"><option value="">Insert substitution...</option>${opts(["%guild%", "%greeting%", "%zone%", ...Object.keys(s.importantTimes || {}).flatMap((key) => ["eventwhen", "eventtime", "eventdate", "eventcountdown"].map((token) => "%" + token + ":" + key + "%"))])}</select></div></details>`).join("")}</section>`;
+  const eventPanel=document.querySelector('#detail>.panel.event-settings');
+  const fold=eventPanel.querySelector('[data-field=eventFold]').closest('label');
+  const advanced=document.createElement('details');advanced.id='event-clock-options';advanced.innerHTML='<summary>Advanced clock options</summary>';advanced.open=s.eventFold==='SECOND';fold.parentElement.append(advanced);advanced.append(fold);
+  if(s.timelineVersion!==1)eventPanel.insertAdjacentHTML('afterend',legacyMigrationBanner(e));
+  eventPanel.querySelectorAll('[data-field=recurrence],[data-field=specialPattern],[data-field=eventDate],[data-weekday],#use-event-weekdays').forEach(control=>control.addEventListener('change',refreshEventRelevance));
+  refreshEventRelevance();
   $("#save-event").onclick = () => {
     const p = $("#detail>.panel");
     const v = fields(p);
@@ -385,6 +429,7 @@ function renderDetail() {
     delete candidate.commandName;
     delete candidate.outputChannel;
     delete candidate.settingsRunAt;
+    if(candidate.recurrence==='NONE')candidate.specialPattern='NONE';
     try {
       requireValidTimeline(candidate);
     } catch (error) {
@@ -400,10 +445,12 @@ function renderDetail() {
     v.timeZone = guildZone();
     e.command.name = v.commandName.trim() || e.command.name;
     delete v.commandName;
-    v.weekdays = {};
-    p.querySelectorAll("[data-weekday]:checked").forEach((x) =>
-      setLuaValue(v.weekdays, Number(x.dataset.weekday), true),
-    );
+    v.weekdays=clone(s.weekdays||{});
+    if(['DAILY','WEEKLY','BIWEEKLY'].includes(v.recurrence)){
+      v.weekdays={};
+      if($('#use-event-weekdays').checked)p.querySelectorAll('[data-weekday]:checked').forEach(x=>setLuaValue(v.weekdays,Number(x.dataset.weekday),true));
+    }
+    if(v.recurrence==='NONE')v.specialPattern='NONE';
     v.rotationFactions = tableArray(
       v.rotationFactions
         .split(",")
@@ -467,6 +514,8 @@ function renderDetail() {
         );
       }
       bindAnchorSelectors();
+      refreshReminderRelevance(card);
+      card.querySelectorAll('[data-field=once],[data-field=onceUntilFinish]').forEach(control=>control.addEventListener('change',()=>refreshReminderRelevance(card)));
       card.querySelectorAll("[data-action]").forEach(
         (b) =>
           (b.onclick = () => {

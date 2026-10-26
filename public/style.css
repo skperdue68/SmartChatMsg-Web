@@ -578,3 +578,8 @@ button:focus-visible,
     overflow-y: visible;
   }
 }
+
+.migration {border-color:var(--gold);background:linear-gradient(120deg,#20324a,#142235)}
+.migration li{margin:.65rem 0;line-height:1.55}.migration h2{margin-bottom:1rem}
+#weekday-options,#event-clock-options{padding:12px;border:1px solid var(--line);border-radius:6px;margin-top:14px}
+#weekday-options summary,#event-clock-options summary{cursor:pointer;color:var(--muted);font-size:13px;margin-bottom:10px}
