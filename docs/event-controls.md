@@ -57,3 +57,16 @@ Help uses custom shaded popups via question-mark icons (hover, focus, or click),
 A small line beneath each reminder heading shows its effective **Starts**, **Stops** and reference **Event** date/time for the next calculated event occurrence. Values use the guild scheduling timezone and its daylight-saving abbreviation. The line updates while editing event dates/clocks, recurrence, day/minute offsets, important-time definitions, one-time late allowance or event duration. It uses the same window calculation as the overview, including duration limits and one-time expiry. Invalid or empty windows show an explanation instead of misleading dates. Applying remains necessary to save edits.
 
 Recurrence intervals must be positive whole numbers (1 or greater). Event duration is optional; when supplied it must be a whole number of zero or greater. These nonnegative controls reject negative typing/paste attempts; invalid zero recurrence values or fractions cannot be applied. Day/minute offsets remain signed so you can schedule before or after an event.
+
+
+## Drag editing in Day timeline
+
+Drag a block left/right to move it, or drag a visible edge to change its start/stop. Edits snap to five minutes and a floating label shows proposed guild dates/clocks before release. Click without dragging still opens the event editor. Arrow keys move a focused block five minutes; focus an edge and use Arrow keys to resize. Escape cancels an in-progress drag.
+
+The view includes two shaded hours of the previous and next day, with Previous day / Today / Next day navigation. Arrows on clipped blocks indicate that the period continues outside this visible range. A clipped end has no resize handle; navigate to the day containing its real boundary to edit that end. The other visible end can still be resized. Instantaneous once markers move without resizing; once-within-window announcements display as resizable windows.
+
+Actual event bars can move or resize too. Moving an event updates the original recurring anchor rather than replacing it with this week's occurrence. Minute-offset reminders and named important times follow the event; fixed day/clock reminders retain their configured clocks. Resizing the left event edge adjusts its start and duration to keep its stop fixed; resizing the right edge changes duration. A multi-week weekday pattern that cannot represent a cross-week move is rejected with an explanation rather than silently shifting an occurrence into another week.
+
+Dragging a reminder edge bound to an important time makes that edge an independent event offset; it does not move the shared important time used elsewhere. The status message explains this change. Overlaps, reversed windows and event-duration violations are rejected without modifying the saved configuration. Once-within-window eligibility ranges are checked for overlaps throughout the window; a fixed once notice is checked at its trigger only, without treating its retry grace as a repeating window.
+
+**Undo last timeline edit** restores the previous schedule, including its IDs and history. It will not overwrite later edits to the same event. Download the updated Lua when your review is complete.
