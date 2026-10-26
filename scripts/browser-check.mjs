@@ -160,6 +160,7 @@ async function preservationAndEditing() {
     );
     await page.locator("#account").selectOption("@fixture");
     await page.locator("[data-view=calendar]").click();
+    await page.locator("[data-field=view]").selectOption("week");
     assert.equal(
       await page.locator("[data-kind=event]").count(),
       0,
@@ -219,7 +220,7 @@ async function preservationAndEditing() {
     );
     await page.locator("#close-dialog").click();
     await page.locator("[data-view=calendar]").click();
-    assert.equal(await page.locator(".calendar-day").count(), 7);
+    await page.locator("[data-field=view]").selectOption("week");assert.equal(await page.locator(".calendar-day").count(), 7);
     await page.locator("[data-field=date]").fill("2026-10-27");
     await page.locator("[data-field=date]").dispatchEvent("change");
     assert.match(
@@ -862,7 +863,21 @@ async function dragDayTimeline(){
  try{await second.page.locator('[data-view=calendar]').click();await second.page.locator('#calendar [data-field=date]').fill('2026-10-27');await second.page.locator('#calendar [data-field=date]').dispatchEvent('change');await second.page.locator('#calendar [data-field=view]').selectOption('day');const b=second.page.locator('.day-block:not(.day-actual-event)');assert.equal(await b.locator('.day-continues').count(),2);assert.equal(await b.locator('[data-edge]').count(),0);assert.deepEqual(second.errors,[]);}finally{await second.page.close();}
 }
 
+async function overviewDefaultsAndPlainHelp(){
+ const {page,errors}=await open(fixture());
+ try{
+ await page.clock.setFixedTime(new Date('2026-10-27T02:00:00Z'));
+ const state=await page.locator('[data-field=eventState]').boundingBox(),apply=await page.locator('#save-event').boundingBox();assert.ok(Math.abs(state.y+state.height-apply.y-apply.height)<2,'state and Apply bottoms align');
+ await page.locator('.reminder-type').first().focus();assert.match(await page.locator('.reminder-type').first().textContent(),/REPEATING REMINDER/);assert.equal(await page.locator('.reminder-type .help-bubble').first().isVisible(),true);
+ await page.locator('#snapshot-help').focus();assert.equal(await page.locator('#snapshot-help .help-bubble').isVisible(),true);assert.match(await page.locator('#snapshot-help').textContent(),/newer cooldowns and usage/);
+ await page.locator('.important-time-guide summary').click();assert.match(await page.locator('.important-time-guide').textContent(),/%eventtime:tickets%/);
+ await page.locator('[data-view=calendar]').click();assert.equal(await page.locator('#calendar [data-field=view]').inputValue(),'day');assert.equal(await page.locator('#calendar [data-field=date]').inputValue(),'2026-10-26');assert.match(await page.locator('[data-day-step="-1"]').textContent(),/Sun, Oct 25/);assert.match(await page.locator('[data-day-step="1"]').textContent(),/Tue, Oct 27/);
+ await page.locator('#calendar [data-field=view]').selectOption('month');await page.locator('[data-view=editor]').click();await page.locator('[data-view=calendar]').click();assert.equal(await page.locator('#calendar [data-field=view]').inputValue(),'day');assert.equal(await page.locator('#calendar [data-field=date]').inputValue(),'2026-10-26');assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 try {
+  await overviewDefaultsAndPlainHelp();
   await dragDayTimeline();
   await effectiveReminderDatesAndNumericBounds();
   await batchEventSharing();

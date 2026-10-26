@@ -36,7 +36,7 @@
         ><label>Guild timezone<select id="guild-timezone"></select></label
         ><span class="spacer"></span
         ><label class="button"
-          >Load latest snapshot<input
+          >Load latest snapshot <span id="snapshot-help" class="help-icon" tabindex="0" role="note" aria-label="Optional: load a newer SavedVariables file to preserve recent game cooldowns and usage when downloading your edits.">?<span class="help-bubble">Optional: if ESO saved a newer SmartChatMsg.lua after you opened the editor, load it here before downloading. Your edits are merged with its newer cooldowns and usage history. Conflicting configuration edits stop the download for review. If the file has not changed, you can skip this.</span></span><input
             id="latest"
             type="file"
             accept=".lua,.txt"

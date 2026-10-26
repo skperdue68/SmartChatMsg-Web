@@ -70,3 +70,14 @@ Actual event bars can move or resize too. Moving an event updates the original r
 Dragging a reminder edge bound to an important time makes that edge an independent event offset; it does not move the shared important time used elsewhere. The status message explains this change. Overlaps, reversed windows and event-duration violations are rejected without modifying the saved configuration. Once-within-window eligibility ranges are checked for overlaps throughout the window; a fixed once notice is checked at its trigger only, without treating its retry grace as a repeating window.
 
 **Undo last timeline edit** restores the previous schedule, including its IDs and history. It will not overwrite later edits to the same event. Download the updated Lua when your review is complete.
+
+
+## Overview defaults and scheduling help
+
+Opening Schedule overview starts with **Day timeline** for today's date in the guild timezone. Switching away and returning restores that default. The day navigation buttons show the actual adjacent weekday/date; Today returns to the current guild date. Week and Month remain available in View.
+
+Reminder badges use plain labels: **One-time notice** means this period sends once per occurrence of the event; **Repeating reminder** means it can prepare messages repeatedly at its configured interval while the period is active. Hover, focus or click a badge to read the explanation. ESO still requires Enter to send prepared text.
+
+**Load latest snapshot** is optional. If ESO wrote a newer copy of the same SavedVariables file while you were editing, select it there before downloading. The editor merges your edits with newer cooldowns and usage; conflicting configuration changes stop the download for review. It does not read ESO automatically. Skip this step if your source file has not changed.
+
+The Important times section now includes a How to use guide, shows each immutable message key and an example token, and gives its date/time controls a full-width row. For key `tickets`, a value of `-30` means 30 minutes before the event; use `-60` for one hour. Apply the definition, select Anchor → Important time for a reminder boundary, or use `%eventwhen:tickets%`, `%eventtime:tickets%`, `%eventdate:tickets%` and `%eventcountdown:tickets%` in messages. A label can change; the token uses the displayed key.

@@ -635,3 +635,12 @@ label.check>.help-icon{flex:none;margin-left:4px}
 #day-drag-feedback{position:fixed;z-index:1100;max-width:350px;padding:10px;background:#24415c;border:1px solid #c1a364;border-radius:6px;box-shadow:0 7px 20px #0008;color:#fff;font-size:12px;pointer-events:none}
 
 .day-timeline-header{min-height:50px}.day-timeline-header .day-context{padding-top:27px;text-align:center;font-size:9px;color:var(--muted)}
+
+.event-settings>.actions{align-items:flex-end}.grid.mark>.actions{align-self:end}
+.reminder-type{position:relative;cursor:help;text-align:center}
+.reminder-type .help-bubble{top:calc(100% + 7px);left:auto;right:0;text-transform:none;letter-spacing:normal;text-align:left}
+.reminder-type:hover .help-bubble,.reminder-type:focus .help-bubble,.reminder-type.show-help .help-bubble{display:block}
+.important-time-guide{margin:12px 0 18px;padding:10px;border:1px solid var(--line);border-radius:6px;font-size:13px}.important-time-guide summary{cursor:pointer;color:var(--muted)}.important-time-guide li{margin:8px 0;line-height:1.6}
+#snapshot-help{vertical-align:middle}#snapshot-help .help-bubble{left:auto;right:0}
+
+.grid.mark>.grid,.grid.mark>p{grid-column:1/-1}.mark-key{margin:4px 0;font-size:11px}
