@@ -414,11 +414,13 @@ function refreshReminderRelevance(card){
  showField(card,'onceUntilFinish',once);
  card.querySelector('[data-finish-window]').hidden=once&&!whole;
 }
-function renderDetail() {
+function renderDetail(focusReminderId = null) {
   document.querySelector("#pool-preview")?.remove();
   const renderKey = accountName + "|" + guild + "|" + selected,
     preserveScroll = lastRenderedKey === renderKey,
     scrollY = window.scrollY;
+  const detailKey=d=>d.id?'id:'+d.id:d.closest('.reminder')?'row:'+d.closest('.reminder').dataset.row+':'+[...d.closest('.reminder').querySelectorAll('details')].indexOf(d):d.closest('.message')?'message:'+d.closest('.message').dataset.id:null;
+  const openDetails=new Map(preserveScroll?[...document.querySelectorAll('#detail details')].map(d=>[detailKey(d),d.open]).filter(([key])=>key):[]);
   lastRenderedKey = renderKey;
   const e = selectedEvent();
   if (!e) {
@@ -646,7 +648,7 @@ function renderDetail() {
               }
               changed();
               if (action === "preview") preview(e, r);
-              else renderDetail();
+              else renderDetail(r.id);
             } else if (action === "remove") {
               s.reminders = tableArray(rows.filter((x) => x !== r));
               changed();
@@ -788,13 +790,17 @@ function renderDetail() {
         changed();
       };
     });
-  if (preserveScroll)
-    requestAnimationFrame(() =>
-      window.scrollTo({
-        top: scrollY,
-        behavior: "instant",
-      }),
-    );
+  document.querySelectorAll('#detail details').forEach(d=>{const key=detailKey(d);if(openDetails.has(key))d.open=openDetails.get(key);});
+  if(focusReminderId){
+    requestAnimationFrame(()=>{
+      const card=[...document.querySelectorAll('#rows .reminder')].find(el=>el.dataset.row===focusReminderId);
+      if(!card)return;
+      card.querySelector('[data-field=label]')?.focus({preventScroll:true});
+      card.scrollIntoView({block:'start',inline:'nearest',behavior:'instant'});
+      window.scrollBy({top:-16,behavior:'instant'});
+    });
+  }else if (preserveScroll)
+    requestAnimationFrame(() =>window.scrollTo({top:scrollY,behavior:'instant'}));
 }
 function fields(root) {
   const out = {};

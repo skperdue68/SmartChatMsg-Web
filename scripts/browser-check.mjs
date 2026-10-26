@@ -276,7 +276,7 @@ async function preservationAndEditing() {
       ),
       [added.id],
     );
-    await page.locator("details.message").last().locator("summary").click();
+    await page.locator("details.message").last().evaluate(el=>el.open=true);
     await page.locator("[data-action=delete-message]").last().click();
     assert.equal(await page.locator("details.message").count(), 1);
     const removed = (await downloadData(page)).Default["@fixture"].$AccountWide;
@@ -787,9 +787,13 @@ async function timelineOrderingAndPoolPreview(){
  assert.equal(await page.locator('.clock-control .clock-zone').first().textContent(),'ET');
  const second=page.locator('.reminder[data-row="row-two"]');
  await second.locator('[data-field=label]').fill('Start till 2 days before');assert.equal(await second.locator('.heading h3').textContent(),'2. Start till 2 days before');
+ await second.locator('.row-advanced').evaluate(el=>el.open=true);
  await second.locator('[data-field=label]').fill('');assert.equal(await second.locator('.heading h3').textContent(),'2. Reminder');await second.locator('[data-field=label]').fill('Second');
  await second.locator('[data-field="start.minutes"]').fill('-180');await second.locator('[data-field="finish.minutes"]').fill('-120');await second.locator('[data-action=save]').click();
  assert.equal(await page.locator('.reminder').first().getAttribute('data-row'),'row-two',await page.locator('#status').textContent());
+ await page.waitForFunction(()=>{const el=document.querySelector('.reminder[data-row="row-two"]');const r=el.getBoundingClientRect();return r.top>=0&&r.top<innerHeight;});
+ assert.equal(await second.locator('.row-advanced').evaluate(el=>el.open),true,'keep the edited reminder expanded after reordering');
+ assert.equal(await second.locator('[data-field=label]').evaluate(el=>el===document.activeElement),true);
  await second.locator('[data-field="finish.minutes"]').fill('-90');assert.match(await page.locator('#timeline-conflicts').textContent(),/Overlapping periods.*Second.*First/);
  await second.locator('[data-action=save]').click();assert.match(await page.locator('#status').textContent(),/Overlapping periods/);
  await second.locator('[data-field="finish.minutes"]').fill('-120');
