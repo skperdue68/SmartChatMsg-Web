@@ -786,6 +786,8 @@ async function timelineOrderingAndPoolPreview(){
  assert.equal(await page.locator('[data-field=eventTime]').locator('..').getAttribute('class'),'clock-control');
  assert.equal(await page.locator('.clock-control .clock-zone').first().textContent(),'ET');
  const second=page.locator('.reminder[data-row="row-two"]');
+ await second.locator('[data-field=label]').fill('Start till 2 days before');assert.equal(await second.locator('.heading h3').textContent(),'2. Start till 2 days before');
+ await second.locator('[data-field=label]').fill('');assert.equal(await second.locator('.heading h3').textContent(),'2. Reminder');await second.locator('[data-field=label]').fill('Second');
  await second.locator('[data-field="start.minutes"]').fill('-180');await second.locator('[data-field="finish.minutes"]').fill('-120');await second.locator('[data-action=save]').click();
  assert.equal(await page.locator('.reminder').first().getAttribute('data-row'),'row-two',await page.locator('#status').textContent());
  await second.locator('[data-field="finish.minutes"]').fill('-90');assert.match(await page.locator('#timeline-conflicts').textContent(),/Overlapping periods.*Second.*First/);

@@ -577,6 +577,9 @@ function renderDetail() {
     .querySelectorAll(".reminder")
     .forEach((card) => {
       const r = rows.find((r) => r.id === card.dataset.row);
+      const labelInput=card.querySelector('[data-field=label]'),heading=card.querySelector('.heading h3');
+      heading.setAttribute('aria-live','polite');
+      labelInput.addEventListener('input',()=>{heading.textContent=`${rows.indexOf(r)+1}. ${labelInput.value.trim()||'Reminder'}`;});
       function bindAnchorSelectors() {
         card.querySelectorAll('select[data-field$=".kind"]').forEach(
           (sel) =>
