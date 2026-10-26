@@ -381,6 +381,32 @@ export function reminderWindows(schedule, eventAtUtc, options = {}) {
       : [{ row, start, end, eventAtUtc }];
   });
 }
+// Resolve with the same anchors as delivery; do not compare DAY/MARK text.
+export function orderedReminderRows(schedule, eventAtUtc = scheduleEventUtc(schedule)) {
+  const starts = new Map(reminderWindows(schedule,eventAtUtc,{uncapped:true}).map(w=>[w.row.id,w.start]));
+  return values(schedule.reminders).slice().sort((a,b)=>(starts.get(a.id)??Infinity)-(starts.get(b.id)??Infinity));
+}
+export function timelineConflicts(schedule) {
+  const anchor=scheduleEventUtc(schedule);
+  if(!Number.isFinite(anchor))return [];
+  // Include the anchor and recurring occurrences across a complete DST cycle.
+  const occurrences=[...new Set([anchor,...projectedOccurrences(schedule,anchor,anchor+400*86400)])];
+  const windows=occurrences.flatMap(at=>reminderWindows(schedule,at)).sort((a,b)=>a.start-b.start);
+  const conflicts=[],seen=new Set();let active=[];
+  for(const current of windows){
+    active=active.filter(w=>w.row.once?w.start>=current.start:w.end>current.start);
+    for(const previous of active){
+      // Once announcements are points; their retry grace is not a window.
+      const overlaps=previous.row.once?previous.start===current.start:previous.end>current.start;
+      if(!overlaps)continue;
+      const key=[previous.row.id,current.row.id].sort().join('|');
+      if(seen.has(key))continue;seen.add(key);
+      conflicts.push({first:previous.row,second:current.row,start:current.start,end:previous.row.once||current.row.once?current.start:Math.min(previous.end,current.end)});
+    }
+    active.push(current);
+  }
+  return conflicts;
+}
 export function eventVariant(schedule, eventAtUtc) {
   const zone = schedule.timeZone || "ET";
   if (schedule.specialPattern === "FACTION_ROTATION") {

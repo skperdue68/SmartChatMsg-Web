@@ -584,7 +584,7 @@ async function legacyMessageIsolation() {
   try {
     assert.equal(await second.page.locator("details.message").count(), 0);
     assert.match(
-      await second.page.locator("[role=alert]").textContent(),
+      await second.page.locator("[role=alert]:visible").textContent(),
       /cannot be resolved/,
     );
     const saved = await downloadData(second.page);
@@ -776,7 +776,30 @@ async function populatedAccountDefault(){
  }finally{await page.close();}
 }
 
+async function timelineOrderingAndPoolPreview(){
+ const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;cfg.runAt='SCHEDULED';
+ const one=cfg.schedule.reminders[1];one.label='First';one.finish.minutes=-60;
+ cfg.schedule.reminders=numeric([one,{...one,id:'row-two',label:'Second',start:{kind:'OFFSET',minutes:-60},finish:{kind:'OFFSET',minutes:0}}]);
+ d.Default['@fixture'].$AccountWide.messages[1].text='Meet %guild% %eventwhen% at %eventtime% (%eventcountdown%).';
+ const {page,errors}=await open(d);
+ try{
+ assert.equal(await page.locator('[data-field=eventTime]').locator('..').getAttribute('class'),'clock-control');
+ assert.equal(await page.locator('.clock-control .clock-zone').first().textContent(),'ET');
+ const second=page.locator('.reminder[data-row="row-two"]');
+ await second.locator('[data-field="start.minutes"]').fill('-180');await second.locator('[data-field="finish.minutes"]').fill('-120');await second.locator('[data-action=save]').click();
+ assert.equal(await page.locator('.reminder').first().getAttribute('data-row'),'row-two',await page.locator('#status').textContent());
+ await second.locator('[data-field="finish.minutes"]').fill('-90');assert.match(await page.locator('#timeline-conflicts').textContent(),/Overlapping periods.*Second.*First/);
+ await second.locator('[data-action=save]').click();assert.match(await page.locator('#status').textContent(),/Overlapping periods/);
+ await second.locator('[data-field="finish.minutes"]').fill('-120');
+ const pool=second.locator('.pool label').first();await pool.hover();assert.match(await page.locator('#pool-preview p').textContent(),/Meet alpha/);assert.doesNotMatch(await page.locator('#pool-preview p').textContent(),/%event(time|when|countdown)%/);assert.match(await page.locator('#pool-preview small').textContent(),/%eventtime%/);
+ await pool.locator('input').focus();assert.equal(await page.locator('#pool-preview').count(),1);await page.keyboard.press('Escape');assert.equal(await page.locator('#pool-preview').count(),0);
+ const saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
+ assert.equal(saved.reminders[1].id,'row-two');assert.equal(saved.reminders[1].finish.minutes,-120,'rejected overlap never changed saved data');assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 try {
+  await timelineOrderingAndPoolPreview();
   await populatedAccountDefault();
   await dayTimeline();
   await clocksOccurrenceStatesAndHelp();
