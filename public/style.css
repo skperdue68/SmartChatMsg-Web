@@ -627,7 +627,7 @@ label.check>.help-icon{flex:none;margin-left:4px}
 
 .effective-reminder-time{font-size:11px;line-height:1.6;color:var(--muted);margin:0 0 14px}.effective-reminder-time.invalid{color:#e7ab94}
 
-.day-navigation{margin:10px 0 16px}.day-navigation .help{flex:1;margin:0}
+.day-navigation{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:10px;align-items:center;margin:10px 0 12px}.day-date-controls{grid-column:2;display:flex;justify-content:center;gap:10px;flex-wrap:wrap}.day-navigation>[data-day-undo]{grid-column:3;justify-self:end}.day-instructions{margin:0 0 12px}
 .day-context{position:absolute;top:0;bottom:0;background:#b894501b;pointer-events:none;border-inline:1px dashed #b8945060}
 .day-editable{cursor:grab;touch-action:none;user-select:none;padding-inline:12px}.day-editable.day-dragging{cursor:grabbing;outline:2px solid #f6d48c;z-index:4}
 .day-resize{position:absolute;top:0;bottom:0;width:9px;cursor:ew-resize;background:#ffffff25}.day-resize.start{left:0}.day-resize.finish{right:0}.day-resize:focus{outline:2px solid white;outline-offset:-2px}
@@ -641,6 +641,9 @@ label.check>.help-icon{flex:none;margin-left:4px}
 .reminder-type .help-bubble{top:calc(100% + 7px);left:auto;right:0;text-transform:none;letter-spacing:normal;text-align:left}
 .reminder-type:hover .help-bubble,.reminder-type:focus .help-bubble,.reminder-type.show-help .help-bubble{display:block}
 .important-time-guide{margin:12px 0 18px;padding:10px;border:1px solid var(--line);border-radius:6px;font-size:13px}.important-time-guide summary{cursor:pointer;color:var(--muted)}.important-time-guide li{margin:8px 0;line-height:1.6}
-#snapshot-help{vertical-align:middle}#snapshot-help .help-bubble{left:auto;right:0}
+.snapshot-control{position:relative}
+.snapshot-control .help-bubble{top:calc(100% + 8px);left:auto;right:0;text-align:left;white-space:normal;cursor:default}
+.snapshot-control:hover .help-bubble,.snapshot-control:focus .help-bubble,.snapshot-control:focus-within .help-bubble{display:block}
+@media(max-width:700px){.day-navigation{grid-template-columns:minmax(0,1fr)}.day-date-controls{grid-column:1}.day-navigation>[data-day-undo]{grid-column:1}}
 
 .grid.mark>.grid,.grid.mark>p{grid-column:1/-1}.mark-key{margin:4px 0;font-size:11px}

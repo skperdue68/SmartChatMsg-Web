@@ -35,8 +35,8 @@
         ><label>Guild<select id="guild"></select></label
         ><label>Guild timezone<select id="guild-timezone"></select></label
         ><span class="spacer"></span
-        ><label class="button"
-          >Load latest snapshot <span id="snapshot-help" class="help-icon" tabindex="0" role="note" aria-label="Optional: load a newer SavedVariables file to preserve recent game cooldowns and usage when downloading your edits.">?<span class="help-bubble">Optional: if ESO saved a newer SmartChatMsg.lua after you opened the editor, load it here before downloading. Your edits are merged with its newer cooldowns and usage history. Conflicting configuration edits stop the download for review. If the file has not changed, you can skip this.</span></span><input
+        ><label class="button snapshot-control" id="latest-snapshot-button" tabindex="0" role="button" aria-label="Load latest snapshot" aria-describedby="snapshot-help-text"
+          >Load latest snapshot<span id="snapshot-help-text" class="help-bubble">Optional: choose the newest copy of SmartChatMsg.lua that ESO saved. The browser reads a separate copy into memory; your current edits stay in place and nothing on disk is changed. When you click Download updated Lua, the editor combines your edits with newer cooldowns and usage from that copy. Configuration conflicts stop the download for review. You receive a new file to install manually while ESO is closed. Skip this if your source file has not changed.</span><input
             id="latest"
             type="file"
             accept=".lua,.txt"
