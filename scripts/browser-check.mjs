@@ -739,7 +739,33 @@ async function clocksOccurrenceStatesAndHelp(){
  }finally{await page.close();}
 }
 
+async function dayTimeline(){
+ const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;
+ cfg.runAt='SCHEDULED';cfg.schedule.eventDurationMinutes=120;
+ cfg.schedule.reminders=numeric([
+ {...cfg.schedule.reminders[1],finish:{kind:'OFFSET',minutes:-60},intervalMinutes:60},
+ {...cfg.schedule.reminders[1],id:'row-two',label:'Closer promotion',start:{kind:'OFFSET',minutes:-60},intervalMinutes:30}
+ ]);
+ const {page,errors}=await open(d);
+ try{
+ await page.locator('[data-view=calendar]').click();
+ await page.locator('#calendar [data-field=date]').fill('2026-10-27');
+ await page.locator('#calendar [data-field=date]').dispatchEvent('change');
+ await page.locator('#calendar [data-field=view]').selectOption('day');
+ assert.equal(await page.locator('.day-hour').count(),24);
+ assert.equal(await page.locator('.day-block').count(),3);
+ assert.equal(await page.locator('.day-actual-event').count(),1);
+ assert.match(await page.locator('.day-actual-event').getAttribute('title'),/8:00 PM.*10:00 PM/);
+ const colors=await page.locator('.day-block:not(.day-actual-event)').evaluateAll(xs=>xs.map(x=>x.style.background));assert.notEqual(colors[0],colors[1]);
+ await page.locator('#calendar [data-field=date]').fill('2026-11-01');await page.locator('#calendar [data-field=date]').dispatchEvent('change');
+ assert.equal(await page.locator('.day-hour').count(),25,'fall DST day has 25 actual hours');
+ await page.locator('#calendar [data-field=date]').fill('2026-10-27');await page.locator('#calendar [data-field=date]').dispatchEvent('change');
+ await page.locator('.day-actual-event').click();assert.equal(await page.locator('#editor').isVisible(),true);assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 try {
+  await dayTimeline();
   await clocksOccurrenceStatesAndHelp();
   await relevantSettingsAndMigration();
   await preservationAndEditing();

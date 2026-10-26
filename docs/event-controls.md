@@ -19,3 +19,10 @@ When Run at is Scheduled, Insert substitution offers event date/day/time/countdo
 Create a named time such as tickets before selecting it as an anchor. You can enter its offset directly or select a date and guild-local clock relative to the next actual occurrence. Date/time selections are saved as offsets, so recurring events carry that important time forward automatically. The interface explains this rather than pretending that an old absolute date repeats forever.
 
 Hosting is configured separately in .env. None of these controls upload SavedVariables to a server or write into ESO's live folders.
+
+
+## Day timeline
+
+In Schedule overview, select **Day timeline**, or click a date heading in Week/Month view. Each announcement window has its own horizontal row so overlapping periods remain visible. Frequency colors distinguish different repeat intervals; hover a block for its exact bounds and click to edit the event. One-time announcements use diamond markers. Actual events use bordered bars covering their configured event duration (or a marker if no duration is set). Existing channel/state/type filters apply.
+
+The axis uses the guild scheduling timezone and normally covers 24 hours. Daylight-saving transition days show their actual 23 or 25 hours, including the repeated hour. Blocks indicate eligibility, not guaranteed delivery times; login, cooldowns, shared pauses and user confirmation still affect sending.

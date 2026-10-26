@@ -945,6 +945,7 @@ function renderCalendar() {
     "view",
     calMode,
     [
+      ["day", "Day timeline"],
       ["week", "Week"],
       ["month", "Month"],
     ],
@@ -994,7 +995,7 @@ function renderCalendar() {
   if (!Number.isFinite(+civil)) return;
   if (calMode === "month") civil.setUTCDate(1);
   const days =
-    calMode === "week"
+    calMode === "day" ? 1 : calMode === "week"
       ? 7
       : new Date(
           Date.UTC(civil.getUTCFullYear(), civil.getUTCMonth() + 1, 0),
@@ -1028,13 +1029,13 @@ function renderCalendar() {
         start - 86400 * 32,
         end + 86400 * 32,
       )) {
-        if (calKind === "all" && at >= start && at < end)
+        if (calKind === "all" && at < end && at + Number(e.schedule.eventDurationMinutes || 0)*60 >= start)
           items.push({
             at,
-            end: at,
+            end: at + Number(e.schedule.eventDurationMinutes || 0)*60,
             e,
             label: "Actual event",
-            milestone: true,
+            milestone: !Number(e.schedule.eventDurationMinutes),
             event: true,
           });
         for (const w of model.reminderWindows(e.schedule, at)) {
@@ -1062,6 +1063,7 @@ function renderCalendar() {
       );
     }
   }
+  if(calMode === "day"){renderDayTimeline(items,start,end,zone);return;}
   for (let i = 0; i < days; i++) {
     const date = new Date(civil);
     date.setUTCDate(date.getUTCDate() + i);
@@ -1073,7 +1075,8 @@ function renderCalendar() {
     const day = document.createElement("div");
     day.className = "calendar-day";
     day.dataset.date = key;
-    day.innerHTML = `<b>${esc(date.toLocaleDateString(undefined, { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" }))}</b>`;
+    day.innerHTML = `<button class="day-drilldown" title="Open this day as a wide timeline">${esc(date.toLocaleDateString(undefined, { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" }))}</button>`;
+    day.querySelector('.day-drilldown').onclick=()=>{calDate=key;calMode='day';renderCalendar();};
     for (const item of items.filter(
       (x) => x.at < until && (x.milestone ? x.at >= from : x.end > from),
     )) {
@@ -1123,6 +1126,44 @@ function renderCalendar() {
     }
     $("#calendar-grid").append(day);
   }
+}
+function renderDayTimeline(items,from,until,zone){
+  const root=document.querySelector('#calendar-grid');root.className='day-timeline-scroll';
+  const visible=items.filter(x=>x.at<until&&(x.milestone?x.at>=from:x.end>from));
+  const clock=t=>new Date(t*1000).toLocaleTimeString('en-US',{timeZone:zoneNames[zone],hour:'numeric',minute:'2-digit',timeZoneName:'short'});
+  const x=t=>100*(Math.max(from,Math.min(until,t))-from)/(until-from);
+  const colors=['#397fa8','#9966bb','#318c74','#b27b31','#b65276','#546fba','#8b8634'];
+  const shell=document.createElement('div');shell.className='day-timeline';
+  const header=document.createElement('div');header.className='day-timeline-row day-timeline-header';
+  header.innerHTML='<strong>Event / announcement</strong><div class="day-track"></div>';
+  const ticks=[];for(let t=from;t<until;t+=3600)ticks.push(t);
+  ticks.forEach(t=>{const label=document.createElement('span');label.className='day-hour';label.style.left=x(t)+'%';label.textContent=new Date(t*1000).toLocaleTimeString('en-US',{timeZone:zoneNames[zone],hour:'numeric',hour12:false});label.title=clock(t);header.lastElementChild.append(label);});shell.append(header);
+  const frequencies=[...new Set(visible.filter(x=>!x.event&&!x.milestone).map(x=>Number(x.interval||0)))].sort((a,b)=>a-b);
+  const groups=new Map();visible.forEach(item=>{if(!groups.has(item.e.commandId))groups.set(item.e.commandId,[]);groups.get(item.e.commandId).push(item);});
+  let colorIndex=0;
+  for(const group of groups.values()){
+    group.sort((a,b)=>Number(b.event)-Number(a.event)||a.at-b.at);
+    const hue=colors[colorIndex++%colors.length];
+    for(const item of group){
+      const row=document.createElement('div');row.className='day-timeline-row';
+      const label=document.createElement('div');label.className='day-row-label';label.innerHTML=`<strong>${esc(item.e.command.name)}</strong><small>${esc(item.label)}</small>`;
+      const track=document.createElement('div');track.className='day-track';
+      ticks.forEach(t=>{const line=document.createElement('span');line.className='day-gridline';line.style.left=x(t)+'%';track.append(line);});
+      const button=document.createElement('button');button.className='day-block'+(item.milestone?' day-milestone':'')+(item.event?' day-actual-event':'');
+      button.style.left=x(item.at)+'%';button.style.width=(item.milestone?0:Math.max(.3,x(item.end)-x(item.at)))+'%';
+      // Each frequency gets a stable color, so a changed cadence is visible.
+      const frequency=Number(item.interval||0);button.style.background=item.event?hue:item.milestone?'#b58a3b':`hsl(${(frequencies.indexOf(frequency)*137.508+205)%360} 45% 38%)`;
+      const frequencyText=item.event?'Event in progress':item.milestone?'Once':`Every ${frequency} minutes`;
+      const detail=`${item.e.command.name} — ${item.label}: ${clock(item.at)}${item.end!==item.at?' – '+clock(item.end):''} · ${frequencyText}`;
+      button.textContent=item.milestone?'◆':frequencyText;button.title=detail;button.setAttribute('aria-label',detail);
+      button.onclick=()=>{selected=item.e.commandId;document.querySelector('[data-view=editor]').click();renderList();};
+      track.append(button);row.append(label,track);shell.append(row);
+      const note=document.createElement('div');note.className='day-row-detail';note.textContent=detail;shell.append(note);
+    }
+  }
+  if(!visible.length){const empty=document.createElement('p');empty.className='empty';empty.textContent='No matching events or announcements on this day.';shell.append(empty);}
+  root.append(shell);
+  const help=document.createElement('p');help.className='help';help.textContent=`Times use ${zone}. Blocks show eligible announcement windows, not guaranteed sends. Each announcement has its own row to keep overlaps visible. Event bars show the configured duration. On daylight-saving transitions, the axis includes the actual 23 or 25 hours (hover hour labels to identify the timezone). Click a block to edit its event.`;root.before(help);
 }
 function anchorText(a, s) {
   if (a.kind === "DAY") return `${a.days} days at ${a.time}`;
