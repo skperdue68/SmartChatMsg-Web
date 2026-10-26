@@ -1,0 +1,600 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  parseSavedVariables,
+  writeSavedVariables,
+  setLuaValue,
+} from "../src/lua-data.js";
+import {
+  cloneSavedData,
+  accounts,
+  events,
+  mergeSavedVariables,
+  projectedOccurrences,
+  reminderWindows,
+} from "../src/model.js";
+const fixture = () =>
+  parseSavedVariables(
+    'SmartChatMsgSavedVars={Default={alpha={["$AccountWide"]={commands={[1]={id="c",name="Event",lastUsedAt=1}},messages={[1]={id="m",commandId="c",guildName="Guild",text="old",useCount=2}},commandGuildSettings={c={guild={schedule={eventDate="2026-03-01"}}}}}},beta={["$AccountWide"]={unknown="keep"}}}}',
+  );
+test("account context and numeric Lua keys survive edits", () => {
+  const data = fixture();
+  assert.equal(accounts(data).length, 2);
+  assert.equal(events(accounts(data)[0])[0].messages.length, 1);
+  setLuaValue(data.Default.alpha.$AccountWide.messages, 2, { id: "m2" });
+  assert.match(writeSavedVariables(cloneSavedData(data)), /\[2\] =/);
+});
+test("three way merge preserves new runtime, unrelated accounts, latest config and conflicts", () => {
+  const b = fixture(),
+    e = cloneSavedData(b),
+    l = cloneSavedData(b);
+  e.Default.alpha.$AccountWide.messages[1].text = "edited";
+  l.Default.alpha.$AccountWide.messages[1].useCount = 8;
+  l.Default.beta.$AccountWide.unknown = "new";
+  let out = mergeSavedVariables(b, e, l);
+  assert.equal(out.conflicts.length, 0);
+  assert.equal(out.data.Default.alpha.$AccountWide.messages[1].useCount, 8);
+  assert.equal(out.data.Default.beta.$AccountWide.unknown, "new");
+  l.Default.alpha.$AccountWide.messages[1].text = "other";
+  out = mergeSavedVariables(b, e, l);
+  assert.equal(out.conflicts.length, 1);
+  assert.equal(out.data.Default.alpha.$AccountWide.messages[1].text, "other");
+});
+test("weekly event civil clock survives DST while gap is skipped", () => {
+  let s = {
+    eventDate: "2026-03-01",
+    eventTime: "08:00 PM",
+    timeZone: "ET",
+    recurrence: "WEEKLY",
+  };
+  const r = projectedOccurrences(
+    s,
+    Date.parse("2026-03-01Z") / 1000,
+    Date.parse("2026-03-16Z") / 1000,
+  );
+  assert.equal(r.length, 3);
+  assert.equal(r[1] - r[0], 7 * 86400 - 3600);
+  s = { ...s, eventTime: "02:30 AM" };
+  assert.equal(
+    projectedOccurrences(
+      s,
+      Date.parse("2026-03-01Z") / 1000,
+      Date.parse("2026-03-16Z") / 1000,
+    ).length,
+    2,
+  );
+});
+test("day clock anchors preserve civil dates across DST; offset and marks use elapsed minutes", () => {
+  const at = Date.parse("2026-03-08T12:00:00Z") / 1000,
+    s = {
+      timeZone: "ET",
+      importantTimes: { doors: { offsetMinutes: -30 } },
+      reminders: {
+        1: {
+          id: "a",
+          start: { kind: "DAY", days: -1, time: "08:00 AM" },
+          finish: { kind: "OFFSET", minutes: 0 },
+        },
+        2: {
+          id: "b",
+          start: { kind: "MARK", name: "doors" },
+          once: true,
+          lateMinutes: 5,
+        },
+      },
+    };
+  const windows = reminderWindows(s, at);
+  assert.equal(windows[0].start, Date.parse("2026-03-07T13:00:00Z") / 1000);
+  assert.equal(windows[1].start, at - 1800);
+  assert.equal(windows[1].end, at - 1500);
+});
+test("stable IDs reconcile reordered lists and independent additions", () => {
+  const b = fixture(),
+    e = cloneSavedData(b),
+    l = cloneSavedData(b);
+  e.Default.alpha.$AccountWide.messages[1].text = "edit";
+  const table = l.Default.alpha.$AccountWide.messages;
+  const old = table[1];
+  setLuaValue(table, 1, { id: "new", text: "latest" });
+  setLuaValue(table, 2, old);
+  old.useCount = 99;
+  const out = mergeSavedVariables(b, e, l);
+  assert.equal(out.conflicts.length, 0);
+  assert.equal(out.data.Default.alpha.$AccountWide.messages[2].text, "edit");
+  assert.equal(out.data.Default.alpha.$AccountWide.messages[2].useCount, 99);
+  assert.equal(out.data.Default.alpha.$AccountWide.messages[1].id, "new");
+});
+test("editing runtime fields does not roll runtime back", () => {
+  const b = fixture(),
+    e = cloneSavedData(b);
+  e.Default.alpha.$AccountWide.commands[1].lastUsedAt = 0;
+  const out = mergeSavedVariables(b, e, b);
+  assert.equal(out.data.Default.alpha.$AccountWide.commands[1].lastUsedAt, 1);
+});
+test("duplicate stable IDs produce an explicit conflict", () => {
+  const b = fixture(),
+    e = cloneSavedData(b);
+  setLuaValue(e.Default.alpha.$AccountWide.messages, 2, {
+    id: "m",
+    text: "duplicate",
+  });
+  assert.equal(mergeSavedVariables(b, e, b).conflicts.length, 1);
+});
+import fs from "node:fs";
+import {
+  eventVariant,
+  messagesForReminder,
+  simulateReminder,
+} from "../src/model.js";
+for (const fixture of JSON.parse(
+  fs.readFileSync(
+    new URL("./fixtures/timeline-cases.json", import.meta.url),
+    "utf8",
+  ),
+)) {
+  test(`shared schema: ${fixture.name}`, () => {
+    const at = projectedOccurrences(
+      fixture.schedule,
+      Date.parse(fixture.from) / 1000,
+      Date.parse(fixture.to) / 1000,
+    );
+    assert.deepEqual(
+      at,
+      fixture.events.map((x) => Date.parse(x) / 1000),
+    );
+    if (fixture.windows)
+      assert.deepEqual(
+        reminderWindows(fixture.schedule, at[0]).map((x) => [x.start, x.end]),
+        fixture.windows.map((w) => w.map((x) => Date.parse(x) / 1000)),
+      );
+  });
+}
+test("month final pools keep ALL and fall back to regular; rotation uses civil weeks", () => {
+  const s = {
+      eventDate: "2026-03-01",
+      eventTime: "08:00 PM",
+      timeZone: "ET",
+      recurrence: "WEEKLY",
+      specialPattern: "MONTH_FINAL",
+      messageVariants: { regular: "REGULAR", final: "FINAL", all: "ALL" },
+    },
+    last = Date.parse("2026-03-30T00:00:00Z") / 1000,
+    pool = { 1: { id: "regular" }, 2: { id: "final" }, 3: { id: "all" } };
+  assert.equal(eventVariant(s, last), "FINAL");
+  assert.deepEqual(
+    messagesForReminder(
+      s,
+      { messageIds: { 1: "regular", 2: "all" } },
+      last,
+      pool,
+    ).map((m) => m.id),
+    ["regular", "all"],
+  );
+  assert.deepEqual(
+    messagesForReminder(
+      s,
+      { messageIds: { 1: "regular", 2: "final", 3: "all" } },
+      last,
+      pool,
+    ).map((m) => m.id),
+    ["final", "all"],
+  );
+  assert.equal(
+    eventVariant(
+      {
+        ...s,
+        specialPattern: "FACTION_ROTATION",
+        rotationWeeks: 4,
+        rotationFactions: { 1: "EP", 2: "AD", 3: "DC" },
+      },
+      last,
+    ),
+    "AD",
+  );
+});
+test("timeline usage survives competing config and simulation observes completion", () => {
+  const b = fixture(),
+    e = cloneSavedData(b),
+    l = cloneSavedData(b);
+  const path = (x) =>
+    x.Default.alpha.$AccountWide.commandGuildSettings.c.guild.schedule;
+  path(e).eventDate = "2026-04-01";
+  path(l).timelineUsage = {
+    "123:row": {
+      lastSentAt: 125,
+      nextDueAt: 185,
+      completed: true,
+      peerAt: 128,
+    },
+  };
+  const out = mergeSavedVariables(b, e, l);
+  assert.equal(
+    JSON.stringify(path(out.data).timelineUsage),
+    JSON.stringify(path(l).timelineUsage),
+  );
+  const row = {
+    id: "row",
+    start: { kind: "OFFSET", minutes: 0 },
+    once: true,
+    lateMinutes: 5,
+  };
+  assert.equal(
+    simulateReminder({ timelineUsage: path(l).timelineUsage }, row, 123, 130)
+      .status,
+    "COMPLETE",
+  );
+});
+
+test("competing quoted numeric key types survive edits elsewhere", () => {
+  const b = parseSavedVariables(
+      'SmartChatMsgSavedVars={table={[1]="x",other="old"}}',
+    ),
+    e = cloneSavedData(b),
+    l = parseSavedVariables(
+      'SmartChatMsgSavedVars={table={["1"]="x",other="old"}}',
+    );
+  e.table.other = "edited";
+  const out = mergeSavedVariables(b, e, l);
+  assert.equal(out.conflicts.length, 0);
+  assert.match(writeSavedVariables(out.data), /\["1"\] = "x"/);
+  assert.equal(out.data.table.other, "edited");
+});
+import {
+  legacyToTimeline,
+  rewriteLegacyEventTokens,
+  scheduleEventUtc,
+} from "../src/model.js";
+test("legacy EVENT conversion retains phase periods pools once intervals and variants", () => {
+  const source = {
+      mode: "EVENT",
+      timeZone: "ET",
+      eventDate: "2026-10-27",
+      eventTime: "08:00 PM",
+      startDate: "2026-10-26",
+      startTime: "08:00 PM",
+      endDate: "2026-10-27",
+      endTime: "10:00 PM",
+      recurrence: "WEEKLY",
+      startingSoonEnabled: true,
+      startingSoonMinutes: 60,
+      intervalMinutes: 120,
+      phaseIntervals: { SOON: 15 },
+      phaseOnce: { BEFORE: true },
+      messagePhases: { day: { DAY: true }, soon: { SOON: true } },
+      messageVariants: { any: "FINAL" },
+    },
+    messages = { 1: { id: "any" }, 2: { id: "day" }, 3: { id: "soon" } };
+  const converted = legacyToTimeline(source, messages),
+    rows = Object.values(converted.reminders);
+  assert.deepEqual(
+    rows.map((x) => x.legacyPhase),
+    ["BEFORE", "DAY", "SOON", "LIVE"],
+  );
+  assert.equal(rows[0].onceUntilFinish, true);
+  assert.equal(rows[2].intervalMinutes, 15);
+  assert.deepEqual(Object.values(rows[1].messageIds), ["any", "day"]);
+  assert.deepEqual(Object.values(rows[2].messageIds), ["any", "soon"]);
+  assert.equal(converted.messageVariants.any, "FINAL");
+  assert.equal(
+    reminderWindows(converted, scheduleEventUtc(converted))[0].end -
+      reminderWindows(converted, scheduleEventUtc(converted))[0].start,
+    4 * 3600,
+  );
+  assert.match(writeSavedVariables(converted), /\[1\] =/);
+});
+test("Tuesday Tours combines closest Monday helper preserving civil windows and neutralizing +24h event tokens", () => {
+  const parent = {
+      mode: "EVENT",
+      timeZone: "ET",
+      eventDate: "2026-10-27",
+      eventTime: "08:00 PM",
+      eventAtUtc: 1,
+      recurrence: "WEEKLY",
+    },
+    source = {
+      mode: "WINDOW",
+      timeZone: "ET",
+      startDate: "2026-10-05",
+      startTime: "08:00 PM",
+      endDate: "2026-10-06",
+      endTime: "08:00 PM",
+      recurrence: "WEEKLY",
+      intervalMinutes: 60,
+    },
+    converted = legacyToTimeline(source, { 1: { id: "tour" } }, parent);
+  assert.equal(converted.legacyEventOffsetMinutes, -1440);
+  assert.equal(converted.reminders[1].start.days, -1);
+  assert.equal(converted.reminders[1].finish.days, 0);
+  assert.equal(
+    rewriteLegacyEventTokens(
+      "Tour %eventtime+24h% %eventcountdown+1d% %eventwhen+24h%",
+      converted.legacyEventOffsetMinutes,
+    ),
+    "Tour %eventtime% %eventcountdown% %eventwhen%",
+  );
+  assert.equal(
+    scheduleEventUtc(converted),
+    Date.parse("2026-10-28T00:00:00Z") / 1000,
+  );
+});
+test("legacy REMINDER converts once with two minute expiry and rejects ambiguous periodic alignment", () => {
+  const source = {
+      mode: "REMINDER",
+      timeZone: "ET",
+      startDate: "2026-10-26",
+      startTime: "08:00 PM",
+      recurrence: "NONE",
+    },
+    converted = legacyToTimeline(source, { 1: { id: "m" } });
+  assert.equal(converted.reminders[1].once, true);
+  const at = scheduleEventUtc(converted);
+  assert.equal(reminderWindows(converted, at)[0].end - at, 120);
+  const recurring = { ...source, recurrence: "DAILY" },
+    parent = {
+      ...source,
+      recurrence: "DAILY",
+      startDate: "2026-10-27",
+      startTime: "08:00 AM",
+    };
+  assert.throws(() => legacyToTimeline(recurring, {}, parent), /unambiguous/);
+});
+test("rotation anchor follows edited civil event instead of stale saved UTC", () => {
+  const s = {
+    eventDate: "2026-04-01",
+    eventTime: "08:00 PM",
+    eventAtUtc: Date.parse("2026-03-01T01:00Z") / 1000,
+    timeZone: "ET",
+    specialPattern: "FACTION_ROTATION",
+    rotationWeeks: 4,
+    rotationFactions: { 1: "EP", 2: "AD", 3: "DC" },
+  };
+  assert.equal(eventVariant(s, Date.parse("2026-04-02T00:00Z") / 1000), "EP");
+});
+import {
+  validateTimelineForAddon,
+  mapLegacyTimelineUsage,
+} from "../src/model.js";
+test("addon validator rejects invalid IDs intervals marks gaps and backward periods", () => {
+  const source = {
+      mode: "REMINDER",
+      timeZone: "ET",
+      startDate: "2026-10-26",
+      startTime: "08:00 PM",
+      recurrence: "NONE",
+    },
+    good = legacyToTimeline(source, { 1: { id: "m" } });
+  assert.deepEqual(validateTimelineForAddon(good), []);
+  const bad = cloneSavedData(good);
+  bad.reminders[1].intervalMinutes = 0;
+  bad.reminders[1].lateMinutes = 0;
+  bad.reminders[1].start = { kind: "OFFSET", minutes: 0.5 };
+  bad.importantTimes.Doors = { offsetMinutes: 1 };
+  assert.ok(validateTimelineForAddon(bad).length >= 4);
+  const gap = cloneSavedData(good);
+  gap.eventDate = "2026-03-08";
+  gap.eventTime = "02:30 AM";
+  assert.ok(validateTimelineForAddon(gap).some((x) => x.includes("daylight")));
+});
+test("legacy completed once markers map into actual parent rows and survive latest merge", () => {
+  const parent = {
+      mode: "EVENT",
+      timeZone: "ET",
+      eventDate: "2026-10-27",
+      eventTime: "08:00 PM",
+      recurrence: "WEEKLY",
+    },
+    source = {
+      mode: "REMINDER",
+      timeZone: "ET",
+      startDate: "2026-10-26",
+      startTime: "08:00 PM",
+      recurrence: "WEEKLY",
+    },
+    sourceAt = scheduleEventUtc(source);
+  source.completedOccurrences = { [sourceAt + ":ANY"]: true };
+  const converted = legacyToTimeline(source, { 1: { id: "m" } }, parent),
+    targetAt = scheduleEventUtc(parent),
+    row = converted.reminders[1];
+  assert.equal(
+    converted.timelineUsage[targetAt + ":" + row.id].completed,
+    true,
+  );
+  const b = parseSavedVariables("SmartChatMsgSavedVars={schedule={}}");
+  b.schedule = cloneSavedData(source);
+  const e = cloneSavedData(b);
+  e.schedule = converted;
+  const latest = cloneSavedData(b);
+  latest.schedule.nextDueAt = 999;
+  const merged = mergeSavedVariables(b, e, latest);
+  assert.equal(
+    merged.data.schedule.timelineUsage[targetAt + ":" + row.id].completed,
+    true,
+  );
+  assert.equal(merged.data.schedule.nextDueAt, 999);
+  const roundtrip = parseSavedVariables(writeSavedVariables(merged.data));
+  assert.equal(
+    roundtrip.schedule.timelineUsage[targetAt + ":" + row.id].completed,
+    true,
+  );
+});
+test("mapping last confirmed send and peer cooldown prevents replay of converted once period", () => {
+  const source = {
+      mode: "WINDOW",
+      timeZone: "ET",
+      startDate: "2026-10-26",
+      startTime: "08:00 PM",
+      endDate: "2026-10-27",
+      endTime: "08:00 PM",
+      recurrence: "WEEKLY",
+      phaseOnce: { ANY: true },
+      intervalMinutes: 60,
+    },
+    last = Date.parse("2026-10-27T01:00:00Z") / 1000,
+    converted = legacyToTimeline(source, { 1: { id: "m" } });
+  mapLegacyTimelineUsage(source, converted, {
+    lastUsedAt: last,
+    observedChatCooldowns: { peer: { at: last, delaySeconds: 90 } },
+  });
+  const usage = Object.values(converted.timelineUsage)[0];
+  assert.equal(usage.completed, true);
+  assert.equal(usage.lastSentAt, last);
+  assert.equal(usage.peerAt, last);
+  assert.equal(usage.nextDueAt, last + 3690);
+});
+test("guild-slot inference includes nameless messages only with a unique named identity", () => {
+  const b = fixture(),
+    account = b.Default.alpha.$AccountWide;
+  setLuaValue(account.messages, 2, {
+    id: "bare",
+    commandId: "c",
+    guildIndex: 2,
+  });
+  account.messages[1].guildIndex = 2;
+  assert.equal(events(account)[0].messages.length, 2);
+  account.commandGuildSettings.c.guild.lastUsedGuildIndex = 3;
+  const e = events(account)[0];
+  assert.equal(e.messages.length, 1);
+  assert.equal(e.ambiguousGuildIndex, true);
+  assert.equal(e.warnings.length, 1);
+});
+test("combination rejects incompatible recurrence cadence", () => {
+  const source = {
+      mode: "REMINDER",
+      startDate: "2026-10-26",
+      startTime: "08:00 PM",
+      timeZone: "ET",
+      recurrence: "DAILY",
+    },
+    parent = { ...source, recurrence: "WEEKLY" };
+  assert.throws(() => legacyToTimeline(source, {}, parent), /cadences/);
+});
+test("combining into an existing timeline preserves migrated new-row usage while latest owns existing-row usage", () => {
+  const source = {
+      mode: "REMINDER",
+      timeZone: "ET",
+      startDate: "2026-10-26",
+      startTime: "08:00 PM",
+      recurrence: "WEEKLY",
+    },
+    parent = legacyToTimeline(source, { 1: { id: "m" } }),
+    at = scheduleEventUtc(parent),
+    oldRow = parent.reminders[1];
+  parent.timelineUsage = { [at + ":" + oldRow.id]: { lastSentAt: 10 } };
+  const base = { schedule: parent },
+    edited = cloneSavedData(base),
+    helper = { ...source, completedOccurrences: { [at + ":ANY"]: true } },
+    converted = legacyToTimeline(helper, { 1: { id: "helper" } }, parent),
+    newRow = converted.reminders[1];
+  setLuaValue(edited.schedule.reminders, 2, newRow);
+  Object.assign(edited.schedule.timelineUsage, converted.timelineUsage);
+  edited.schedule.timelineUsage[at + ":" + oldRow.id] = { lastSentAt: 0 };
+  const latest = cloneSavedData(base);
+  latest.schedule.timelineUsage[at + ":" + oldRow.id].lastSentAt = 20;
+  const out = mergeSavedVariables(base, edited, latest);
+  assert.equal(
+    out.data.schedule.timelineUsage[at + ":" + oldRow.id].lastSentAt,
+    20,
+  );
+  assert.equal(
+    out.data.schedule.timelineUsage[at + ":" + newRow.id].completed,
+    true,
+  );
+});
+test("latest completion and confirmed send arriving after conversion are mapped before export", () => {
+  const legacy = {
+      mode: "REMINDER",
+      startDate: "2026-10-26",
+      startTime: "08:00 PM",
+      timeZone: "ET",
+      recurrence: "NONE",
+    },
+    at = scheduleEventUtc(legacy),
+    base = { settings: { schedule: legacy } },
+    edited = cloneSavedData(base);
+  edited.settings.schedule = legacyToTimeline(legacy, { 1: { id: "m" } });
+  const latest = cloneSavedData(base);
+  latest.settings.schedule.completedOccurrences = { [at + ":ANY"]: true };
+  latest.settings.lastUsedAt = at + 10;
+  const out = mergeSavedVariables(base, edited, latest),
+    row = out.data.settings.schedule.reminders[1],
+    usage = out.data.settings.schedule.timelineUsage[at + ":" + row.id];
+  assert.equal(out.conflicts.length, 0);
+  assert.equal(usage.completed, true);
+  assert.equal(usage.lastSentAt, at + 10);
+  assert.equal(
+    parseSavedVariables(writeSavedVariables(out.data)).settings.schedule
+      .timelineUsage[at + ":" + row.id].completed,
+    true,
+  );
+});
+test("latest helper completion is mapped into newly consolidated row on an existing parent timeline", () => {
+  const base = fixture(),
+    account = base.Default.alpha.$AccountWide,
+    parentLegacy = {
+      mode: "REMINDER",
+      startDate: "2026-10-26",
+      startTime: "08:00 PM",
+      timeZone: "ET",
+      recurrence: "WEEKLY",
+    },
+    parent = legacyToTimeline(parentLegacy, { 1: { id: "m" } }),
+    source = { ...parentLegacy };
+  account.commandGuildSettings.c.guild.schedule = parent;
+  account.commandGuildSettings.helper = { guild: { schedule: source } };
+  const edited = cloneSavedData(base),
+    target =
+      edited.Default.alpha.$AccountWide.commandGuildSettings.c.guild.schedule,
+    converted = legacyToTimeline(
+      source,
+      { 1: { id: "helper-message" } },
+      target,
+    ),
+    row = converted.reminders[1];
+  row.legacySourceCommandId = "helper";
+  row.legacySourceRowId = row.id;
+  setLuaValue(target.reminders, 2, row);
+  target.legacyTimelineBackup.merged = {
+    helper: {
+      settings: cloneSavedData(account.commandGuildSettings.helper.guild),
+      legacyEventOffsetMinutes: converted.legacyEventOffsetMinutes,
+    },
+  };
+  const latest = cloneSavedData(base),
+    at = scheduleEventUtc(source);
+  latest.Default.alpha.$AccountWide.commandGuildSettings.helper.guild.schedule.completedOccurrences =
+    { [at + ":ANY"]: true };
+  latest.Default.alpha.$AccountWide.commandGuildSettings.helper.guild.lastUsedAt =
+    at + 10;
+  const out = mergeSavedVariables(base, edited, latest),
+    usage =
+      out.data.Default.alpha.$AccountWide.commandGuildSettings.c.guild.schedule
+        .timelineUsage[at + ":" + row.id];
+  assert.equal(out.conflicts.length, 0);
+  assert.equal(usage.completed, true);
+  assert.equal(usage.lastSentAt, at + 10);
+});
+test("monthly consolidation rejects calendar days and ordinal weekdays that lose occurrences", () => {
+  const source = {
+      mode: "REMINDER",
+      startDate: "2026-03-30",
+      startTime: "08:00 PM",
+      timeZone: "ET",
+      recurrence: "MONTHLY_DATE",
+    },
+    parent = { ...source, startDate: "2026-03-31" };
+  assert.throws(
+    () => legacyToTimeline(source, {}, parent),
+    /same calendar day/,
+  );
+  assert.throws(
+    () =>
+      legacyToTimeline(
+        { ...source, recurrence: "MONTHLY_WEEKDAY" },
+        {},
+        { ...parent, recurrence: "MONTHLY_WEEKDAY" },
+      ),
+    /same ordinal weekday/,
+  );
+});
+test('a legacy WINDOW parent keeps its technical Monday anchor after actual-event editing to Tuesday',()=>{const source={mode:'WINDOW',timeZone:'ET',startDate:'2026-10-26',startTime:'08:00 PM',endDate:'2026-10-27',endTime:'01:00 PM',eventDate:'2026-10-27',eventTime:'08:00 PM',recurrence:'WEEKLY'},converted=legacyToTimeline(source,{1:{id:'m'}}),row=converted.reminders[1],at=scheduleEventUtc(converted);assert.equal(converted.legacyEventOffsetMinutes,-1440);assert.equal(row.start.days,-1);assert.equal(row.finish.days,0);assert.equal(row.finish.time,'01:00 PM');assert.equal(rewriteLegacyEventTokens('%eventtime+24h% %eventcountdown+1d%',converted.legacyEventOffsetMinutes),'%eventtime% %eventcountdown%');assert.equal(reminderWindows(converted,at)[0].start,Date.parse('2026-10-27T00:00:00Z')/1000);});
+test('latest completed WINDOW phase maps from technical start after temporary conversion offset is removed',()=>{const source={mode:'WINDOW',timeZone:'ET',startDate:'2026-10-26',startTime:'08:00 PM',endDate:'2026-10-27',endTime:'01:00 PM',eventDate:'2026-10-27',eventTime:'08:00 PM',recurrence:'WEEKLY',phaseOnce:{ANY:true}},base={settings:{schedule:source}},edited=cloneSavedData(base),converted=legacyToTimeline(source,{1:{id:'m'}});delete converted.legacyEventOffsetMinutes;edited.settings.schedule=converted;const latest=cloneSavedData(base),technical=Date.parse('2026-10-27T00:00:00Z')/1000;latest.settings.schedule.completedOccurrences={[technical+':ANY']:true};const out=mergeSavedVariables(base,edited,latest),result=out.data.settings.schedule,key=scheduleEventUtc(result)+':'+result.reminders[1].id;assert.equal(out.conflicts.length,0);assert.equal(result.timelineUsage[key].completed,true);});
