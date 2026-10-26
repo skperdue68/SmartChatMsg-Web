@@ -1,4 +1,4 @@
-import { validateTimelineForAddon } from "/model.js";
+import { validateTimelineForAddon, cloneSavedData, events, timelineConflicts, orderedReminderRows } from "/model.js";
 import { setLuaValue } from "/lua-data.js";
 const values = (x) => Object.values(x || {});
 const scheduleKeys = [
@@ -325,4 +325,120 @@ export function stageImport(p, event, existingMessages, guild) {
     schedule: s,
     messages: newMessages,
   };
+}
+
+const commandKeys=['runAt','reminderMinutes','reminderRetryMinutes','autoPopulateCooldownMinutes','autoPopulateOnZone','openStatusPanelOnRun','populateSound'];
+const normalized=value=>String(value||'').trim().toLowerCase();
+function commandConfig(source={}){
+  const result={};
+  for(const key of commandKeys)if(source[key]!==undefined){
+    const v=source[key];
+    if(key==='runAt'&&!['SCHEDULED','ON_DEMAND','STARTUP'].includes(v))throw Error('Invalid Run at setting.');
+    if(key==='populateSound'&&(typeof v!=='string'||v.length>200))throw Error('Invalid notification sound.');
+    if(['autoPopulateOnZone','openStatusPanelOnRun'].includes(key)&&typeof v!=='boolean')throw Error('Invalid command option.');
+    if(key.endsWith('Minutes'))num(v,key,0,5256000);
+    result[key]=v;
+  }
+  return result;
+}
+export function exportEventBundle(account,guild,selectedIds){
+  const chosen=new Set(selectedIds),items=[];
+  for(const event of events(account).filter(e=>(guild===null||normalized(e.guild)===normalized(guild))&&(chosen.has(e.commandId)||chosen.has(e.commandId+'|'+normalized(e.guild)))&&!e.schedule.mergedInto)){
+    if(event.command.locked)continue;
+    const messages=event.messages.filter(m=>!m.locked);
+    const settings=commandConfig(event.settings),scheduled=settings.runAt==='SCHEDULED';
+    if(scheduled&&event.schedule.timelineVersion!==1)throw Error('Convert legacy event before sharing: '+event.command.name);
+    const portable=scheduled?portableEvent(event,messages):null;
+    items.push({eventName:event.command.name,guild:event.guild,settings,outputChannel:account.chatChannels?.[event.commandId]?.[event.guild]||'Guild',schedule:portable?.schedule||null,messages:portable?.messages||messages.map(m=>({id:m.id,text:m.text,variant:'ALL'}))});
+  }
+  if(!items.length)throw Error('Select at least one exportable event.');
+  return {format:'SmartChatMsgEvents',version:1,items};
+}
+export function readEventBundle(document){
+  if(document?.format==='SmartChatMsgTimeline'){
+    const p=validatePortable(document);
+    document={format:'SmartChatMsgEvents',version:1,items:[{eventName:p.eventName,guild:p.guild,settings:{runAt:'SCHEDULED'},schedule:p.schedule,messages:p.messages}]};
+  }
+  exact(document,['format','version','items'],'event bundle');
+  if(document.format!=='SmartChatMsgEvents'||document.version!==1||!Array.isArray(document.items)||document.items.length<1||document.items.length>1000)throw Error('Choose a SmartChatMsg event export.');
+  const seen=new Set();
+  return {format:document.format,version:1,items:document.items.map(item=>{
+    exact(item,['eventName','guild','settings','outputChannel','schedule','messages'],'event');
+    text(item.eventName,'event name',200);text(item.guild,'guild name',200);
+    const key=normalized(item.guild)+'|'+normalized(item.eventName);if(seen.has(key))throw Error('Duplicate guild/event name in import: '+item.eventName);seen.add(key);
+    exact(item.settings,commandKeys,'command settings');const settings=commandConfig(item.settings);
+    if(item.outputChannel!==undefined&&!['Guild','Officer','Zone','Group'].includes(item.outputChannel))throw Error('Invalid output channel.');
+    let schedule=null,messages=item.messages;
+    if(settings.runAt==='SCHEDULED'){
+      const p=validatePortable({format:'SmartChatMsgTimeline',version:1,eventName:item.eventName,guild:item.guild,schedule:item.schedule,messages:item.messages});schedule=p.schedule;
+    }else{
+      if(!['ON_DEMAND','STARTUP'].includes(settings.runAt)||item.schedule!==null)throw Error('Invalid command/event schedule.');
+      if(!Array.isArray(messages)||messages.length>10000)throw Error('Invalid messages.');
+      const ids=new Set();messages=messages.map(m=>{exact(m,['id','text','variant'],'message');text(m.id,'message ID');text(m.text,'message text',100000);if(ids.has(m.id))throw Error('Duplicate message ID.');ids.add(m.id);return {id:m.id,text:m.text,variant:'ALL'};});
+    }
+    return {...item,settings,schedule,messages};
+  })};
+}
+function knownGuilds(account){
+  const result=new Map();
+  const add=name=>{if(name&&!/^\d+$/.test(name)&&!result.has(normalized(name)))result.set(normalized(name),name);};
+  events(account).forEach(e=>add(e.guild));values(account.messages).forEach(m=>add(m.guildName));
+  Object.keys(account.guildSchedulingTimeZones||{}).forEach(add);
+  return result;
+}
+export function reviewEventImport(document,account){
+  const bundle=readEventBundle(document),guilds=knownGuilds(account);
+  return bundle.items.map((entry,index)=>{
+    const guild=guilds.get(normalized(entry.guild));
+    const matches=values(account.commands).filter(c=>normalized(c.name)===normalized(entry.eventName));
+    let reason=!guild?'No such guild: '+entry.guild:matches.length>1?'Ambiguous command name':matches[0]?.locked?'Local command is locked':null;
+    const zone=account.guildSchedulingTimeZones?.[guild]||account.schedulingTimeZone||'ET';
+    if(!reason&&entry.schedule?.timeZone!==undefined&&entry.schedule.timeZone!==zone)reason='Timezone differs: import '+entry.schedule.timeZone+', destination '+zone;
+    if(!reason&&entry.schedule&&timelineConflicts(entry.schedule).length)reason='Announcement periods overlap; correct the source event first.';
+    return {index,entry,guild,commandId:matches[0]?.id,action:reason?'Skip':matches[0]&&account.commandGuildSettings?.[matches[0].id]?.[guild]?'Update':'Create',reason};
+  });
+}
+export function importEventBundle(account,document,selectedIndices){
+  const result=cloneSavedData(account),selection=new Set(selectedIndices),review=reviewEventImport(document,result),applied=[],skipped=[];
+  if([...selection].some(i=>!Number.isInteger(i)||i<0||i>=review.length))throw Error('Invalid import selection.');
+  const append=(table,value)=>setLuaValue(table,Math.max(0,...Object.keys(table).map(Number).filter(Number.isFinite))+1,value);
+  result.commands??={};result.messages??={};result.commandGuildSettings??={};result.chatChannels??={};
+  for(const record of review){
+    if(!selection.has(record.index))continue;
+    if(record.reason){skipped.push(record.entry.eventName+': '+record.reason);continue;}
+    const {entry,guild}=record;let commandId=record.commandId||values(result.commands).find(c=>normalized(c.name)===normalized(entry.eventName))?.id;
+    if(!commandId){commandId=crypto.randomUUID();append(result.commands,{id:commandId,name:entry.eventName});}
+    result.commandGuildSettings[commandId]??={};
+    const settings=result.commandGuildSettings[commandId][guild]??={},prior=settings.schedule||{},destination=events(result).find(e=>e.commandId===commandId&&normalized(e.guild)===normalized(guild)),oldMessages=destination?.messages||[];
+    const guildSlots=new Set(values(result.messages).filter(m=>normalized(m.guildName)===normalized(guild)&&Number.isInteger(m.guildIndex)).map(m=>m.guildIndex));
+    const guildIndex=destination?.guildIndex??(guildSlots.size===1?[...guildSlots][0]:undefined);
+    const messageIds=new Map(),variantsByMessage=new Map(oldMessages.map(m=>[m.id,prior.messageVariants?.[m.id]||'ALL']));
+    for(const incoming of entry.messages){
+      let message=oldMessages.find(m=>m.id===incoming.id&&!m.locked)||oldMessages.find(m=>m.text===incoming.text&&variantsByMessage.get(m.id)===incoming.variant);
+      if(!message){const id=values(result.messages).some(m=>m.id===incoming.id)?crypto.randomUUID():incoming.id;message={id,commandId,guildName:guild,useCount:0,...(guildIndex!==undefined?{guildIndex}:{})};append(result.messages,message);oldMessages.push(message);}
+      if(!message.locked)message.text=incoming.text;
+      messageIds.set(incoming.id,message.id);variantsByMessage.set(message.id,incoming.variant);
+    }
+    Object.assign(settings,entry.settings);
+    if(entry.schedule){
+      const schedule=cloneSavedData(entry.schedule),oldRows=values(prior.reminders);
+      const rowIds=new Set();
+      for(const row of values(schedule.reminders)){
+        const matches=oldRows.filter(old=>old.id===row.id||(old.label===row.label&&JSON.stringify(old.start)===JSON.stringify(row.start)&&JSON.stringify(old.finish)===JSON.stringify(row.finish)&&old.once===row.once));
+        if(matches.length===1&&!rowIds.has(matches[0].id))row.id=matches[0].id;if(rowIds.has(row.id))row.id=crypto.randomUUID();rowIds.add(row.id);
+        const privateIds=matches.length===1?values(matches[0].messageIds).filter(id=>oldMessages.some(m=>m.id===id&&m.locked)):[];
+        row.messageIds=array([...new Set([...values(row.messageIds).map(id=>messageIds.get(id)),...privateIds])]);
+      }
+      schedule.messageVariants={...(prior.messageVariants||{}),...Object.fromEntries(entry.messages.filter(m=>!oldMessages.find(local=>local.id===messageIds.get(m.id))?.locked).map(m=>[messageIds.get(m.id),m.variant]))};
+      schedule.reminders=array(orderedReminderRows(schedule));
+      settings.schedule={...prior,...schedule};
+      delete settings.schedule.mergedInto;
+      // An imported duration can explicitly clear the old optional cap.
+      if(schedule.eventDurationMinutes===undefined)delete settings.schedule.eventDurationMinutes;
+      const errors=validateTimelineForAddon(settings.schedule);if(errors.length)throw Error(errors.join(' '));
+    }
+    if(entry.outputChannel){result.chatChannels[commandId]??={};result.chatChannels[commandId][guild]=entry.outputChannel;}
+    applied.push(entry.eventName+' / '+guild);
+  }
+  return {account:result,applied,skipped};
 }

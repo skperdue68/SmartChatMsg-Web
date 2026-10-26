@@ -616,3 +616,11 @@ input[readonly],textarea[readonly]{background:rgba(255,255,255,.025);border-styl
 .field-caption .help-icon{margin:0;flex:none}
 .grid>label{align-self:start}
 .event-settings #event-clock-options{margin-top:0;align-self:end}
+
+.sharing-panel{padding:18px 0 24px;border-bottom:1px solid var(--line);margin-bottom:18px}
+.sharing-panel>.actions{margin:12px 0}.sharing-list{max-height:360px;overflow:auto;margin:14px 0;border:1px solid var(--line);border-radius:6px}
+.sharing-list>label{padding:12px;border-bottom:1px solid var(--line);align-items:flex-start}.sharing-list>label:last-child{border-bottom:0}.sharing-list small{display:block;color:var(--muted);margin-top:4px}
+#legacy-transfer{margin-top:24px;padding:14px;border:1px solid var(--line);border-radius:6px}#legacy-transfer>summary{cursor:pointer;color:var(--muted)}
+
+.help-bubble{background:#24415c;border-color:#b29b69;color:#f4f7fb;box-shadow:0 9px 26px #000a,0 1px 3px #0008;padding:12px;border-radius:7px}
+label.check>.help-icon{flex:none;margin-left:4px}

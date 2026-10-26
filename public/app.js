@@ -1,4 +1,4 @@
-import { portableEvent, stageImport } from "/portable.js";
+import { portableEvent, stageImport, exportEventBundle, readEventBundle, reviewEventImport, importEventBundle } from "/portable.js";
 import {
   parseSavedVariables,
   writeSavedVariables,
@@ -421,17 +421,17 @@ function decorateFieldLabels(){
     el.setAttribute('aria-readonly','true');
     if(!el.title)el.title='Read only';
   });
-  root.querySelectorAll('label:not(.check):not(.button)').forEach(label=>{
-    const caption=document.createElement('span');caption.className='field-caption';
-    [...label.childNodes].filter(node=>node.nodeType===Node.TEXT_NODE).forEach(node=>caption.append(node));
-    label.prepend(caption);
+  root.querySelectorAll('label:not(.button)').forEach(label=>{
+    let caption=label;
+    if(!label.classList.contains('check')){caption=document.createElement('span');caption.className='field-caption';
+      [...label.childNodes].filter(node=>node.nodeType===Node.TEXT_NODE).forEach(node=>caption.append(node));label.prepend(caption);}
     if(label.dataset.help){
       const hint=document.createElement('span');hint.className='help-icon';hint.tabIndex=0;hint.setAttribute('role','note');hint.setAttribute('aria-label',label.dataset.help);
       hint.append(document.createTextNode('?'));const bubble=document.createElement('span');bubble.className='help-bubble';bubble.textContent=label.dataset.help;hint.append(bubble);
       hint.addEventListener('click',ev=>{ev.preventDefault();hint.classList.toggle('show-help');});caption.append(hint);
     }
   });
-  root.querySelectorAll('[data-help]').forEach(el=>el.title=el.dataset.help);
+  root.querySelectorAll('[data-help]').forEach(el=>{el.removeAttribute('title');if(el.dataset.help)el.setAttribute('aria-description',el.dataset.help);});
 }
 function renderDetail(focusReminderId = null) {
   document.querySelector("#pool-preview")?.remove();
@@ -887,6 +887,7 @@ function attachPoolPreviews(card,event,row){
     bubble.style.top=Math.max(8,Math.min(rect.bottom+6,innerHeight-height-8))+'px';
   };
   card.querySelectorAll('.pool label').forEach(label=>{
+    label.removeAttribute('title');
     label.addEventListener('mouseenter',()=>show(label));label.addEventListener('mouseleave',close);
     label.addEventListener('focusin',()=>show(label));label.addEventListener('focusout',close);
     label.addEventListener('keydown',ev=>{if(ev.key==='Escape')close();});
@@ -1448,12 +1449,12 @@ function combineEvents(events) {
 function renderTransfer() {
   const events = list().filter((e) => !e.schedule.mergedInto);
   $("#transfer").innerHTML =
-    `<div class="heading"><h2>Combine legacy helpers</h2><span class="badge">EXPLICIT REVIEW</span></div><p class="help">Choose a parent event with the true event date and clock. Move existing message IDs from selected helper commands into it. Source configuration is retained as a backup; source schedules are paused to prevent duplicate delivery. No dates or reminder timing are inferred from command names.</p><div class="grid two">${select(
+    `<details id="legacy-transfer"><summary>Advanced: legacy conversion and older single-event tools</summary><div class="heading"><h2>Combine legacy helpers</h2><span class="badge">EXPLICIT REVIEW</span></div><p class="help">Choose a parent event with the true event date and clock. Move existing message IDs from selected helper commands into it. Source configuration is retained as a backup; source schedules are paused to prevent duplicate delivery. No dates or reminder timing are inferred from command names.</p><div class="grid two">${select(
       "Keep parent event",
       "parent",
       selected,
       events.map((e) => [e.commandId, e.command.name]),
-    )}<label>Helper commands to combine<select id="sources" multiple size="6">${opts(events.filter((e) => e.commandId !== selected).map((e) => [e.commandId, e.command.name]))}</select></label></div><div class="actions" style="margin-top:15px"><button id="review-combine">Review combination</button><button id="portable-export">Export selected timeline JSON</button><label class="button">Import timeline JSON<input id="portable-import" type="file" accept=".json" hidden></label></div><p class="help">Portable JSON includes the selected event's schedule and unlocked messages. Review the destination guild and message content before import.</p>`;
+    )}<label>Helper commands to combine<select id="sources" multiple size="6">${opts(events.filter((e) => e.commandId !== selected).map((e) => [e.commandId, e.command.name]))}</select></label></div><div class="actions" style="margin-top:15px"><button id="review-combine">Review combination</button><button id="portable-export">Export selected timeline JSON</button><label class="button">Import timeline JSON<input id="portable-import" type="file" accept=".json" hidden></label></div><p class="help">Portable JSON includes the selected event's schedule and unlocked messages. Review the destination guild and message content before import.</p></details>`;
   $("#transfer [data-field=parent]").onchange = (e) => {
     selected = e.target.value;
     renderTransfer();
@@ -1500,6 +1501,39 @@ function renderTransfer() {
       status(err.message, true);
     }
   };
+  renderSharingPanels();
+}
+let pendingEventImport=null,exportAllGuilds=false;
+function renderSharingPanels(){
+  const exportable=(exportAllGuilds?all():guildEvents()).filter(e=>!e.schedule.mergedInto);
+  const unavailable=e=>e.command.locked?'Locked command':e.settings.runAt==='SCHEDULED'&&e.schedule.timelineVersion!==1?'Convert legacy schedule first':null;
+  let review=[];if(pendingEventImport)review=reviewEventImport(pendingEventImport,account());
+  $('#transfer').insertAdjacentHTML('afterbegin',`<section class="sharing-panel"><p class="eyebrow">SHARE YOUR PLANS</p><h2>Export events</h2><p class="help">Share selected events or all events. Includes messages, announcement periods, recurrence, output channel, sound and command options. Private locked messages and cooldown history stay on your machine.</p><label class="check"><input id="export-all-guilds" type="checkbox" ${exportAllGuilds?'checked':''}>Include all guilds in this account</label><div class="actions"><button id="select-all-export">Select all</button><button id="clear-export">Clear selection</button></div><div class="sharing-list">${exportable.map(e=>`<label class="check"><input class="bulk-export-choice" type="checkbox" value="${esc(e.commandId+'|'+e.guild.toLowerCase())}" ${unavailable(e)?'disabled':'checked'}><span><strong>${esc(e.command.name)}</strong> · ${esc(e.guild)}<small>${esc(unavailable(e)||e.settings.runAt||'On demand')}</small></span></label>`).join('')||'<p class="help">No events in this account/guild.</p>'}</div><button id="export-events" class="gold">Export selected events</button></section><section class="sharing-panel"><h2>Import events</h2><p class="help">Destination account: <strong>${esc(accountName)}</strong>. Load an event JSON export, review the list, then choose what to import. Guilds match by name, events by command name. Nothing changes until you apply the selection.</p><label class="button gold">Choose import file<input id="import-events-file" type="file" accept=".json" hidden></label>${pendingEventImport?`<div class="actions"><button id="select-all-import">Select all available</button><button id="clear-import">Clear selection</button></div><div class="sharing-list" id="import-event-review">${review.map(r=>`<label class="check"><input class="bulk-import-choice" type="checkbox" value="${r.index}" ${r.reason?'disabled':'checked'}><span><strong>${esc(r.entry.eventName)}</strong> · ${esc(r.entry.guild)}<small>${esc(r.action)} · ${esc(r.reason||r.entry.messages.length+' message(s)')}${r.entry.outputChannel?' · '+esc(r.entry.outputChannel):''}</small></span></label>`).join('')}</div><p class="help">Updates replace the selected event configuration. Local runtime history, locked messages and unselected events remain. Imports do not change account-wide defaults. Skipped items are not imported.</p><button id="apply-event-import" class="gold">Import selected events</button>`:''}</section><p class="help">For a full backup or editing your own file, use Open SavedVariables and Download updated Lua in the top toolbar. Shared event JSON is a separate format.</p>`);
+  $('#export-all-guilds').onchange=ev=>{exportAllGuilds=ev.target.checked;renderTransfer();};
+  const checkAll=(selector,checked)=>document.querySelectorAll(selector+':not(:disabled)').forEach(el=>el.checked=checked);
+  $('#select-all-export').onclick=()=>checkAll('.bulk-export-choice',true);$('#clear-export').onclick=()=>checkAll('.bulk-export-choice',false);
+  $('#export-events').onclick=()=>{try{
+    const selected=[...document.querySelectorAll('.bulk-export-choice:checked')].map(el=>el.value);
+    const bundle=readEventBundle(exportEventBundle(account(),exportAllGuilds?null:guild,selected));
+    bundle.items.forEach(item=>{if(item.schedule)requireValidTimeline(item.schedule);});
+    download(JSON.stringify(bundle,null,2),'SmartChatMsg-events.json','application/json');status(`Exported ${bundle.items.length} event(s).`);
+  }catch(error){status(error.message,true);}};
+  $('#import-events-file').onchange=async ev=>{try{
+    const file=ev.target.files[0];if(!file||file.size>20*1024*1024)throw Error('Choose an event JSON export smaller than 20 MB.');
+    pendingEventImport=readEventBundle(JSON.parse(await file.text()));renderTransfer();status('Review the import list and choose which events to apply.');
+    $('#import-event-review')?.scrollIntoView({block:'nearest'});
+  }catch(error){status(error.message,true);}finally{ev.target.value='';}};
+  if(pendingEventImport){
+    $('#select-all-import').onclick=()=>checkAll('.bulk-import-choice',true);$('#clear-import').onclick=()=>checkAll('.bulk-import-choice',false);
+    $('#apply-event-import').onclick=()=>{try{
+      const selected=[...document.querySelectorAll('.bulk-import-choice:checked')].map(el=>Number(el.value));if(!selected.length)throw Error('Select at least one available event to import.');
+      const result=importEventBundle(account(),pendingEventImport,selected);
+      if(!result.applied.length)throw Error(result.skipped.join(' ')||'No events selected.');
+      if(!confirm(`Import ${result.applied.length} event(s) into ${accountName}? Existing matching event settings will be updated; local runtime history and locked messages remain.\n\n${result.applied.join('\n')}`))return;
+      data.Default[accountName].$AccountWide=result.account;pendingEventImport=null;changed();refreshGuilds();renderTransfer();
+      status(`Imported ${result.applied.length} event(s). Download updated Lua to install in ESO.${result.skipped.length?' Skipped: '+result.skipped.join('; '):''}`);
+    }catch(error){status(error.message,true);}};
+  }
 }
 function download(text, name, type = "text/plain") {
   const url = URL.createObjectURL(
