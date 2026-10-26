@@ -167,10 +167,13 @@ $("#open").onchange = async (e) => {
     filename = f.name.replace(/\.txt$/i, ".lua");
     $("#workspace").hidden = false;
     $("#welcome").hidden = true;
-    $("#account").innerHTML = opts(model.accounts(data).map((a) => a.name));
+    const availableAccounts=model.accounts(data);
+    const hasContent=a=>Object.keys(a.value.commands||{}).length>0||Object.keys(a.value.messages||{}).length>0;
+    const preferred=availableAccounts.find(hasContent)||availableAccounts[0];
+    $("#account").innerHTML = opts(availableAccounts.map(a=>[a.name,a.name+(hasContent(a)?'':' (no saved commands)')]),preferred.name);
     accountName = $("#account").value;
     refreshGuilds();
-    status(`Opened ${f.name}. Choose the account and guild you want to edit.`);
+    status(`Opened ${f.name}. Account: ${accountName}${guild ? " / " + guild : " — no saved guild events in this account"}. Switch accounts above if needed.`);
   } catch (err) {
     status(err.message, true);
   } finally {

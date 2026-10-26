@@ -764,7 +764,20 @@ async function dayTimeline(){
  }finally{await page.close();}
 }
 
+async function populatedAccountDefault(){
+ const d=fixture();d.Default={'@empty':{$AccountWide:{commands:{},messages:{},commandGuildSettings:{}}},...d.Default};
+ const {page,errors}=await open(d);
+ try{
+ assert.equal(await page.locator('#account').inputValue(),'@fixture','prefer saved event data over an empty first account');
+ assert.equal(await page.locator('#guild option[value=alpha]').count(),1);
+ await page.locator('#account').selectOption('@empty');assert.equal(await page.locator('#guild option[value=alpha]').count(),0);
+ await page.locator('#account').selectOption('@fixture');assert.equal(await page.locator('#guild option[value=alpha]').count(),1);
+ const saved=await downloadData(page);assert.deepEqual(saved,parseSavedVariables(writeSavedVariables(d)),'account selection must not change saved data');assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 try {
+  await populatedAccountDefault();
   await dayTimeline();
   await clocksOccurrenceStatesAndHelp();
   await relevantSettingsAndMigration();
