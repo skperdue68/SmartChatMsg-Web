@@ -414,8 +414,7 @@ function refreshReminderRelevance(card){
  showField(card,'onceUntilFinish',once);
  card.querySelector('[data-finish-window]').hidden=once&&!whole;
 }
-function decorateFieldLabels(){
-  const root=document.querySelector('#detail');
+function decorateFieldLabels(root=document.querySelector('#detail')){
   root.querySelectorAll('.readonly-tag').forEach(el=>el.remove());
   root.querySelectorAll('input[readonly],textarea[readonly]').forEach(el=>{
     el.setAttribute('aria-readonly','true');
@@ -468,7 +467,7 @@ function renderDetail(focusReminderId = null) {
         ["FIRST", "First occurrence"],
         ["SECOND", "Second occurrence"],
       ],
-    )}</div><details id="weekday-options" ${vals(s.weekdays).some(Boolean)?'open':''}><summary>Event happens on multiple weekdays (advanced)</summary><label class="check"><input id="use-event-weekdays" type="checkbox" ${vals(s.weekdays).some(Boolean)?'checked':''}>Choose event weekdays instead of following Event Date</label><p class="help" id="weekday-explanation"></p><div class="actions weekdays" id="event-weekday-choices">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<label class="check"><input type="checkbox" data-weekday="${i + 1}" ${s.weekdays?.[i + 1] ? "checked" : ""}>${d.slice(0, 3)}</label>`).join("")}</div></details><div class="actions" style="margin-top:18px">${select("Event state", "eventState", stateOf(s), [["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}<button id="save-event" class="gold">Apply event settings</button></div><p class="help">Enter the real event date and time. Reminder offsets are measured from this moment; calendar-day anchors use the event timezone.</p></section><section class="panel"><div class="heading"><h2>Reminder timeline</h2><button id="add-row" class="gold">+ Add reminder</button></div>${s.timelineVersion !== 1 ? '<p class="help">This event still uses legacy scheduling. Convert this schedule to review its existing timing and message pools before adding reminders.</p>' : ""}<p class="help">Periods are automatically ordered by start time when applied. Windows cannot overlap within this event; one may finish exactly when the next starts.</p><div id="timeline-conflicts" class="timeline-conflicts" role="alert"></div><div id="rows">${rows.map((r, i) => `<article class="reminder ${r.once ? "milestone" : ""}" data-row="${esc(r.id)}"><div class="heading"><h3>${i + 1}. ${esc(r.label || "Reminder")}</h3><span class="badge">${r.once ? "◆ MILESTONE" : "↻ FREQUENCY WINDOW"}</span></div><div class="grid">${input("Reminder label", "label", r.label || "")}${select("Reminder state","rowState",stateOf(r),[["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}${input("Repeat every (minutes)", "intervalMinutes", r.intervalMinutes ?? 60, "number")}${input("Late allowance (minutes)", "lateMinutes", r.lateMinutes ?? 5, "number")}</div><h3>Starts</h3><div class="grid">${anchorMarkup(r.start, "start", s)}</div><div data-finish-window><h3>Finishes</h3><div class="grid">${anchorMarkup(r.finish || r.start, "finish", s)}</div></div><div class="actions">${check("Send once", "once", r.once)}${check("Time-sensitive", "timeSensitive", r.timeSensitive)}${check("Allow a brief notice after event end (advanced)","allowAfterEventEnd",r.allowAfterEventEnd)}${check("Allow this announcement anytime within its window", "onceUntilFinish", r.onceUntilFinish)}</div><details class="row-advanced"><summary>Advanced event-end exception</summary>${check("Allow a brief announcement after the event ends","allowAfterEventEnd",r.allowAfterEventEnd)}</details><p class="help">Choose a message pool. The addon selects a message from this pool when the reminder is due.</p><div class="pool">${messages.map((m, j) => `<label class="check" title="${esc(m.text)}"><input type="checkbox" data-message="${esc(m.id)}" ${vals(r.messageIds).includes(m.id) ? "checked" : ""}><span>${j + 1}. ${esc(m.text)}</span></label>`).join("") || '<span class="help">Add a message below first.</span>'}</div><div class="actions"><button data-action="save">Apply reminder</button><button data-action="preview">Preview here</button><button data-action="remove" class="danger">Remove</button></div></article>`).join("") || '<div class="empty">No timeline reminders yet.</div>'}</div></section><section class="panel"><div class="heading"><h2>Important times</h2><button id="add-mark">+ Add time</button></div><p class="help">Name an important moment, such as doors opening or ticket sales closing, and reuse it in reminder anchors.</p>${Object.entries(
+    )}</div><details id="weekday-options" ${vals(s.weekdays).some(Boolean)?'open':''}><summary>Event happens on multiple weekdays (advanced)</summary><label class="check"><input id="use-event-weekdays" type="checkbox" ${vals(s.weekdays).some(Boolean)?'checked':''}>Choose event weekdays instead of following Event Date</label><p class="help" id="weekday-explanation"></p><div class="actions weekdays" id="event-weekday-choices">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<label class="check"><input type="checkbox" data-weekday="${i + 1}" ${s.weekdays?.[i + 1] ? "checked" : ""}>${d.slice(0, 3)}</label>`).join("")}</div></details><div class="actions" style="margin-top:18px">${select("Event state", "eventState", stateOf(s), [["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}<button id="save-event" class="gold">Apply event settings</button></div><p class="help">Enter the real event date and time. Reminder offsets are measured from this moment; calendar-day anchors use the event timezone.</p></section><section class="panel"><div class="heading"><h2>Reminder timeline</h2><button id="add-row" class="gold">+ Add reminder</button></div>${s.timelineVersion !== 1 ? '<p class="help">This event still uses legacy scheduling. Convert this schedule to review its existing timing and message pools before adding reminders.</p>' : ""}<p class="help">Periods are automatically ordered by start time when applied. Windows cannot overlap within this event; one may finish exactly when the next starts.</p><div id="timeline-conflicts" class="timeline-conflicts" role="alert"></div><div id="rows">${rows.map((r, i) => `<article class="reminder ${r.once ? "milestone" : ""}" data-row="${esc(r.id)}"><div class="heading"><h3>${i + 1}. ${esc(r.label || "Reminder")}</h3><span class="badge">${r.once ? "◆ MILESTONE" : "↻ FREQUENCY WINDOW"}</span></div><p class="effective-reminder-time" data-effective-times></p><div class="grid">${input("Reminder label", "label", r.label || "")}${select("Reminder state","rowState",stateOf(r),[["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}${input("Repeat every (minutes)", "intervalMinutes", r.intervalMinutes ?? 60, "number")}${input("Late allowance (minutes)", "lateMinutes", r.lateMinutes ?? 5, "number")}</div><h3>Starts</h3><div class="grid">${anchorMarkup(r.start, "start", s)}</div><div data-finish-window><h3>Finishes</h3><div class="grid">${anchorMarkup(r.finish || r.start, "finish", s)}</div></div><div class="actions">${check("Send once", "once", r.once)}${check("Time-sensitive", "timeSensitive", r.timeSensitive)}${check("Allow a brief notice after event end (advanced)","allowAfterEventEnd",r.allowAfterEventEnd)}${check("Allow this announcement anytime within its window", "onceUntilFinish", r.onceUntilFinish)}</div><details class="row-advanced"><summary>Advanced event-end exception</summary>${check("Allow a brief announcement after the event ends","allowAfterEventEnd",r.allowAfterEventEnd)}</details><p class="help">Choose a message pool. The addon selects a message from this pool when the reminder is due.</p><div class="pool">${messages.map((m, j) => `<label class="check" title="${esc(m.text)}"><input type="checkbox" data-message="${esc(m.id)}" ${vals(r.messageIds).includes(m.id) ? "checked" : ""}><span>${j + 1}. ${esc(m.text)}</span></label>`).join("") || '<span class="help">Add a message below first.</span>'}</div><div class="actions"><button data-action="save">Apply reminder</button><button data-action="preview">Preview here</button><button data-action="remove" class="danger">Remove</button></div></article>`).join("") || '<div class="empty">No timeline reminders yet.</div>'}</div></section><section class="panel"><div class="heading"><h2>Important times</h2><button id="add-mark">+ Add time</button></div><p class="help">Name an important moment, such as doors opening or ticket sales closing, and reuse it in reminder anchors.</p>${Object.entries(
       s.importantTimes || {},
     )
       .map(
@@ -489,6 +488,49 @@ function renderDetail(focusReminderId = null) {
     }catch{note.hidden=true;}
   }
   document.querySelector('#rows').addEventListener('input',refreshOverlapWarning);document.querySelector('#rows').addEventListener('change',refreshOverlapWarning);refreshOverlapWarning();
+  function refreshEffectiveTimes(){
+    const cards=[...document.querySelectorAll('#rows .reminder')];
+    try{
+      const panel=document.querySelector('#detail>.panel.event-settings');
+      if([...panel.querySelectorAll('input[type=number]')].some(el=>!el.checkValidity()))throw Error('Enter valid event settings to calculate reminder times.');
+      const draft=currentEventDraft();draft.importantTimes=clone(draft.importantTimes||{});
+      document.querySelectorAll('#detail .mark').forEach(el=>{const v=fields(el);if(draft.importantTimes[el.dataset.id])Object.assign(draft.importantTimes[el.dataset.id],v);});
+      const at=projectedNext(draft)??model.scheduleEventUtc(draft);
+      if(!Number.isFinite(at))throw Error('Choose a valid event date and start time.');
+      const clock=t=>new Date(t*1000).toLocaleString('en-US',{timeZone:zoneNames[draft.timeZone],month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});
+      for(const card of cards){
+        const summary=card.querySelector('[data-effective-times]');
+        try{
+          const row={...clone(rows.find(r=>r.id===card.dataset.row)),...fields(card)};
+          if([...card.querySelectorAll('input[data-field]')].some(el=>!el.checkValidity()))throw Error('Enter valid reminder values to calculate its times.');
+          for(const anchor of [row.start,...(row.once&&!row.onceUntilFinish?[]:[row.finish])]){
+            if(anchor?.kind==='OFFSET'&&!Number.isFinite(anchor.minutes))throw Error('Enter a valid minute offset.');
+            if(anchor?.kind==='DAY'&&(!Number.isFinite(anchor.days)||!anchor.time))throw Error('Choose a valid day offset and clock.');
+            if(anchor?.kind==='MARK'&&!Number.isFinite(draft.importantTimes[anchor.name]?.offsetMinutes))throw Error('Choose a valid important time.');
+          }
+          const window=model.reminderWindows({...draft,reminders:tableArray([row])},at)[0];
+          if(!window)throw Error('No valid reminder window: check its start/stop times, event duration and daylight-saving clock.');
+          summary.textContent=`Starts: ${clock(window.start)} · Stops: ${clock(window.end)} · Event: ${clock(at)}`;
+          summary.classList.remove('invalid');
+        }catch(error){summary.textContent=error.message;summary.classList.add('invalid');}
+      }
+    }catch(error){for(const card of cards){const summary=card.querySelector('[data-effective-times]');summary.textContent=error.message;summary.classList.add('invalid');}}
+  }
+  const numericValues=new WeakMap();
+  const nonnegative=el=>el?.matches?.('input[type=number][min]')&&Number(el.min)>=0;
+  document.querySelectorAll('#detail input[type=number][min]').forEach(el=>{if(nonnegative(el))numericValues.set(el,Number(el.value)>=0?el.value:'');});
+  const detail=document.querySelector('#detail');
+  detail.onkeydown=ev=>{if(nonnegative(ev.target)&&!ev.ctrlKey&&!ev.metaKey&&['-','+','e','E','.'].includes(ev.key))ev.preventDefault();};
+  detail.onbeforeinput=ev=>{if(nonnegative(ev.target)&&ev.data?.includes('-'))ev.preventDefault();};
+  detail.oninput=ev=>{
+    const el=ev.target;
+    if(nonnegative(el)){
+      if(el.value!==''&&Number(el.value)<0){el.value=numericValues.get(el)||'';status(el.dataset.field==='eventDurationMinutes'?'Event duration must be zero or a positive whole number.':'This field requires a positive whole number.',true);}
+      else numericValues.set(el,el.value);
+    }
+    refreshEffectiveTimes();
+  };
+  detail.onchange=refreshEffectiveTimes;
   const eventPanel=document.querySelector('#detail>.panel.event-settings');
   const fold=eventPanel.querySelector('[data-field=eventFold]').closest('label');
   const advanced=document.createElement('details');advanced.id='event-clock-options';advanced.innerHTML='<summary>Advanced clock options</summary>';advanced.open=s.eventFold==='SECOND';fold.parentElement.append(advanced);advanced.append(fold);
@@ -599,8 +641,8 @@ function renderDetail(focusReminderId = null) {
                       ? { name: Object.keys(s.importantTimes || {})[0] || "" }
                       : { minutes: 0 }),
                 };
-              sel.closest(".grid").innerHTML = anchorMarkup(anchor, key, s);
-              bindAnchorSelectors();
+              const anchorGrid=sel.closest(".grid");anchorGrid.innerHTML = anchorMarkup(anchor, key, s);
+              decorateFieldLabels(anchorGrid);bindAnchorSelectors();refreshEffectiveTimes();
             }),
         );
       }
@@ -794,7 +836,7 @@ function renderDetail(focusReminderId = null) {
         changed();
       };
     });
-  decorateFieldLabels();
+  decorateFieldLabels();refreshEffectiveTimes();
   document.querySelectorAll('#detail details').forEach(d=>{const key=detailKey(d);if(openDetails.has(key))d.open=openDetails.get(key);});
   if(focusReminderId){
     requestAnimationFrame(()=>{
