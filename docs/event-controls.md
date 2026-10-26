@@ -92,3 +92,14 @@ The editor retains three versions: the starting file you opened, your working ed
 Use this if you played ESO and it saved newer cooldown/usage data after you began editing. Exit ESO to save its latest data, select that newest file through Load latest snapshot, then download the merged result. If you kept ESO closed and the source file has not changed, skip the snapshot step. The browser does not automatically monitor the SavedVariables folder.
 
 Day navigation is centered independently of Undo. Five-minute snapping and drag instructions appear on a separate line below the date controls.
+
+
+## Message names and library order
+
+Messages can have an optional short name (up to 60 characters) in the web library. The summary and pool choices update while you type; names never appear in outgoing chat. Unnamed messages display Message 1, Message 2, etc. New messages use the next appropriate default number.
+
+Drag the arrow handle on a message summary to place it before/after another message in the same event. Keyboard users can focus the handle and press Up/Down. Open sections and unsaved message-text drafts remain in place, and the moved message stays visible. The library and message-pool choices share the same display order. This does not change weighted/random message selection.
+
+The optional `name` and `displayOrder` fields are saved with each message, preserved by full Lua download/latest-runtime merge, and included in portable event sharing. Locked messages remain excluded from shared exports, and their local names/order are not overwritten by import. The matching ESO addon changes in PR #34 preserve these fields on startup and through addon text import/export; editing names/order is currently provided by the web editor.
+
+Compatibility audit: previews retain unsupported tokens literally, and monthly weekday projection follows the anchor's ordinal week as the addon does. A future reminder clock that falls into the spring DST gap is skipped on that occurrence without suppressing other valid reminders (addon PR #34 fix).

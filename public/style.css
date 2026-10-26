@@ -647,3 +647,7 @@ label.check>.help-icon{flex:none;margin-left:4px}
 @media(max-width:700px){.day-navigation{grid-template-columns:minmax(0,1fr)}.day-date-controls{grid-column:1}.day-navigation>[data-day-undo]{grid-column:1}}
 
 .grid.mark>.grid,.grid.mark>p{grid-column:1/-1}.mark-key{margin:4px 0;font-size:11px}
+
+.message summary{display:flex;align-items:center;gap:10px}.message-summary-title{flex:1;min-width:0}
+.message-drag-handle{display:inline-flex;align-items:center;justify-content:center;flex:none;width:26px;height:26px;border:1px solid var(--line);border-radius:4px;cursor:grab;color:var(--muted);user-select:none}.message-drag-handle:active{cursor:grabbing}.message-drag-handle:focus{outline:2px solid #d9b66b}
+.message.message-drop-before{border-top:3px solid #d9b66b}.message.message-drop-after{border-bottom:3px solid #d9b66b}.message>label{margin:12px 0}

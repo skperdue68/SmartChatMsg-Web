@@ -877,7 +877,23 @@ async function overviewDefaultsAndPlainHelp(){
  }finally{await page.close();}
 }
 
+async function messageNamesAndDragOrder(){
+ const d=fixture(),a=d.Default['@fixture'].$AccountWide;
+ setLuaValue(a.messages,2,{id:'second',commandId:'command-one',guildName:'alpha',guildIndex:4,text:'Second message',useCount:2});setLuaValue(a.messages,3,{id:'third',commandId:'command-one',guildName:'alpha',guildIndex:4,text:'Third message',useCount:3});
+ const {page,errors}=await open(d);
+ try{
+ const first=page.locator('.message[data-id="message-one"]');await first.locator('summary').click();await first.locator('[data-field=messageName]').fill('Gathering reminder');assert.match(await first.locator('.message-summary-title').textContent(),/^Gathering reminder/);assert.match(await page.locator('[data-pool-message-label="message-one"]').first().textContent(),/^Gathering reminder/);assert.equal(await first.locator('[data-field=messageName]').getAttribute('maxlength'),'60');
+ await first.locator('textarea').fill('Unsaved draft stays while sorting');
+ await page.locator('.message[data-id="third"] .message-drag-handle').dragTo(first.locator('summary'),{targetPosition:{x:60,y:3}});
+ assert.equal(await page.locator('.message').first().getAttribute('data-id'),'third');assert.equal(await first.evaluate(el=>el.open),true);assert.equal(await first.locator('textarea').inputValue(),'Unsaved draft stays while sorting');
+ await page.locator('#add-message').click();assert.equal(await page.locator('.message').last().locator('[data-field=messageName]').inputValue(),'Message 4');
+ const latest=parseSavedVariables(writeSavedVariables(d));latest.Default['@fixture'].$AccountWide.messages[1].useCount=99;await page.locator('#latest').setInputFiles({name:'SmartChatMsg.lua',mimeType:'text/plain',buffer:Buffer.from(writeSavedVariables(latest))});await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('for merging'));
+ const saved=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(saved.messages[1].name,'Gathering reminder');assert.equal(saved.messages[1].displayOrder,2);assert.equal(saved.messages[1].useCount,99);assert.equal(saved.messages[1].text,'Hello %guild%');assert.equal(saved.messages[3].name,'Message 3');assert.equal(saved.messages[3].displayOrder,1);assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 try {
+  await messageNamesAndDragOrder();
   await overviewDefaultsAndPlainHelp();
   await dragDayTimeline();
   await effectiveReminderDatesAndNumericBounds();

@@ -89,6 +89,20 @@ const runtime = (k) =>
   /^(lastUsedAt|useCount|lastUsedParamText|lastUsedGuildIndex|lastAutoPopulateSentAtByZone|observedChatCooldowns|completedOccurrences|timelineDeliveries|timelineHistory|timelineUsage|nextDue.*|completed|last.*At|.*Cooldowns)$/.test(
     k,
   );
+export function orderedMessageEntries(messages){
+  return values(messages).map((message,index)=>({message,index,rank:Number.isInteger(message.displayOrder)&&message.displayOrder>0&&message.displayOrder<=1000000?message.displayOrder:index+1})).sort((a,b)=>a.rank-b.rank||a.index-b.index).map(x=>x.message);
+}
+export function messageDisplayName(message,index){return typeof message.name==='string'&&message.name.trim()?message.name.trim():`Message ${index+1}`;}
+export function reorderMessageEntries(messages,sourceId,targetId,after=false){
+  const ordered=orderedMessageEntries(messages).map((message,index)=>({...cloneSavedData(message),name:messageDisplayName(message,index)}));
+  const source=ordered.findIndex(m=>m.id===sourceId);if(source<0||!ordered.some(m=>m.id===targetId))throw Error('Choose messages from the same event to reorder.');
+  if(sourceId!==targetId){const [message]=ordered.splice(source,1),target=ordered.findIndex(m=>m.id===targetId);ordered.splice(target+(after?1:0),0,message);}
+  return ordered.map((message,index)=>({...message,displayOrder:index+1}));
+}
+export function nextMessageName(messages){
+  const ordered=orderedMessageEntries(messages),numbers=ordered.map((m,i)=>/^Message (\d+)$/i.exec(messageDisplayName(m,i))).filter(Boolean).map(m=>Number(m[1]));
+  return `Message ${Math.max(ordered.length,0,...numbers)+1}`;
+}
 export function mergeSavedVariables(base, edited, latest = base) {
   const conflicts = [];
   function validate(node, path = []) {
@@ -332,10 +346,7 @@ export function projectedOccurrences(schedule, fromUtc, toUtc) {
       yes =
         months % interval === 0 &&
         dow === weekday &&
-        (schedule.monthWeek === -1 || schedule.monthWeek === "LAST"
-          ? new Date(Date.UTC(c[0], c[1] - 1, c[2] + 7)).getUTCMonth() !==
-            c[1] - 1
-          : Math.floor((c[2] - 1) / 7) === Math.floor((d[2] - 1) / 7));
+        Math.floor((c[2] - 1) / 7) === Math.floor((d[2] - 1) / 7);
     if (yes) {
       const occurrence = utc([...c, ...t], z, schedule.eventFold);
       if (occurrence !== null && occurrence >= fromUtc && occurrence <= toUtc)
@@ -1216,7 +1227,7 @@ function formatDurationMinutes(total){
 export function previewMessage(text,schedule,eventAtUtc,nowUtc,context={}){
  const zone=schedule.timeZone||'ET',localHour=context.localHour??new Date(nowUtc*1000).getHours();
  const tod=localHour<12?'morning':localHour<18?'afternoon':'evening';
- const normal={time:tod,timeofday:tod,greeting:tod,morning:tod,guild:context.guild||'',zone:context.zone||''};
+ const normal={time:tod,timeofday:tod,greeting:tod,guild:context.guild||'',zone:context.zone||''};
  const explicit=/%eventcountdown(?::[a-z][a-z0-9_]*|[+-]\d+[mhd])?%/i.test(text);let decorated=false;
  return String(text).replace(/%([a-z][a-z0-9_:+-]*)%/gi,(whole,raw)=>{
   const token=raw.toLowerCase();if(Object.hasOwn(normal,token)&&normal[token])return normal[token];

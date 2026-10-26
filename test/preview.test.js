@@ -15,3 +15,5 @@ test('preview countdown formatting and automatic event-time countdown match addo
  assert.equal(previewMessage('%eventcountdown%',schedule,at,at+60),'passed');
  assert.equal(previewMessage('%eventcountdown%',schedule,at,at),'now');
 });
+
+test('unsupported greeting-like tokens stay literal as in ESO',()=>{assert.equal(previewMessage('%morning% %time%',schedule,at,at,{localHour:9}),'%morning% morning');});
