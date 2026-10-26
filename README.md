@@ -39,3 +39,26 @@ npm run test:browser
 Browser checks use Playwright and synthetic in-memory SavedVariables. Set `BROWSER_PATH` to an installed Chromium-compatible browser, or install Playwright Chromium using `npx playwright install chromium`. No real account data is checked in.
 
 Lua is parsed as restricted data and is never executed. Portable timeline JSON excludes locked messages and runtime history; full-file export preserves your account context and runtime state.
+
+## Hosting at smartchatmsg.perdues.me
+
+Copy `.env.example` to `.env` in the project folder, then run `npm start`. Existing environment variables take precedence over `.env`. Defaults remain local if no configuration is supplied.
+
+```dotenv
+HOST=127.0.0.1
+PORT=4173
+PUBLIC_ORIGIN=https://smartchatmsg.perdues.me
+```
+
+On the same server as your reverse proxy, forward HTTPS requests for `smartchatmsg.perdues.me` to `http://127.0.0.1:4173` and preserve the incoming Host header. Point DNS to that server and configure its HTTPS certificate. Example Nginx location inside your existing HTTPS server block:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:4173;
+    proxy_set_header Host $host;
+}
+```
+
+If Node runs in a container or the proxy is on another machine, set `HOST=0.0.0.0` and use the reachable service address/port in your proxy. For a direct LAN test, set `PUBLIC_ORIGIN=http://YOUR-SERVER-IP:4173` and open that exact address. Do not use `0.0.0.0` as the browser URL.
+
+The public deployment serves the editor only. SavedVariables remain in each visitor's browser; the server does not accept file uploads, save account data, or expose a write API. Hostnames and Origin headers must match the configured public origin or the local workspace. `.env` is ignored by Git. This application has no account login because it does not store visitor data.
