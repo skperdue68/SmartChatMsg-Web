@@ -1,5 +1,6 @@
 import http from "node:http";
 import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname } from "node:path";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../public");
@@ -12,14 +13,22 @@ const paths = {
   "/model.js": ["../src/model.js", "text/javascript"],
   "/lua-data.js": ["../src/lua-data.js", "text/javascript"],
 };
-export function createServer() {
+export function readConfig(env=process.env){
+ const host=env.HOST||'127.0.0.1',port=Number(env.PORT||4173);let publicOrigin='';
+ if(!Number.isInteger(port)||port<1||port>65535)throw Error('PORT must be 1-65535.');
+ if(env.PUBLIC_ORIGIN){const value=new URL(env.PUBLIC_ORIGIN);if(!['http:','https:'].includes(value.protocol)||value.username||value.password||value.pathname!=='/'||value.search||value.hash)throw Error('PUBLIC_ORIGIN must be an HTTP(S) origin without a path or credentials.');publicOrigin=value.origin;}
+ return {host,port,publicOrigin};
+}
+export function createServer(options={}) {
+  const config=readConfig({HOST:options.host,PORT:options.port,PUBLIC_ORIGIN:options.publicOrigin});
+  const publicHost=config.publicOrigin?new URL(config.publicOrigin).host.toLowerCase():null;
   return http.createServer(async (req, res) => {
-    const host = req.headers.host || "";
-    if (!/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host)) {
+    const host = (req.headers.host || "").toLowerCase();
+    if (!/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host) && host!==publicHost) {
       res.writeHead(403);
-      return res.end("Local connections only.");
+      return res.end("Host is not allowed. Configure PUBLIC_ORIGIN for public hosting.");
     }
-    if (req.headers.origin && req.headers.origin !== `http://${host}`) {
+    if (req.headers.origin && req.headers.origin !== (host===publicHost?config.publicOrigin:`http://${host}`) && req.headers.origin!==config.publicOrigin) {
       res.writeHead(403);
       return res.end("Origin not allowed.");
     }
@@ -54,10 +63,7 @@ if (
   process.argv[1] &&
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
-  const port = Number(process.env.PORT || 4173);
-  if (!Number.isInteger(port) || port < 1 || port > 65535)
-    throw Error("PORT must be 1–65535");
-  createServer().listen(port, "127.0.0.1", () =>
-    console.log(`SmartChatMsg Web: http://127.0.0.1:${port}`),
-  );
+  if(existsSync(resolve(process.cwd(),'.env')))process.loadEnvFile(resolve(process.cwd(),'.env'));
+  const config=readConfig();
+  createServer(config).listen(config.port,config.host,()=>console.log(`SmartChatMsg Web listening on ${config.host}:${config.port}${config.publicOrigin?' / public URL: '+config.publicOrigin:''}`));
 }
