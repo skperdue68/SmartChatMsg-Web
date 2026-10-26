@@ -785,6 +785,9 @@ async function timelineOrderingAndPoolPreview(){
  try{
  assert.equal(await page.locator('[data-field=eventTime]').locator('..').getAttribute('class'),'clock-control');
  assert.equal(await page.locator('.clock-control .clock-zone').first().textContent(),'ET');
+ assert.equal(await page.locator('.readonly-tag').count(),0);
+ assert.equal(await page.locator('[data-field=eventTime]').locator('xpath=ancestor::label').locator('.field-caption .help-icon').count(),1);
+ const positions=await page.locator('[data-field=commandName],[data-field=eventDate],[data-field=eventTime]').evaluateAll(xs=>xs.map(x=>x.getBoundingClientRect().top));assert.ok(Math.max(...positions)-Math.min(...positions)<2,'first-row controls align with and without help icons');
  const second=page.locator('.reminder[data-row="row-two"]');
  await second.locator('[data-field=label]').fill('Start till 2 days before');assert.equal(await second.locator('.heading h3').textContent(),'2. Start till 2 days before');
  await second.locator('.row-advanced').evaluate(el=>el.open=true);

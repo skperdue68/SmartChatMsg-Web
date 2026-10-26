@@ -414,6 +414,25 @@ function refreshReminderRelevance(card){
  showField(card,'onceUntilFinish',once);
  card.querySelector('[data-finish-window]').hidden=once&&!whole;
 }
+function decorateFieldLabels(){
+  const root=document.querySelector('#detail');
+  root.querySelectorAll('.readonly-tag').forEach(el=>el.remove());
+  root.querySelectorAll('input[readonly],textarea[readonly]').forEach(el=>{
+    el.setAttribute('aria-readonly','true');
+    if(!el.title)el.title='Read only';
+  });
+  root.querySelectorAll('label:not(.check):not(.button)').forEach(label=>{
+    const caption=document.createElement('span');caption.className='field-caption';
+    [...label.childNodes].filter(node=>node.nodeType===Node.TEXT_NODE).forEach(node=>caption.append(node));
+    label.prepend(caption);
+    if(label.dataset.help){
+      const hint=document.createElement('span');hint.className='help-icon';hint.tabIndex=0;hint.setAttribute('role','note');hint.setAttribute('aria-label',label.dataset.help);
+      hint.append(document.createTextNode('?'));const bubble=document.createElement('span');bubble.className='help-bubble';bubble.textContent=label.dataset.help;hint.append(bubble);
+      hint.addEventListener('click',ev=>{ev.preventDefault();hint.classList.toggle('show-help');});caption.append(hint);
+    }
+  });
+  root.querySelectorAll('[data-help]').forEach(el=>el.title=el.dataset.help);
+}
 function renderDetail(focusReminderId = null) {
   document.querySelector("#pool-preview")?.remove();
   const renderKey = accountName + "|" + guild + "|" + selected,
@@ -477,21 +496,6 @@ function renderDetail(focusReminderId = null) {
   eventPanel.querySelectorAll('[data-field=recurrence],[data-field=specialPattern],[data-field=eventDate],[data-weekday],#use-event-weekdays').forEach(control=>control.addEventListener('change',refreshEventRelevance));
   refreshEventRelevance();
   eventPanel.querySelectorAll('input,select').forEach(el=>{el.addEventListener('input',refreshNextOccurrence);el.addEventListener('change',refreshNextOccurrence);});refreshNextOccurrence();
-  document.querySelectorAll('[data-help]').forEach(el=>{
-    el.title=el.dataset.help;
-    if(el.tagName==='LABEL'){
-      const hint=document.createElement('span');hint.className='help-icon';hint.tabIndex=0;hint.setAttribute('role','note');hint.setAttribute('aria-label',el.dataset.help);
-      hint.append(document.createTextNode('?'));const bubble=document.createElement('span');bubble.className='help-bubble';bubble.textContent=el.dataset.help;hint.append(bubble);
-      hint.addEventListener('click',ev=>{ev.preventDefault();hint.classList.toggle('show-help');});
-      el.insertBefore(hint,el.querySelector('.clock-control')||el.querySelector('input,select,textarea'));
-    }
-  });
-  document.querySelectorAll('#detail input[readonly],#detail textarea[readonly]').forEach(el=>{
-    el.setAttribute('aria-readonly','true');
-    const owner=el.closest('label');
-    if(owner?.querySelector('.readonly-tag'))return;
-    const badge=document.createElement('span');badge.className='readonly-tag';badge.textContent='Read only';el.before(badge);
-  });
   $("#save-event").onclick = () => {
     const p = $("#detail>.panel");
     if([...p.querySelectorAll("input")].some(el=>!el.checkValidity())){p.querySelectorAll("input").forEach(el=>el.reportValidity());status("Use valid clocks and whole numbers within their allowed ranges.",true);return;}
@@ -790,6 +794,7 @@ function renderDetail(focusReminderId = null) {
         changed();
       };
     });
+  decorateFieldLabels();
   document.querySelectorAll('#detail details').forEach(d=>{const key=detailKey(d);if(openDetails.has(key))d.open=openDetails.get(key);});
   if(focusReminderId){
     requestAnimationFrame(()=>{

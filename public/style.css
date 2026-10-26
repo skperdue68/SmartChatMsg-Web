@@ -611,3 +611,8 @@ input[readonly],textarea[readonly]{background:rgba(255,255,255,.025);border-styl
 .clock-control{display:flex;align-items:center;gap:9px;min-width:0}.clock-control input{min-width:0;flex:1}.clock-zone{flex:none;color:var(--muted);font-size:12px}
 .pool-preview-tooltip{position:fixed;z-index:1000;width:430px;max-width:calc(100vw - 24px);max-height:calc(100vh - 24px);overflow:auto;padding:14px;border:1px solid #b89450;border-radius:7px;background:#152438;color:#edf3fc;box-shadow:0 7px 24px #0009;font-size:13px;white-space:normal;pointer-events:none}
 .pool-preview-tooltip strong{font-size:11px;color:#e3c989}.pool-preview-tooltip p{white-space:pre-wrap;line-height:1.5;margin:8px 0}.pool-preview-tooltip small{display:block;white-space:pre-wrap;color:var(--muted);border-top:1px solid var(--line);padding-top:8px}
+
+.field-caption{display:flex;align-items:center;gap:6px;min-height:18px;line-height:1.35}
+.field-caption .help-icon{margin:0;flex:none}
+.grid>label{align-self:start}
+.event-settings #event-clock-options{margin-top:0;align-self:end}
