@@ -188,13 +188,14 @@ $("#open").onchange = async (e) => {
     e.target.value = "";
   }
 };
-document.querySelector("#snapshot-help").onclick=ev=>{ev.preventDefault();ev.stopPropagation();ev.currentTarget.classList.toggle("show-help");};
+const snapshotButton=document.querySelector('#latest-snapshot-button');
+snapshotButton.onkeydown=ev=>{if(ev.target===snapshotButton&&['Enter',' '].includes(ev.key)){ev.preventDefault();document.querySelector('#latest').click();}};
+snapshotButton.onclick=ev=>{if(ev.target.closest('.help-bubble'))ev.preventDefault();};
 $("#latest").onchange = async (e) => {
   try {
-    latest = await readFile(e.target.files[0]);
-    status(
-      "Latest snapshot loaded. Export will preserve its runtime history and report simultaneous configuration edits.",
-    );
+    const file=e.target.files[0];if(!file)return;
+    latest = await readFile(file);
+    status(`Read ${file.name} for merging when you download. Your current edits and the file on disk have not been overwritten.`);
   } catch (err) {
     status(err.message, true);
   } finally {
@@ -1249,13 +1250,14 @@ function renderCalendar() {
 let dayTimelineUndo=null;
 function renderDayTimeline(items,from,until,zone){
   const root=document.querySelector('#calendar-grid');root.className='day-timeline-scroll';
-  const nav=document.createElement('div');nav.className='actions day-navigation';nav.innerHTML='<button data-day-step="-1">← Previous day</button><button data-day-today>Today</button><button data-day-step="1">Next day →</button><span class="help">5-minute snapping · Drag a block to move; drag a visible end to resize.</span><button data-day-undo>Undo last timeline edit</button>';
+  const nav=document.createElement('div');nav.className='day-navigation';nav.innerHTML='<div class="day-date-controls"><button data-day-step="-1">← Previous day</button><button data-day-today>Today</button><button data-day-step="1">Next day →</button></div><button data-day-undo>Undo last timeline edit</button>';
+  const instructions=document.createElement('p');instructions.className='help day-instructions';instructions.textContent='5-minute snapping · Drag a block to move; drag a visible end to resize.';
   nav.querySelectorAll('[data-day-step]').forEach(b=>{const date=new Date(calDate+'T12:00:00Z');date.setUTCDate(date.getUTCDate()+Number(b.dataset.dayStep));b.textContent=(Number(b.dataset.dayStep)<0?'← ':'')+date.toLocaleDateString('en-US',{timeZone:'UTC',weekday:'short',month:'short',day:'numeric'})+(Number(b.dataset.dayStep)>0?' →':'');b.setAttribute('aria-label','View '+date.toLocaleDateString('en-US',{timeZone:'UTC',weekday:'long',year:'numeric',month:'long',day:'numeric'}));});
   nav.querySelectorAll('[data-day-step]').forEach(b=>b.onclick=()=>{const d=new Date(calDate+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+Number(b.dataset.dayStep));calDate=d.toISOString().slice(0,10);renderCalendar();});
   nav.querySelector('[data-day-today]').onclick=()=>{calDate='';renderCalendar();};
   const undo=nav.querySelector('[data-day-undo]');undo.disabled=!dayTimelineUndo||dayTimelineUndo.account!==accountName||dayTimelineUndo.guild!==guild;
   undo.onclick=()=>{try{const edit=dayTimelineUndo,event=all().find(e=>e.commandId===edit.commandId&&e.guild===guild);if(!event||JSON.stringify(event.schedule)!==edit.after)throw Error('This event changed since the drag; Undo cannot overwrite newer edits.');event.settings.schedule=clone(edit.before);selected=event.commandId;dayTimelineUndo=null;changed();renderCalendar();status('Timeline edit undone.');}catch(error){status(error.message,true);}};
-  root.before(nav);
+  root.before(nav,instructions);
   const visible=items.filter(x=>x.at<until&&(x.milestone?x.at>=from:x.end>from));
   const clock=t=>new Date(t*1000).toLocaleTimeString('en-US',{timeZone:zoneNames[zone],hour:'numeric',minute:'2-digit',timeZoneName:'short'});
   const x=t=>100*(Math.max(from,Math.min(until,t))-from)/(until-from);

@@ -81,3 +81,14 @@ Reminder badges use plain labels: **One-time notice** means this period sends on
 **Load latest snapshot** is optional. If ESO wrote a newer copy of the same SavedVariables file while you were editing, select it there before downloading. The editor merges your edits with newer cooldowns and usage; conflicting configuration changes stop the download for review. It does not read ESO automatically. Skip this step if your source file has not changed.
 
 The Important times section now includes a How to use guide, shows each immutable message key and an example token, and gives its date/time controls a full-width row. For key `tickets`, a value of `-30` means 30 minutes before the event; use `-60` for one hour. Apply the definition, select Anchor → Important time for a reminder boundary, or use `%eventwhen:tickets%`, `%eventtime:tickets%`, `%eventdate:tickets%` and `%eventcountdown:tickets%` in messages. A label can change; the token uses the displayed key.
+
+
+## Latest snapshot: read, merge, then download
+
+Load latest snapshot has no separate help icon; hover or keyboard-focus the button for its explanation. Choosing a file reads a separate browser-memory copy. It does not replace your current editing screen, write to disk, upload the file to the Linux server or install changes into ESO.
+
+The editor retains three versions: the starting file you opened, your working edits, and (optionally) the newest file ESO saved. At Download updated Lua it compares these versions, combines your configuration edits with the latest runtime history, and stops for review if both copies changed the same configuration field incompatibly. The result is a new downloaded file. You manually replace SavedVariables/SmartChatMsg.lua while ESO is closed; the source files remain untouched until you do that.
+
+Use this if you played ESO and it saved newer cooldown/usage data after you began editing. Exit ESO to save its latest data, select that newest file through Load latest snapshot, then download the merged result. If you kept ESO closed and the source file has not changed, skip the snapshot step. The browser does not automatically monitor the SavedVariables folder.
+
+Day navigation is centered independently of Undo. Five-minute snapping and drag instructions appear on a separate line below the date controls.
