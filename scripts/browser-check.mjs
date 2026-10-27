@@ -935,6 +935,16 @@ async function reminderAvailabilityEditing(){
  assert.equal(saved.reminders[1].availability.maxPerDay,1);assert.equal(saved.reminders[1].availability.startMinute,420);assert.equal(saved.reminders[1].availability.weekdays[2],true);assert.match(writeSavedVariables(saved),/\[2\] = true/);
  await page.locator('[data-view=calendar]').click();await page.locator('#calendar [data-field=date]').fill('2026-10-26');await page.locator('#calendar [data-field=date]').dispatchEvent('change');
  const block=page.locator('.day-availability').filter({hasText:'Every'}).first();assert.equal(await block.count(),1);
+ const originalStyle=await block.evaluate(el=>({left:el.style.left,width:el.style.width}));
+ for(const cancel of ['button','escape']){
+  await block.scrollIntoViewIfNeeded();const box=await block.boundingBox();await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();await page.mouse.move(box.x+box.width/2+35,box.y+box.height/2,{steps:5});await page.mouse.up();
+  await page.locator('#cancel-availability-scope').waitFor({state:'visible'});assert.equal(await page.locator('#close-dialog').isVisible(),false);
+  if(cancel==='button')await page.locator('#cancel-availability-scope').click();else await page.keyboard.press('Escape');
+  assert.deepEqual(await block.evaluate(el=>({left:el.style.left,width:el.style.width})),originalStyle,'cancel restores the drag preview');
+ }
+ saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
+ assert.equal(saved.reminders[1].availability.startMinute,420);assert.equal(saved.reminders[1].availability.dateOverrides,undefined);
+
  await block.focus();await page.keyboard.press('ArrowRight');await page.locator('[data-scope=DATE]').click();
  saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
  assert.equal(saved.reminders[1].availability.dateOverrides['2026-10-26'].startMinute,425);
