@@ -56,3 +56,8 @@ test('ordinary text matching ignores dormant faction and activity variants so un
   const out=importEventBundle(local,exportEventBundle(remote,'Guild',['remote']),[0]).account,map=settings(out,'local').disabledMessageIds;assert.equal(Object.keys(out.messages).length,2);assert.equal(map['local-a'],true);assert.equal(map['local-b'],true);assert.equal(settings(out,'local').schedule.messageVariants['local-a'],variant);
  }
 });
+
+test('reserved native action names cannot be transferred as ordinary commands',()=>{
+ const account=fixture('source');account.commands[1].name='off';assert.throws(()=>exportEventBundle(account,'Guild',['source']),/reserved/);
+ account.commands[1].name='Pool';const document=exportEventBundle(account,'Guild',['source']);document.items[0].eventName='ON';assert.throws(()=>readEventBundle(document),/reserved/);
+});
