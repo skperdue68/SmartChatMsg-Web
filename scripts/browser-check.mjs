@@ -141,9 +141,20 @@ async function open(data) {
   await page.locator("#workspace").waitFor({ state: "visible" });
   return { page, errors };
 }
+async function downloadConfirmation(){
+ const {page,errors}=await open(fixture());let downloads=0;page.on('download',()=>downloads++);
+ try{
+ await page.locator('#export').click();await page.locator('#confirm-lua-download').waitFor({state:'visible'});
+ assert.match(await page.locator('#dialog-body').textContent(),/Exit ESO completely/);
+ assert.equal(await page.locator('#close-dialog').isVisible(),false);
+ await page.locator('#cancel-lua-download').click();assert.equal(await page.locator('#dialog').isVisible(),false);assert.equal(downloads,0);
+ await downloadData(page);assert.equal(downloads,1);assert.equal(await page.locator('#dialog').isVisible(),false);assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
 async function downloadData(page) {
   const pending = page.waitForEvent("download");
   await page.locator("#export").click();
+  await page.locator("#confirm-lua-download").click();
   const download = await pending,
     stream = await download.createReadStream(),
     chunks = [];
@@ -1363,6 +1374,7 @@ try {
   await commandNumericInputRules();
   await commandSettingAttributeEscaping();
   await legacyAccountSettings();
+  await downloadConfirmation();
   await accountAndCommandDefaults();
   await zoneCommandOption();
   await plainCommandMessagePool();

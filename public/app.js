@@ -2021,8 +2021,12 @@ function prepareCurrentLua(options={}){
 $('#export').onclick=()=>{
   try{
     const lua=prepareCurrentLua();
-    if(!confirm('Exit ESO completely before replacing SavedVariables. Keep a backup of the current SmartChatMsg.lua.\n\nDownload the reviewed configuration now?'))return;
-    download(lua,'SmartChatMsg.lua');dirty=false;status('Downloaded SmartChatMsg.lua. Exit ESO, back up the original, then replace it with this file.');
+    const modal=$('#dialog'),close=$('#close-dialog');
+    $('#dialog-body').innerHTML=`<h2>Download updated Lua</h2><p>Exit ESO completely before replacing SavedVariables. Keep a backup of the current SmartChatMsg.lua.</p><p class="help">Download the reviewed configuration now? Your existing file will not be replaced automatically.</p><div class="actions"><button id="confirm-lua-download" class="gold">Download Lua</button><button id="cancel-lua-download">Cancel</button></div>`;
+    close.hidden=true;modal.addEventListener('close',()=>{close.hidden=false;},{once:true});
+    $('#cancel-lua-download').onclick=()=>modal.close();
+    $('#confirm-lua-download').onclick=()=>{download(lua,'SmartChatMsg.lua');dirty=false;modal.close();status('Downloaded SmartChatMsg.lua. Exit ESO, back up the original, then replace it with this file.');};
+    modal.showModal();$('#cancel-lua-download').focus();
   }catch(error){if(error.message.startsWith('Configuration conflicts'))dialog('Configuration conflicts · export stopped',error.message);else status(error.message,true);}
 };
 async function libraryRequest(path,options={}){
