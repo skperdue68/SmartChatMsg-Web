@@ -569,7 +569,7 @@ function reminderBadge(row){
 function dailyLimitMarkup(row,schedule){
  const help='Unchecked: each period has its own daily announcement limit. Checked: one shared limit covers all periods of this command and guild. Resets at midnight on the guild timezone calendar day. Confirmed sends and matching announcements from other players count. Preparing a message does not count. Send once still means once per event occurrence. Apply period saves the limit and scope.';
  const slider=schedulingSlider('maxPerDay',schedule.dailyLimitShared?schedule.sharedDailyLimit:row.availability?.maxPerDay).replace('class="scheduling-slider"','class="scheduling-slider" data-help="'+esc(help)+'"');
- return `<div class="daily-limit-controls">${slider}<label class="check"><input type="checkbox" data-daily-limit-shared ${schedule.dailyLimitShared?'checked':''}>Share daily limit across this command and guild</label></div>`;
+ return `<div class="daily-limit-controls">${slider}<label class="check" data-help="Unchecked: the daily limit applies only to this period. Checked: one daily limit is shared by ALL periods for this command and guild; an announcement from any period counts toward it."><input type="checkbox" data-daily-limit-shared ${schedule.dailyLimitShared?'checked':''}>Share Limit to ALL periods</label></div>`;
 }
 function availabilityMarkup(row,zone){
  const a=row.availability||{},clock=m=>`${String(Math.floor(m/60)%24).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
