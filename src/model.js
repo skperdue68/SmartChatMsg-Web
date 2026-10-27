@@ -17,6 +17,12 @@ export function accounts(data) {
     .filter(([, a]) => object(a?.$AccountWide))
     .map(([name, a]) => ({ name, value: a.$AccountWide }));
 }
+export function requireCurrentScheduleFormat(data){
+ for(const account of accounts(data))for(const [id,guilds] of Object.entries(account.value.commandGuildSettings||{}))for(const [guild,settings] of Object.entries(guilds||{})){
+  if(settings?.schedule&&(settings.schedule.timelineVersion!==1||settings.schedule.mode!=='EVENT'))throw Error(`${account.name} / ${guild} / ${id}: unsupported schedule format. Only current Period Timeline schedules can be loaded; older schedules are not converted.`);
+ }
+ return data;
+}
 export function guildKey(table,name){return Object.keys(table||{}).find(key=>norm(key)===norm(name))??norm(name);}
 function cachedGuilds(account){
  account=account?.value||account||{};

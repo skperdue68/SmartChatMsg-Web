@@ -392,7 +392,7 @@ export function exportEventBundle(account,guild,selectedIds){
     const messages=event.messages.filter(m=>!m.locked);
     const settings=commandConfig(event.settings),scheduled=settings.runAt==='SCHEDULED';
     if(settings.disabledMessageIds){const sharedIds=new Set(messages.map(message=>message.id));settings.disabledMessageIds=Object.fromEntries(Object.entries(settings.disabledMessageIds).filter(([id])=>sharedIds.has(id)));if(!Object.keys(settings.disabledMessageIds).length)delete settings.disabledMessageIds;}
-    if(scheduled&&event.schedule.timelineVersion!==1)throw Error('Convert legacy event before sharing: '+event.command.name);
+    if(scheduled&&event.schedule.timelineVersion!==1)throw Error('Unsupported schedule format: '+event.command.name);
     const portable=scheduled?portableEvent(event,messages):null;
     items.push({eventName:event.command.name,guild:event.guild,settings,outputChannel:account.chatChannels?.[event.commandId]?.[event.guild]||'Guild',schedule:portable?.schedule||null,messages:portable?.messages||orderedMessageEntries(messages).map((m,index)=>({id:m.id,text:m.text,variant:'ALL',...messageMetadata(m,index)}))});
   }

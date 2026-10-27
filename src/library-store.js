@@ -2,7 +2,7 @@ import { mkdir, open, readdir, readFile, link, unlink } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { parseSavedVariables } from './lua-data.js';
-import { accounts } from './model.js';
+import { accounts, requireCurrentScheduleFormat } from './model.js';
 
 export const MAX_LUA_BYTES = 20 * 1024 * 1024;
 export class LibraryError extends Error {
@@ -44,6 +44,7 @@ export function createLibraryStore(directory) {
       if (bytes > MAX_LUA_BYTES) throw new LibraryError(413, 'SavedVariables must be at most 20 MiB.');
       try { if (!accounts(parseSavedVariables(lua)).length) throw Error('No accounts'); }
       catch { throw new LibraryError(400, 'Provide valid SmartChatMsg SavedVariables containing an account.'); }
+      try { requireCurrentScheduleFormat(parseSavedVariables(lua)); } catch(error) { throw new LibraryError(400,error.message); }
       const id = createHash('sha256').update(name.toLowerCase().normalize('NFC')).digest('hex');
       const file = { id, name, createdAt: new Date().toISOString(), bytes };
       await mkdir(location, { recursive: true });

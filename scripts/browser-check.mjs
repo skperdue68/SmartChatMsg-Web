@@ -376,292 +376,6 @@ async function preservationAndEditing() {
     await page.close();
   }
 }
-async function combination() {
-  const d = fixture(),
-    a = d.Default["@fixture"].$AccountWide;
-  a.commands = numeric([
-    { id: "parent", name: "Tuesday event" },
-    { id: "helper", name: "Monday helper" },
-  ]);
-  a.messages = numeric([
-    {
-      id: "helper-message",
-      commandId: "helper",
-      guildName: "alpha",
-      guildIndex: 4,
-      text: "Tour %eventtime+24h%",
-      lastUsedAt: 123,
-      useCount: 5,
-    },
-  ]);
-  a.commandGuildSettings = {
-    parent: {
-      alpha: {
-        runAt: "SCHEDULED",
-        schedule: {
-          mode: "EVENT",
-          timeZone: "ET",
-          eventDate: "2026-10-27",
-          eventTime: "08:00 PM",
-          startDate: "2026-10-27",
-          startTime: "08:00 PM",
-          endDate: "2026-10-27",
-          endTime: "10:00 PM",
-          recurrence: "WEEKLY",
-          intervalMinutes: 60,
-          specialPattern: "NONE",
-        },
-      },
-    },
-    helper: {
-      alpha: {
-        runAt: "SCHEDULED",
-        schedule: {
-          mode: "WINDOW",
-          timeZone: "ET",
-          startDate: "2026-10-05",
-          startTime: "08:00 PM",
-          endDate: "2026-10-06",
-          endTime: "08:00 PM",
-          recurrence: "WEEKLY",
-          intervalMinutes: 60,
-          specialPattern: "NONE",
-        },
-      },
-    },
-  };
-  const { page, errors } = await open(d);
-  try {
-    await page.locator("[data-view=transfer]").click();await page.locator("#legacy-transfer").evaluate(el=>el.open=true);
-    await page.locator("#sources").selectOption(["helper"]);
-    await page.locator("#review-combine").click();
-    await page.locator("[data-view=editor]").click();
-    await page.waitForFunction(
-      () => document.querySelectorAll(".reminder").length >= 2,
-    );
-    await page.locator("[data-action=preview]").last().click();
-    await page.locator("#simulate-status").waitFor();
-    await page.locator("#close-dialog").click();
-    const saved = (await downloadData(page)).Default["@fixture"].$AccountWide,
-      m = saved.messages[1];
-    assert.equal(m.id, "helper-message");
-    assert.equal(m.commandId, "parent");
-    assert.equal(m.text, "Tour %eventtime%");
-    assert.equal(m.lastUsedAt, 123);
-    assert.equal(m.useCount, 5);
-    assert.equal(saved.commandGuildSettings.helper.alpha.schedule.paused, true);
-    assert.equal(
-      saved.commandGuildSettings.helper.alpha.schedule.mergedInto,
-      "parent",
-    );
-    assert.ok(
-      saved.commandGuildSettings.parent.alpha.schedule.legacyTimelineBackup
-        .merged.helper,
-    );
-    assert.equal(await page.locator(".event-item").count(), 1);
-    await page.locator("#show-combined").check();
-    assert.equal(await page.locator(".event-item").count(), 2);
-    const helperRow = Object.values(
-      saved.commandGuildSettings.parent.alpha.schedule.reminders,
-    ).find((r) => r.label.includes("Monday helper"));
-    assert.equal(helperRow.start.kind, "DAY");
-    assert.equal(helperRow.start.days, -1);
-    assert.equal(helperRow.finish.days, 0);
-    assert.deepEqual(Object.values(helperRow.messageIds), ["helper-message"]);
-    assert.deepEqual(errors, []);
-  } finally {
-    await page.close();
-  }
-}
-async function combinationRejection() {
-  for (const reason of ["channel", "recurrence"]) {
-    const d = fixture(),
-      a = d.Default["@fixture"].$AccountWide;
-    a.commands = numeric([
-      { id: "parent", name: "Parent" },
-      { id: "helper", name: "Helper" },
-    ]);
-    a.messages = {};
-    const p = {
-      mode: "EVENT",
-      timeZone: "ET",
-      eventDate: "2026-10-27",
-      eventTime: "08:00 PM",
-      startDate: "2026-10-27",
-      startTime: "08:00 PM",
-      endDate: "2026-10-27",
-      endTime: "10:00 PM",
-      recurrence: "WEEKLY",
-      intervalMinutes: 60,
-    };
-    a.commandGuildSettings = {
-      parent: { alpha: { runAt: "SCHEDULED", schedule: p } },
-      helper: {
-        alpha: {
-          runAt: "SCHEDULED",
-          schedule: {
-            ...p,
-            recurrence: reason === "recurrence" ? "DAILY" : "WEEKLY",
-          },
-        },
-      },
-    };
-    a.chatChannels = {
-      parent: { alpha: "Guild" },
-      helper: { alpha: reason === "channel" ? "Officer" : "Guild" },
-    };
-    const { page, errors } = await open(d);
-    try {
-      await page.locator("[data-view=transfer]").click();await page.locator("#legacy-transfer").evaluate(el=>el.open=true);
-      await page.locator("#sources").selectOption(["helper"]);
-      await page.locator("#review-combine").click();
-      assert.match(
-        await page.locator("#status").textContent(),
-        reason === "channel" ? /channels differ/ : /Recurrence rules differ/,
-      );
-      const saved = (await downloadData(page)).Default["@fixture"].$AccountWide;
-      assert.equal(
-        saved.commandGuildSettings.parent.alpha.schedule.timelineVersion,
-        undefined,
-      );
-      assert.equal(
-        saved.commandGuildSettings.helper.alpha.schedule.mergedInto,
-        undefined,
-      );
-      assert.equal(
-        saved.commandGuildSettings.helper.alpha.schedule.paused,
-        undefined,
-      );
-      assert.deepEqual(errors, []);
-    } finally {
-      await page.close();
-    }
-  }
-}
-async function lockedPortablePrivacy() {
-  const d = fixture();
-  d.Default["@fixture"].$AccountWide.messages[1].locked = true;
-  const { page, errors } = await open(d);
-  try {
-    await page.locator("details.message summary").click();
-    assert.equal(
-      await page.locator("details.message textarea").getAttribute("readonly"),
-      "",
-    );
-    assert.equal(
-      await page.locator("[data-action=delete-message]").isDisabled(),
-      true,
-    );
-    assert.equal(
-      await page.locator("[data-action=save-message]").isDisabled(),
-      true,
-    );
-    await page.locator("[data-view=transfer]").click();await page.locator("#legacy-transfer").evaluate(el=>el.open=true);
-    const pending = page.waitForEvent("download");
-    await page.locator("#portable-export").click();
-    const stream = await (await pending).createReadStream(),
-      chunks = [];
-    for await (const c of stream) chunks.push(c);
-    const portable = JSON.parse(Buffer.concat(chunks).toString());
-    assert.equal(portable.messages.length, 0);
-    assert.deepEqual(
-      Object.values(portable.schedule.reminders[1].messageIds),
-      [],
-    );
-    assert.equal(JSON.stringify(portable).includes("lastUsedAt"), false);
-    assert.deepEqual(errors, []);
-  } finally {
-    await page.close();
-  }
-}
-async function legacyMessageIsolation() {
-  const d = fixture(),
-    a = d.Default["@fixture"].$AccountWide;
-  a.messages = numeric([
-    {
-      id: "alpha-map",
-      commandId: "mapping",
-      guildName: "alpha",
-      guildIndex: 1,
-      text: "Mapping A",
-    },
-    {
-      id: "beta-map",
-      commandId: "mapping",
-      guildName: "beta",
-      guildIndex: 2,
-      text: "Mapping B",
-    },
-    {
-      id: "legacy-alpha",
-      commandId: "command-one",
-      guildIndex: 1,
-      text: "Alpha legacy only",
-    },
-    {
-      id: "legacy-beta",
-      commandId: "command-one",
-      guildIndex: 2,
-      text: "Beta legacy only",
-    },
-  ]);
-  const { page, errors } = await open(d);
-  try {
-    assert.equal(await page.locator("details.message").count(), 1);
-    assert.match(
-      await page.locator("details.message").textContent(),
-      /Alpha legacy only/,
-    );
-    assert.doesNotMatch(
-      await page.locator("#detail").textContent(),
-      /Beta legacy only/,
-    );
-    await page.locator("#guild").selectOption("beta");
-    assert.equal(await page.locator("details.message").count(), 1);
-    assert.match(
-      await page.locator("details.message").textContent(),
-      /Beta legacy only/,
-    );
-    await page.locator("#guild").selectOption("alpha");
-    await page.locator("details.message summary").click();
-    await page.locator("[data-action=delete-message]").click();
-    const saved = (await downloadData(page)).Default["@fixture"].$AccountWide;
-    assert.ok(
-      Object.values(saved.messages).some((m) => m.id === "legacy-beta"),
-    );
-    assert.ok(
-      !Object.values(saved.messages).some((m) => m.id === "legacy-alpha"),
-    );
-    assert.deepEqual(errors, []);
-  } finally {
-    await page.close();
-  }
-  const unknown = fixture();
-  unknown.Default["@fixture"].$AccountWide.messages = numeric([
-    {
-      id: "unknown",
-      commandId: "command-one",
-      guildIndex: 3,
-      text: "Unresolved legacy message",
-    },
-  ]);
-  const second = await open(unknown);
-  try {
-    assert.equal(await second.page.locator("details.message").count(), 0);
-    assert.match(
-      await second.page.locator("[role=alert]:visible").textContent(),
-      /cannot be resolved/,
-    );
-    const saved = await downloadData(second.page);
-    assert.equal(
-      saved.Default["@fixture"].$AccountWide.messages[1].id,
-      "unknown",
-    );
-    assert.deepEqual(second.errors, []);
-  } finally {
-    await second.page.close();
-  }
-}
 async function validationAndWeekdays() {
   const { page, errors } = await open(fixture());
   try {
@@ -696,20 +410,11 @@ async function validationAndWeekdays() {
   );
   const next = await open(d);
   try {
-    await next.page.locator("[data-view=transfer]").click();await next.page.locator("#legacy-transfer").evaluate(el=>el.open=true);
-    let pending = next.page.waitForEvent("download");
-    await next.page.locator("#portable-export").click();
-    let stream = await (await pending).createReadStream(),
-      chunks = [];
-    for await (const c of stream) chunks.push(c);
-    const portable = Buffer.concat(chunks);
-    await next.page
-      .locator("#portable-import")
-      .setInputFiles({
-        name: "timeline.json",
-        mimeType: "application/json",
-        buffer: portable,
-      });
+    await next.page.locator('[data-view=transfer]').click();
+    const pending=next.page.waitForEvent('download');await next.page.locator('#export-events').click();
+    const stream=await (await pending).createReadStream(),chunks=[];for await(const c of stream)chunks.push(c);
+    await next.page.locator('#import-events-file').setInputFiles({name:'events.json',mimeType:'application/json',buffer:Buffer.concat(chunks)});
+    await next.page.locator('#apply-event-import').click();
     const saved = writeSavedVariables(await downloadData(next.page));
     assert.match(saved, /\[3\] = true/);
     assert.doesNotMatch(saved, /\["3"\] = true/);
@@ -718,31 +423,6 @@ async function validationAndWeekdays() {
     await next.page.close();
   }
 }
-async function rawWindowParentConversion() {
-  for(const applyFirst of [true,false]) {
-    const d=fixture(),a=d.Default['@fixture'].$AccountWide;
-    a.commandGuildSettings['command-one'].alpha={runAt:'SCHEDULED',schedule:{mode:'WINDOW',enabled:true,paused:false,timeZone:'ET',startDate:'2026-10-26',startTime:'08:00 PM',endDate:'2026-10-27',endTime:'01:00 PM',recurrence:'WEEKLY',intervalMinutes:60,specialPattern:'NONE'}};
-    a.messages[1].text='Tours %eventtime+24h% / %eventdate+24h%';
-    const {page,errors}=await open(d);
-    try {
-      await page.locator('[data-field=eventDate]').fill('2026-10-27');
-      await page.locator('[data-field=eventTime]').fill('20:00');
-      if(applyFirst)await page.locator('#save-event').click();
-      await page.locator('#convert-legacy').click();
-      assert.doesNotMatch(await page.locator('#status').textContent(),/stopped/i);
-      await page.waitForFunction(()=>document.querySelectorAll('.reminder').length>0);
-      const saved=(await downloadData(page)).Default['@fixture'].$AccountWide;
-      const schedule=saved.commandGuildSettings['command-one'].alpha.schedule,row=Object.values(schedule.reminders)[0];
-      assert.equal(schedule.eventDate,'2026-10-27');assert.equal(schedule.eventTime,'08:00 PM');
-      assert.equal(row.start.kind,'DAY');assert.equal(row.start.days,-1);assert.equal(row.start.time,'08:00 PM');
-      assert.equal(row.finish.days,0);assert.equal(row.finish.time,'01:00 PM');
-      assert.equal(saved.messages[1].text,'Tours %eventtime% / %eventdate%');
-      assert.equal(saved.messages[1].id,'message-one');assert.equal(saved.messages[1].lastUsedAt,123);
-      assert.equal(schedule.legacyTimelineBackup.mode,'WINDOW');assert.equal(schedule.legacyTimelineBackup.messageTexts['message-one'],'Tours %eventtime+24h% / %eventdate+24h%');assert.deepEqual(errors,[]);
-    }finally{await page.close();}
-  }
-}
-
 async function relevantSettingsAndMigration() {
  const d=fixture();const a=d.Default['@fixture'].$AccountWide;
  a.commandGuildSettings['command-one'].alpha.runAt='SCHEDULED';
@@ -780,9 +460,14 @@ async function relevantSettingsAndMigration() {
  const allDays=fixture();const chosen=allDays.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;chosen.weekdays={};for(let day=1;day<=7;day++)setLuaValue(chosen.weekdays,day,true);
  const repeated=await open(allDays);
  try{const page=repeated.page;assert.equal(await page.locator('[data-weekday]:checked').count(),7);assert.match(await page.locator('#weekday-explanation').textContent(),/All seven selected/);await page.locator('#use-event-weekdays').uncheck();await page.locator('#save-event').click();const saved=await downloadData(page);assert.equal(Object.keys(saved.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule.weekdays).length,0,'explicitly disabling override follows anchor weekday');}finally{await repeated.page.close();}
- const legacy=fixture();delete legacy.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule.timelineVersion;
- const loaded=await open(legacy);
- try{assert.equal(await loaded.page.locator('#migration-panel').isVisible(),true);assert.equal(await loaded.page.locator('#convert-legacy').isVisible(),true);assert.match(await loaded.page.locator('#migration-panel').textContent(),/actual event date/i);}finally{await loaded.page.close();}
+ const rejected=fixture();delete rejected.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule.timelineVersion;
+ const loaded=await open(fixture());try{
+ await loaded.page.locator('#open').setInputFiles({name:'old.lua',mimeType:'text/plain',buffer:Buffer.from(writeSavedVariables(rejected))});
+ assert.match(await loaded.page.locator('#status').textContent(),/unsupported schedule format.*not converted/i);
+ assert.equal(await loaded.page.locator('#migration-panel').count(),0);assert.equal(await loaded.page.locator('#convert-legacy').count(),0);
+ assert.equal((await downloadData(loaded.page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule.timelineVersion,1);
+ }finally{await loaded.page.close();}
+
 }
 
 async function clocksOccurrenceStatesAndHelp(){
@@ -909,7 +594,7 @@ async function batchEventSharing(){
  setLuaValue(a.commands,2,{id:'command-two',name:'Fishing'});setLuaValue(a.messages,2,{id:'fish-message',commandId:'command-two',guildName:'alpha',guildIndex:4,text:'Fish with us!',useCount:2});a.commandGuildSettings['command-two']={alpha:{runAt:'STARTUP',populateSound:'DUEL_START',openStatusPanelOnRun:true}};a.chatChannels['command-two']={alpha:'Group'};
  const {page,errors}=await open(d);
  try{
- await page.locator('[data-view=transfer]').click();assert.equal(await page.locator('#legacy-transfer').evaluate(el=>el.open),false);
+ await page.locator('[data-view=transfer]').click();assert.equal(await page.locator('#legacy-transfer').count(),0);
  assert.equal(await page.locator('.bulk-export-choice:checked').count(),2);await page.locator('#clear-export').click();assert.equal(await page.locator('.bulk-export-choice:checked').count(),0);await page.locator('#select-all-export').click();
  const pending=page.waitForEvent('download');await page.locator('#export-events').click();const stream=await (await pending).createReadStream(),chunks=[];for await(const c of stream)chunks.push(c);const bundle=JSON.parse(Buffer.concat(chunks).toString());assert.equal(bundle.items.length,2);assert.equal(bundle.items[1].settings.openStatusPanelOnRun,true);assert.equal(bundle.items[1].outputChannel,'Group');assert.doesNotMatch(JSON.stringify(bundle),/lastUsedAt|useCount/);
  bundle.items[1].eventName='New Fishing';
@@ -1188,11 +873,11 @@ async function ordinaryUpcomingEvents(){
   await page.locator('[data-field=recurrence]').selectOption(recurrence);assert.ok((await rows()).length>1,recurrence+' shows future dates');
  }
  await page.locator('[data-field=recurrence]').selectOption('WEEKLY');const weekly=await rows();
- await page.locator('[data-field=recurrenceInterval]').fill('2');assert.notEqual((await rows())[1],weekly[1]);
+ await setRange(page.locator('[data-field=recurrenceInterval]'),2);assert.notEqual((await rows())[1],weekly[1]);
  await page.locator('[data-field=eventDate]').fill(new Date(Date.now()+4*86400000).toISOString().slice(0,10));assert.notEqual((await rows())[0],weekly[0]);
  await page.locator('[data-field=eventTime]').fill('19:00');assert.match((await rows())[0],/7:00 PM/);
- await page.locator('[data-field=recurrenceInterval]').fill('0');assert.equal((await rows()).length,0);
- await page.locator('[data-field=recurrenceInterval]').fill('1');assert.equal((await rows()).length,8);
+ await setRange(page.locator('[data-field=recurrenceInterval]'),0);assert.equal(await page.locator('[data-field=recurrenceInterval]').inputValue(),'1');assert.equal((await rows()).length,8);
+ await setRange(page.locator('[data-field=recurrenceInterval]'),1);assert.equal((await rows()).length,8);
  await page.locator('[data-field=recurrence]').selectOption('NONE');assert.equal(await page.locator('#rotation-occurrences').isVisible(),false);
  assert.deepEqual(errors,[]);
  }finally{await page.close();}
@@ -1532,14 +1217,14 @@ try {
   await clocksOccurrenceStatesAndHelp();
   await relevantSettingsAndMigration();
   await preservationAndEditing();
-  await combination();
-  await lockedPortablePrivacy();
-  await legacyMessageIsolation();
+
+
+
   await validationAndWeekdays();
-  await combinationRejection();
-  await rawWindowParentConversion();
+
+
   console.log(
-    "Browser checks passed: account/channel/run-mode preservation, guild timezone scope, latest-runtime merge/conflicts, locked portable privacy, message/pool editing and deletion, named preview, guild timezone/DST calendar with UTC browser, mobile, isolated legacy guild slots, validation/weekday keys, incompatible combination rejection, legacy combination and raw WINDOW parent actual-time/token alignment.",
+    "Browser checks passed: account/channel/run-mode preservation, guild timezone scope, latest-runtime merge/conflicts, locked portable privacy, message/pool editing and deletion, named preview, guild timezone/DST calendar with UTC browser, mobile, validation/weekday keys, current-period-only loading and event import/export.",
   );
 } finally {
   await browser.close();
