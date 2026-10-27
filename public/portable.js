@@ -1,4 +1,4 @@
-import { validateTimelineForAddon, cloneSavedData, events, timelineConflicts, orderedReminderRows, orderedMessageEntries, guildNames, guildIndexFromRoster, guildKey, monthlyWeekdayRule, normalizeReminderAvailability } from "/model.js";
+import { isReservedCommandName, validateTimelineForAddon, cloneSavedData, events, timelineConflicts, orderedReminderRows, orderedMessageEntries, guildNames, guildIndexFromRoster, guildKey, monthlyWeekdayRule, normalizeReminderAvailability } from "/model.js";
 import { setLuaValue } from "/lua-data.js";
 const values = (x) => Object.values(x || {});
 const scheduleKeys = [
@@ -93,6 +93,7 @@ function messageMetadata(message,index){
   return result;
 }
 export function portableEvent(event, messages) {
+  if(isReservedCommandName(event.command.name))throw Error('That command name is reserved for SmartChatMsg.');
   const schedule = {};
   for (const key of scheduleKeys)
     if (event.schedule[key] !== undefined) schedule[key] = event.schedule[key];
@@ -146,6 +147,7 @@ export function validatePortable(p) {
   if (p.format !== "SmartChatMsgTimeline" || p.version !== 1)
     throw Error("Unsupported portable timeline.");
   text(p.eventName, "event name");
+  if(isReservedCommandName(p.eventName))throw Error('That command name is reserved for SmartChatMsg.');
   text(p.guild, "guild");
   exact(p.schedule, scheduleKeys, "schedule");
   const s = p.schedule;
@@ -391,6 +393,7 @@ export function exportEventBundle(account,guild,selectedIds){
   const chosen=new Set(selectedIds),items=[];
   for(const event of events(account).filter(e=>(guild===null||normalized(e.guild)===normalized(guild))&&(chosen.has(e.commandId)||chosen.has(e.commandId+'|'+normalized(e.guild)))&&!e.schedule.mergedInto)){
     if(event.command.locked)continue;
+    if(isReservedCommandName(event.command.name))throw Error('That command name is reserved for SmartChatMsg.');
     const messages=event.messages.filter(m=>!m.locked);
     const settings=commandConfig(event.settings),scheduled=settings.runAt==='SCHEDULED';
     if(settings.disabledMessageIds){const sharedIds=new Set(messages.map(message=>message.id));settings.disabledMessageIds=Object.fromEntries(Object.entries(settings.disabledMessageIds).filter(([id])=>sharedIds.has(id)));if(!Object.keys(settings.disabledMessageIds).length)delete settings.disabledMessageIds;}
@@ -411,7 +414,7 @@ export function readEventBundle(document){
   const seen=new Set();
   return {format:document.format,version:1,items:document.items.map(item=>{
     exact(item,['eventName','guild','settings','outputChannel','schedule','messages'],'event');
-    text(item.eventName,'event name',200);text(item.guild,'guild name',200);
+    text(item.eventName,'event name',200);text(item.guild,'guild name',200);if(isReservedCommandName(item.eventName))throw Error('That command name is reserved for SmartChatMsg.');
     const key=normalized(item.guild)+'|'+normalized(item.eventName);if(seen.has(key))throw Error('Duplicate guild/event name in import: '+item.eventName);seen.add(key);
     exact(item.settings,commandKeys,'command settings');const settings=commandConfig(item.settings);
     if(item.outputChannel!==undefined&&!['Guild','Officer','Zone','Group'].includes(item.outputChannel))throw Error('Invalid output channel.');

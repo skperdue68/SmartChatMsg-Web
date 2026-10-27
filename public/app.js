@@ -62,6 +62,7 @@ function requireValidTimeline(schedule, {allowIncompleteDrafts=false}={}) {
 }
 function validateEditedTimelines(snapshot = data, {allowIncompleteDrafts=false}={}) {
   model.requireCurrentScheduleFormat(snapshot);
+  model.validateCommandNamesForAddon(snapshot);
   for (const entry of model.accounts(snapshot))
     for (const event of model.events(entry.value)) {
       const original =
@@ -811,6 +812,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
   eventPanel.addEventListener('input',refreshSettingsBorder);eventPanel.addEventListener('change',refreshSettingsBorder);
   $("#save-event").onclick = () => {
     const p = $("#detail>.panel");
+    if(model.isReservedCommandName(p.querySelector('[data-field=commandName]').value)){status('That name is reserved for a built-in SmartChatMsg command.',true);return;}
     let delivery;try{delivery=readCommandDelivery(p);}catch(error){status(error.message,true);return;}
     if(p.querySelector('[data-field=settingsRunAt]').value!=='SCHEDULED'){
       const name=p.querySelector('[data-field=commandName]').value.trim();if(name)e.command.name=name;
@@ -1185,6 +1187,7 @@ $("#new-event").onclick = () => {
   showInputModal({title:'New guild entry',intro:'Create a command and message pool. New entries start as On Demand; choose Scheduled later if you need event reminders.',fields:[{key:'guild',label:'Guild name',value:currentGuild?(model.guildNames(a).get(currentGuild)||currentGuild):'',readonly:!!currentGuild},{key:'name',label:'Command / event name'}],submitLabel:'Create entry',onSubmit:values=>{
   if(accountName!==target)throw Error('The selected account changed. Reopen this form.');
   const g=values.guild.toLowerCase(),name=values.name;
+  if(model.isReservedCommandName(name))throw Error('That name is reserved for a built-in SmartChatMsg command.');
   const id = crypto.randomUUID();
   a.commands ??= {};
   append(a.commands, {

@@ -12,6 +12,12 @@ const norm = (x) =>
   String(x ?? "")
     .trim()
     .toLowerCase();
+const reservedCommandNames=new Set(['scm','scmdebug','on','off','schedule','status','retry','resetcooldowns','send']);
+export function isReservedCommandName(name){return reservedCommandNames.has(String(name??'').replace(/[^a-z0-9]/gi,'').toLowerCase());}
+export function validateCommandNamesForAddon(data){
+ for(const account of accounts(data))for(const command of Object.values(account.value.commands||{}))if(isReservedCommandName(command.name))throw Error(`Command name "${command.name}" is reserved for SmartChatMsg. Choose another name.`);
+ return data;
+}
 export function accounts(data) {
   return Object.entries(data.Default || {})
     .filter(([, a]) => object(a?.$AccountWide))
@@ -108,7 +114,7 @@ const equal = (a, b) => {
   );
 };
 const runtime = (k) =>
-  /^(lastUsedAt|useCount|lastUsedParamText|lastUsedGuildIndex|lastAutoPopulateSentAtByZone|observedChatCooldowns|completedOccurrences|timelineDeliveries|timelineHistory|timelineUsage|availabilityUsage|nextDue.*|completed|last.*At|.*Cooldowns)$/.test(
+  /^(scheduledSendingEnabled|lastUsedAt|useCount|lastUsedParamText|lastUsedGuildIndex|lastAutoPopulateSentAtByZone|observedChatCooldowns|completedOccurrences|timelineDeliveries|timelineHistory|timelineUsage|availabilityUsage|nextDue.*|completed|last.*At|.*Cooldowns)$/.test(
     k,
   );
 export function orderedMessageEntries(messages){

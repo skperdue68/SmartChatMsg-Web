@@ -167,3 +167,8 @@ Scheduling uses only the Period Timeline format (`timelineVersion = 1`, `mode = 
 ### Delivery-control availability
 
 On Demand and Startup match the ESO addon: enabling Auto Populate Chat on Zone disables both Repeat Frequency and Retry Delay (slider and exact-minute input); Cooldown remains editable. Turning zone population off restores Repeat Frequency. Retry Delay also requires a positive repeat frequency and is capped by the smaller repeat/cooldown value. Scheduled hides and disables these ordinary controls because its periods provide the timing.
+
+
+### Native operational switch and reserved names
+
+The ESO addon's `/scm off` and `/scm on` switch only scheduled sending. The saved operational flag is retained in Lua files; loading the latest ESO snapshot preserves that snapshot's current switch during download merging. Event transfers do not change another account's operational switch. The web editor rejects built-in command names (`on`, `off`, `schedule`, `status`, `retry`, `resetcooldowns`, `send`, `scm`, `scmdebug`) when creating, applying, transferring or saving configurations.
