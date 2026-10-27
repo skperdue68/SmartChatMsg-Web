@@ -8,6 +8,9 @@ test("local server serves app and blocks mutation, traversal and foreign hosts",
   const root = `http://127.0.0.1:${server.address().port}`;
   try {
     assert.equal((await fetch(root)).status, 200);
+    const sliders = await fetch(root + '/scheduling-sliders.js');
+    assert.equal(sliders.status, 200);
+    assert.match(await sliders.text(), /export function bindSchedulingSliders/);
     assert.equal(
       (await fetch(root, { method: "POST", body: "ignored" })).status,
       405,
