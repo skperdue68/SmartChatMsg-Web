@@ -1574,8 +1574,13 @@ function dayReminderLabel(eventName,label){
 }
 function chooseAvailabilityScope(item,apply){
  const date=item.availability.availabilityDate,day=new Date(date+'T12:00:00Z').toLocaleDateString('en-US',{weekday:'long',timeZone:'UTC'});
- $('#dialog-body').innerHTML=`<h2>Change allowed hours</h2><p>Choose which windows should use these hours. The overall promotion period and daily limit stay unchanged.</p><p class="help">This window opens ${esc(date)} (${esc(day)}). Overnight continuations belong to their opening date. Date overrides take priority over weekday overrides, then usual hours.</p><div class="availability-scopes"><button data-scope="DATE">Only ${esc(date)}</button><button data-scope="WEEKDAY">Every ${esc(day)}</button><button data-scope="ALL">All eligible days — usual hours</button></div><p class="help">Changing usual hours keeps any existing date and weekday overrides. Close to cancel.</p>`;
- $('#dialog-body').querySelectorAll('[data-scope]').forEach(b=>b.onclick=()=>{$('#dialog').close();apply(b.dataset.scope);});$('#dialog').showModal();
+ $('#dialog-body').innerHTML=`<h2>Change allowed hours</h2><p>Choose which windows should use these hours. The overall promotion period and daily limit stay unchanged.</p><p class="help">This window opens ${esc(date)} (${esc(day)}). Overnight continuations belong to their opening date. Date overrides take priority over weekday overrides, then usual hours.</p><div class="availability-scopes"><button data-scope="DATE">Only ${esc(date)}</button><button data-scope="WEEKDAY">Every ${esc(day)}</button><button data-scope="ALL">All eligible days — usual hours</button><button id="cancel-availability-scope">Cancel</button></div><p class="help">Changing usual hours keeps any existing date and weekday overrides. Cancel leaves the hours unchanged.</p>`;
+ const modal=$('#dialog'),close=$('#close-dialog');let committed=false,restored=false;
+ const rollback=()=>{if(!committed&&!restored){restored=true;renderCalendar();}};
+ close.hidden=true;modal.addEventListener('cancel',rollback);
+ modal.addEventListener('close',()=>{close.hidden=false;modal.removeEventListener('cancel',rollback);rollback();},{once:true});
+ $('#cancel-availability-scope').onclick=()=>{rollback();modal.close();};
+ $('#dialog-body').querySelectorAll('[data-scope]').forEach(b=>b.onclick=()=>{committed=true;modal.close();apply(b.dataset.scope);});modal.showModal();$('#cancel-availability-scope').focus();
 }
 function renderDayTimeline(items,from,until,zone){
   const root=document.querySelector('#calendar-grid');root.className='day-timeline-scroll';
