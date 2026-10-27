@@ -1,4 +1,4 @@
-import { portableEvent, stageImport, exportEventBundle, readEventBundle, reviewEventImport, importEventBundle } from "/portable.js";
+import { exportEventBundle, readEventBundle, reviewEventImport, importEventBundle } from "/portable.js";
 import {
   parseSavedVariables,
   writeSavedVariables,
@@ -60,6 +60,7 @@ function requireValidTimeline(schedule, {allowIncompleteDrafts=false}={}) {
   const overlaps=overlapNotes(schedule);if(overlaps.length)throw Error(overlaps.join(" "));
 }
 function validateEditedTimelines(snapshot = data, {allowIncompleteDrafts=false}={}) {
+  model.requireCurrentScheduleFormat(snapshot);
   for (const entry of model.accounts(snapshot))
     for (const event of model.events(entry.value)) {
       const original =
@@ -230,9 +231,10 @@ async function readFile(file) {
   if (!file) throw Error("Choose a file.");
   if (file.size > 20 * 1024 * 1024)
     throw Error("Choose a file smaller than 20 MB.");
-  return parseSavedVariables(await file.text());
+  return model.requireCurrentScheduleFormat(parseSavedVariables(await file.text()));
 }
 function installWorkspace(parsed,sourceName){
+    model.requireCurrentScheduleFormat(parsed);
     if (!model.accounts(parsed).length)
       throw Error("No account-wide SmartChatMsg data found.");
     editRevision++;
@@ -291,10 +293,6 @@ $("#guild").onchange = () => {
   render();
 };
 $("#search").oninput = renderList;
-$("#show-combined").onchange = (e) => {
-  showCombined = e.target.checked;
-  render();
-};
 function renderGuildTimezone() {
   const a = account();
   $("#guild-timezone").innerHTML = opts(
@@ -454,10 +452,6 @@ function variantChoices(schedule,current){
  if(current&&!choices.some(choice=>(Array.isArray(choice)?choice[0]:choice)===current))return [...choices,[current,current+' (not active for this pattern)']];
  return choices;
 }
-function legacyMigrationBanner(event) {
- if(event.schedule.timelineVersion===1)return '';
- return `<section class="panel migration" id="migration-panel"><p class="eyebrow">LEGACY SCHEDULE</p><h2>Switch this event to the new reminder timeline</h2><ol><li>Enter the <strong>actual event date and time</strong> at the top of this page, such as Tuesday Tours on Tuesday at 8 PM. Set the recurrence and click <strong>Apply event settings</strong> to save changes to the event and weekday override.</li><li>Choose <strong>Review and convert this event</strong>. Review the reminder periods before confirming.</li><li>If older helper commands belong to this event, combine them afterward in <strong>Combine &amp; transfer</strong>.</li></ol><p class="help">Conversion keeps message IDs, usage and cooldown history, and a backup of the original schedule. Nothing changes in ESO until you download and install the updated file.</p><button class="gold" id="convert-legacy">Review and convert this event</button></section>`;
-}
 function showField(root,key,show){const field=root.querySelector(`[data-field="${key}"]`);if(field)field.closest('label').hidden=!show;}
 function refreshEventRelevance(){
  const panel=document.querySelector('#detail>.panel.event-settings');if(!panel)return;
@@ -469,7 +463,7 @@ function refreshEventRelevance(){
  const nameLabel=panel.querySelector('[data-field=commandName]').closest('label'),caption=nameLabel.querySelector('.field-caption');
  if(caption)caption.firstChild.textContent=scheduled?'Event name':'Command name';else if(nameLabel.firstChild?.nodeType===Node.TEXT_NODE)nameLabel.firstChild.textContent=scheduled?'Event name':'Command name';
  panel.querySelector('#save-event').textContent=scheduled?'Apply event settings':'Apply command settings';
- const modeBadge=panel.querySelector('.heading>.badge');if(modeBadge)modeBadge.textContent=scheduled?(selectedEvent().schedule.timelineVersion===1?'TIMELINE':'LEGACY SCHEDULE'):(panel.querySelector('[data-field=settingsRunAt]').value==='STARTUP'?'STARTUP':'ON DEMAND');
+ const modeBadge=panel.querySelector('.heading>.badge');if(modeBadge)modeBadge.textContent=scheduled?('PERIOD TIMELINE'):(panel.querySelector('[data-field=settingsRunAt]').value==='STARTUP'?'STARTUP':'ON DEMAND');
  document.querySelectorAll('.message [data-insert-token]').forEach(menu=>{menu.innerHTML='<option value="">Insert substitution...</option>'+opts(insertableTokens(selectedEvent().schedule));});
  for(const key of ['eventDate','eventTime','eventDurationMinutes','recurrence','eventEnabled'])showField(panel,key,scheduled);
  panel.querySelector('#next-occurrence').closest('label').hidden=!scheduled;
@@ -689,7 +683,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
     rows = model.orderedReminderRows(s,projectedNext(s)??model.scheduleEventUtc(s));
   const monthlyRule=model.monthlyWeekdayRule(s);let monthlyRulePinned=s.monthlyWeek!==undefined||s.monthlyWeekday!==undefined;
   $("#detail").innerHTML =
-    `<section class="panel event-settings"><div class="heading"><div><p class="eyebrow">EVENT SETTINGS</p><h2>${esc(e.command?.name)}</h2></div><span class="badge">${s.timelineVersion === 1 ? "TIMELINE" : "LEGACY SCHEDULE"}</span></div><div class="grid">${input("Event name", "commandName", e.command.name)}${input("Event Date", "eventDate", s.eventDate || "", "date")}${input("Event Start Time", "eventTime", s.eventTime || "08:00 PM")}<label data-help="The next actual event occurrence, calculated live from the current unsaved date, clock, recurrence, interval and weekday controls.">Next occurrence <span class="readonly-tag">Read only</span><input id="next-occurrence" readonly aria-live="polite"></label>${input("Event duration (minutes, optional)","eventDurationMinutes",s.eventDurationMinutes??"","number")}<label title="Read only here. Change Guild timezone in the toolbar above; all event clocks use that timezone.">Scheduling timezone (guild) <span class="readonly-tag">Read only</span><input id="schedule-timezone" value="${esc(guildZone())}" readonly aria-description="Change Guild timezone in the toolbar above."><small class="help">Change using Guild timezone in the toolbar.</small></label>${select("Output channel", "outputChannel", account().chatChannels?.[e.commandId]?.[model.guildKey(account().chatChannels?.[e.commandId],guild)] || "Guild", ["Guild", "Officer", "Zone", "Group"])}${select(
+    `<section class="panel event-settings"><div class="heading"><div><p class="eyebrow">EVENT SETTINGS</p><h2>${esc(e.command?.name)}</h2></div><span class="badge">${"PERIOD TIMELINE"}</span></div><div class="grid">${input("Event name", "commandName", e.command.name)}${input("Event Date", "eventDate", s.eventDate || "", "date")}${input("Event Start Time", "eventTime", s.eventTime || "08:00 PM")}<label data-help="The next actual event occurrence, calculated live from the current unsaved date, clock, recurrence, interval and weekday controls.">Next occurrence <span class="readonly-tag">Read only</span><input id="next-occurrence" readonly aria-live="polite"></label>${input("Event duration (minutes, optional)","eventDurationMinutes",s.eventDurationMinutes??"","number")}<label title="Read only here. Change Guild timezone in the toolbar above; all event clocks use that timezone.">Scheduling timezone (guild) <span class="readonly-tag">Read only</span><input id="schedule-timezone" value="${esc(guildZone())}" readonly aria-description="Change Guild timezone in the toolbar above."><small class="help">Change using Guild timezone in the toolbar.</small></label>${select("Output channel", "outputChannel", account().chatChannels?.[e.commandId]?.[model.guildKey(account().chatChannels?.[e.commandId],guild)] || "Guild", ["Guild", "Officer", "Zone", "Group"])}${select(
       "Run at",
       "settingsRunAt",
       pendingRunAt || e.settings.runAt || "ON_DEMAND",
@@ -706,7 +700,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
         ["FIRST", "First occurrence"],
         ["SECOND", "Second occurrence"],
       ],
-    )}</div>${commandDeliveryMarkup(e)}<details id="event-rotation-settings" open><summary>Rotating event</summary><p class="help">The Event Date anchors the first activity. Names follow this order and repeat automatically, including while you are offline. Use <code>%eventactivity%</code> in messages for the selected name.</p>${input("Occurrences per activity","rotationEvery",s.rotationEvery||1,"number")}<div id="rotation-activities"></div><button id="add-activity" type="button">+ Add activity</button><p class="help">Upcoming selections update as you edit. Apply event settings to save these changes.</p></details><details id="weekday-options" ${vals(s.weekdays).some(Boolean)?'open':''}><summary>Event happens on multiple weekdays (advanced)</summary><label class="check"><input id="use-event-weekdays" type="checkbox" ${vals(s.weekdays).some(Boolean)?'checked':''}>Choose event weekdays instead of following Event Date</label><p class="help" id="weekday-explanation"></p><div class="actions weekdays" id="event-weekday-choices">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<label class="check"><input type="checkbox" data-weekday="${i + 1}" ${s.weekdays?.[i + 1] ? "checked" : ""}>${d.slice(0, 3)}</label>`).join("")}</div></details><div class="actions" style="margin-top:18px">${check("Enabled", "eventEnabled", s.enabled!==false&&!s.paused)}<button id="save-event" class="gold">Apply event settings</button></div></section><section class="panel" id="rotation-occurrences"></section><section class="panel" id="reminder-timeline"><div class="heading"><h2>Period Timeline</h2><button id="add-row" class="gold">+ Add period</button></div>${s.timelineVersion !== 1 ? '<p class="help">This event still uses legacy scheduling. Convert this schedule to review its existing timing and message pools before adding reminders.</p>' : ""}<p class="help">Periods are automatically ordered by start time when applied. Windows cannot overlap within this event; one may finish exactly when the next starts.</p><div id="timeline-conflicts" class="timeline-conflicts" role="alert"></div><div id="rows">${rows.map((r, i) => `<article class="reminder ${r.once ? "milestone" : ""}" data-row="${esc(r.id)}"><div class="heading"><h3>${i + 1}. ${esc(r.label || "Period")}</h3>${reminderBadge(r)}</div><p class="effective-reminder-time" data-effective-times></p><p class="reminder-overlap-warning" data-overlap-warning hidden></p><div class="grid">${input("Period Label", "label", r.label || "")}${select("Period Status","rowState",stateOf(r),[["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}${input("Repeat Frequency (minutes)", "intervalMinutes", r.intervalMinutes ?? 60, "number")}${input("Late allowance (minutes)", "lateMinutes", r.lateMinutes ?? 5, "number")}</div><div class="period-calendar-row"><section class="period-calendar"><h3>Period Starts</h3><div class="period-calendar-fields">${anchorMarkup(r.start, "start", s)}</div></section><section class="period-calendar" data-finish-window><h3>Period Stops</h3><div class="period-calendar-fields">${anchorMarkup(r.finish || r.start, "finish", s)}</div></section></div><div class="actions">${check("Send once", "once", r.once)}${check("Time-sensitive", "timeSensitive", r.timeSensitive)}<label class="check" data-help="Allow this period to begin after the event starts, for underway reminders. The event duration still limits delivery."><input type="checkbox" data-period-after-start ${model.resolveReminderAnchor(s,projectedNext(s)??model.scheduleEventUtc(s),r.start)>(projectedNext(s)??model.scheduleEventUtc(s))?'checked':''}>Allow promotion after event starts</label>${check("Allow a brief notice after event end (advanced)","allowAfterEventEnd",r.allowAfterEventEnd)}${check("Allow this announcement anytime within its window", "onceUntilFinish", r.onceUntilFinish)}</div>${availabilityMarkup(r,s.timeZone)}<details class="row-advanced"><summary>Advanced event-end exception</summary>${check("Allow a brief announcement after the event ends","allowAfterEventEnd",r.allowAfterEventEnd)}</details><p class="help">Choose a message pool. The addon selects a message from this pool when the reminder is due.</p><div class="pool">${messages.map((m, j) => `<label class="check" title="${esc(m.text)}"><input type="checkbox" data-message="${esc(m.id)}" ${vals(r.messageIds).includes(m.id) ? "checked" : ""}><span data-pool-message-label="${esc(m.id)}">${esc(model.messageDisplayName(m,j))}: ${esc(m.text)}</span></label>`).join("") || '<span class="help">Add a message below first.</span>'}</div><div class="actions"><button data-action="save">Apply period</button><button data-action="preview">Preview here</button><button data-action="remove" class="danger">Remove</button></div></article>`).join("") || '<div class="empty">No periods yet.</div>'}</div></section><section class="panel" id="important-times"><div class="heading"><h2>Important times</h2><button id="add-mark">+ Add important time</button></div><p class="help">Name an important moment, such as doors opening or ticket sales closing, and reference it in message substitutions.</p><details class="important-time-guide" id="important-time-guide"><summary>How to use important times</summary><ol><li>Add a key such as <code>tickets</code>, with a label such as Ticket sales close.</li><li>Choose the date and server time for that moment, then click <strong>Apply</strong>.</li><li>Set period boundaries with their calendars and server-time pickers.</li><li>In messages, use <code>%eventwhen:tickets%</code>, <code>%eventtime:tickets%</code>, <code>%eventdate:tickets%</code> or <code>%eventcountdown:tickets%</code>. The key after the colon must match the key you created.</li></ol><p class="help">For an 8 PM event, choose 7 PM on that event day for tickets closing an hour earlier. The saved relationship follows each recurring event automatically.</p></details>${Object.entries(
+    )}</div>${commandDeliveryMarkup(e)}<details id="event-rotation-settings" open><summary>Rotating event</summary><p class="help">The Event Date anchors the first activity. Names follow this order and repeat automatically, including while you are offline. Use <code>%eventactivity%</code> in messages for the selected name.</p>${input("Occurrences per activity","rotationEvery",s.rotationEvery||1,"number")}<div id="rotation-activities"></div><button id="add-activity" type="button">+ Add activity</button><p class="help">Upcoming selections update as you edit. Apply event settings to save these changes.</p></details><details id="weekday-options" ${vals(s.weekdays).some(Boolean)?'open':''}><summary>Event happens on multiple weekdays (advanced)</summary><label class="check"><input id="use-event-weekdays" type="checkbox" ${vals(s.weekdays).some(Boolean)?'checked':''}>Choose event weekdays instead of following Event Date</label><p class="help" id="weekday-explanation"></p><div class="actions weekdays" id="event-weekday-choices">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<label class="check"><input type="checkbox" data-weekday="${i + 1}" ${s.weekdays?.[i + 1] ? "checked" : ""}>${d.slice(0, 3)}</label>`).join("")}</div></details><div class="actions" style="margin-top:18px">${check("Enabled", "eventEnabled", s.enabled!==false&&!s.paused)}<button id="save-event" class="gold">Apply event settings</button></div></section><section class="panel" id="rotation-occurrences"></section><section class="panel" id="reminder-timeline"><div class="heading"><h2>Period Timeline</h2><button id="add-row" class="gold">+ Add period</button></div><p class="help">Periods are automatically ordered by start time when applied. Windows cannot overlap within this event; one may finish exactly when the next starts.</p><div id="timeline-conflicts" class="timeline-conflicts" role="alert"></div><div id="rows">${rows.map((r, i) => `<article class="reminder ${r.once ? "milestone" : ""}" data-row="${esc(r.id)}"><div class="heading"><h3>${i + 1}. ${esc(r.label || "Period")}</h3>${reminderBadge(r)}</div><p class="effective-reminder-time" data-effective-times></p><p class="reminder-overlap-warning" data-overlap-warning hidden></p><div class="grid">${input("Period Label", "label", r.label || "")}${select("Period Status","rowState",stateOf(r),[["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}${input("Repeat Frequency (minutes)", "intervalMinutes", r.intervalMinutes ?? 60, "number")}${input("Late allowance (minutes)", "lateMinutes", r.lateMinutes ?? 5, "number")}</div><div class="period-calendar-row"><section class="period-calendar"><h3>Period Starts</h3><div class="period-calendar-fields">${anchorMarkup(r.start, "start", s)}</div></section><section class="period-calendar" data-finish-window><h3>Period Stops</h3><div class="period-calendar-fields">${anchorMarkup(r.finish || r.start, "finish", s)}</div></section></div><div class="actions">${check("Send once", "once", r.once)}${check("Time-sensitive", "timeSensitive", r.timeSensitive)}<label class="check" data-help="Allow this period to begin after the event starts, for underway reminders. The event duration still limits delivery."><input type="checkbox" data-period-after-start ${model.resolveReminderAnchor(s,projectedNext(s)??model.scheduleEventUtc(s),r.start)>(projectedNext(s)??model.scheduleEventUtc(s))?'checked':''}>Allow promotion after event starts</label>${check("Allow a brief notice after event end (advanced)","allowAfterEventEnd",r.allowAfterEventEnd)}${check("Allow this announcement anytime within its window", "onceUntilFinish", r.onceUntilFinish)}</div>${availabilityMarkup(r,s.timeZone)}<details class="row-advanced"><summary>Advanced event-end exception</summary>${check("Allow a brief announcement after the event ends","allowAfterEventEnd",r.allowAfterEventEnd)}</details><p class="help">Choose a message pool. The addon selects a message from this pool when the reminder is due.</p><div class="pool">${messages.map((m, j) => `<label class="check" title="${esc(m.text)}"><input type="checkbox" data-message="${esc(m.id)}" ${vals(r.messageIds).includes(m.id) ? "checked" : ""}><span data-pool-message-label="${esc(m.id)}">${esc(model.messageDisplayName(m,j))}: ${esc(m.text)}</span></label>`).join("") || '<span class="help">Add a message below first.</span>'}</div><div class="actions"><button data-action="save">Apply period</button><button data-action="preview">Preview here</button><button data-action="remove" class="danger">Remove</button></div></article>`).join("") || '<div class="empty">No periods yet.</div>'}</div></section><section class="panel" id="important-times"><div class="heading"><h2>Important times</h2><button id="add-mark">+ Add important time</button></div><p class="help">Name an important moment, such as doors opening or ticket sales closing, and reference it in message substitutions.</p><details class="important-time-guide" id="important-time-guide"><summary>How to use important times</summary><ol><li>Add a key such as <code>tickets</code>, with a label such as Ticket sales close.</li><li>Choose the date and server time for that moment, then click <strong>Apply</strong>.</li><li>Set period boundaries with their calendars and server-time pickers.</li><li>In messages, use <code>%eventwhen:tickets%</code>, <code>%eventtime:tickets%</code>, <code>%eventdate:tickets%</code> or <code>%eventcountdown:tickets%</code>. The key after the colon must match the key you created.</li></ol><p class="help">For an 8 PM event, choose 7 PM on that event day for tickets closing an hour earlier. The saved relationship follows each recurring event automatically.</p></details>${Object.entries(
       s.importantTimes || {},
     )
       .map(
@@ -790,7 +784,6 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
   bindRotationEditor(e);
   const fold=eventPanel.querySelector('[data-field=eventFold]').closest('label');
   const advanced=document.createElement('details');advanced.id='event-clock-options';advanced.innerHTML='<summary>Advanced clock options</summary>';advanced.open=s.eventFold==='SECOND';fold.parentElement.append(advanced);advanced.append(fold);
-  if(s.timelineVersion!==1)eventPanel.insertAdjacentHTML('afterend',legacyMigrationBanner(e));
   eventPanel.querySelectorAll('[data-field=settingsRunAt],[data-field=recurrence],[data-field=specialPattern],[data-field=eventDate],[data-field=monthlyWeek],[data-field=monthlyWeekday],[data-weekday],#use-event-weekdays').forEach(control=>control.addEventListener('change',refreshEventRelevance));
   eventPanel.querySelectorAll('[data-field=monthlyWeek],[data-field=monthlyWeekday]').forEach(control=>control.addEventListener('change',()=>{monthlyRulePinned=true;}));
   const inferMonthlyRule=()=>{if(!monthlyRulePinned){const rule=model.monthlyWeekdayRule({eventDate:eventPanel.querySelector('[data-field=eventDate]').value});eventPanel.querySelector('[data-field=monthlyWeek]').value=String(rule.monthlyWeek??1);eventPanel.querySelector('[data-field=monthlyWeekday]').value=String(rule.monthlyWeekday??1);}refreshEventRelevance();};
@@ -860,13 +853,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
     changed();
     renderList();
   };
-  if ($("#convert-legacy"))
-    $("#convert-legacy").onclick = () => convertLegacy(e);
   $("#add-row").onclick = () => {
-    if (s.timelineVersion !== 1) {
-      convertLegacy(e);
-      return;
-    }
     s.timelineVersion = 1;
     s.mode = "EVENT";
     s.reminders ??= {};
@@ -1677,281 +1664,14 @@ function renderDayTimeline(items,from,until,zone){
   root.append(shell);
   const help=document.createElement('p');help.className='help';help.textContent=`Times use ${zone}. Blocks show eligible announcement windows, not guaranteed sends. Each announcement has its own row to keep overlaps visible. Shaded margins show two hours of the previous/next day. Arrows indicate hidden ends; those ends cannot be resized. Event bars show the configured duration. Moving an event changes its recurring anchor: minute-offset reminders follow, fixed day/clock reminders retain their clocks. On daylight-saving transitions, the axis includes the actual 23 or 25 hours (hover hour labels to identify the timezone). Click a block to edit its event.`;root.before(help);
 }
-function anchorText(a, s) {
-  if (a.kind === "DAY") return `${a.days} days at ${a.time}`;
-  if (a.kind === "MARK") return s.importantTimes?.[a.name]?.label || a.name;
-  return `${a.minutes >= 0 ? "+" : ""}${a.minutes} minutes`;
-}
-function timelineReview(schedule) {
-  return vals(schedule.reminders)
-    .map(
-      (r) =>
-        `${r.label}: ${anchorText(r.start, schedule)} -> ${anchorText(r.finish || r.start, schedule)}; ${r.once ? "once during window" : "every " + r.intervalMinutes + " minutes"}; ${vals(r.messageIds).length} message(s)`,
-    )
-    .join("\n");
-}
-function parentTokenEdits(event,offset) {
-  return eventMessages(event).map(m=>({m,text:model.rewriteLegacyEventTokens(m.text,offset||0)})).filter(edit=>{
-    if(edit.m.locked && edit.text!==edit.m.text)throw Error('Locked message needs an event-token adjustment. Unlock it explicitly before conversion: '+event.command.name);
-    return edit.text!==edit.m.text;
-  });
-}
-function convertLegacy(e) {
-  try {
-    const panel=$("#detail>.panel"), actualDate=panel.querySelector('[data-field=eventDate]').value, actualTime=clockStored(panel.querySelector('[data-field=eventTime]').value);
-    if(!actualDate||!actualTime)throw Error('Enter the true actual event date and time before reviewing conversion.');
-    const candidate={...clone(e.schedule),eventDate:actualDate,eventTime:actualTime,timeZone:guildZone()};
-    const converted=model.mapLegacyTimelineUsage(e.schedule,model.legacyToTimeline(e.schedule,eventMessages(e),candidate),e.settings);
-    const edits=parentTokenEdits(e,converted.legacyEventOffsetMinutes);
-    requireValidTimeline(converted);
-    const tokenReview=edits.map(edit=>edit.m.text+' -> '+edit.text).join('\n');
-    if(!confirm(`Convert ${e.command.name} using this actual event?\n${converted.eventDate} ${converted.eventTime} ${converted.timeZone}\n\n${timelineReview(converted)}\n\n${edits.length} message template(s) adjusted to the actual event:\n${tokenReview}\n\nOriginal configuration will be retained as a backup. No timing is inferred from the event name.`))return;
-    converted.legacyTimelineBackup??=clone(e.schedule);
-    converted.legacyTimelineBackup.messageTexts??=Object.fromEntries(eventMessages(e).map(m=>[m.id,m.text]));
-    delete converted.legacyEventOffsetMinutes;
-    Object.assign(e.schedule,converted);
-    for(const edit of edits)edit.m.text=edit.text;
-    changed();renderDetail();
-  }catch(err){status('Conversion stopped: '+err.message,true);}
-}
-function combineEvents(events) {
-  try {
-    const parent = events.find((e) => e.commandId === selected),
-      sources = events.filter((e) =>
-        [...$("#sources").selectedOptions].some((o) => o.value === e.commandId),
-      );
-    if (!sources.length) throw Error("Select at least one helper command.");
-    const channel = (event) =>
-      account().chatChannels?.[event.commandId]?.[model.guildKey(account().chatChannels?.[event.commandId],guild)] || "Guild";
-    const recurrence = (schedule) =>
-      JSON.stringify([
-        schedule.recurrence || "NONE",
-        schedule.recurrenceInterval || 1,
-        Object.entries(schedule.weekdays || {})
-          .filter(([, v]) => v === true)
-          .map(([k]) => k)
-          .sort(),
-      ]);
-    for (const source of sources) {
-      if (channel(source) !== channel(parent))
-        throw Error(
-          "Output channels differ. Explicitly choose matching channels before combining " +
-            source.command.name +
-            ".",
-        );
-      if (recurrence(source.schedule) !== recurrence(parent.schedule))
-        throw Error(
-          "Recurrence rules differ. Explicitly align recurrence before combining " +
-            source.command.name +
-            ".",
-        );
-    }
-    const parentSchedule = model.mapLegacyTimelineUsage(
-        parent.schedule,
-        model.legacyToTimeline(parent.schedule, eventMessages(parent)),
-        parent.settings,
-      ),
-      plans = sources.map((source) => ({
-        source,
-        schedule: model.mapLegacyTimelineUsage(
-          source.schedule,
-          model.legacyToTimeline(
-            source.schedule,
-            eventMessages(source),
-            parentSchedule,
-          ),
-          source.settings,
-        ),
-      }));
-    const next = clone(parentSchedule);
-    next.legacyTimelineBackup ??= clone(parent.schedule);
-    next.legacyTimelineBackup.messageTexts ??= Object.fromEntries(eventMessages(parent).map(m=>[m.id,m.text]));
-    next.legacyTimelineBackup.merged ??= {};
-    for (const source of sources)
-      next.legacyTimelineBackup.merged[source.commandId] = {
-        command: clone(source.command),
-        settings: clone(source.settings),
-        channel: channel(source),
-        messageIds: tableArray(eventMessages(source).map((m) => m.id)),
-        messageTexts: Object.fromEntries(
-          eventMessages(source).map((m) => [m.id, m.text]),
-        ),
-      };
-    next.reminders ??= {};
-    next.importantTimes ??= {};
-    next.messageVariants ??= {};
-    const edits = parentTokenEdits(parent,parentSchedule.legacyEventOffsetMinutes);
-    for (const { source, schedule } of plans) {
-      if (
-        source.schedule.specialPattern &&
-        source.schedule.specialPattern !== "NONE" &&
-        source.schedule.specialPattern !== parentSchedule.specialPattern
-      )
-        throw Error(
-          "Choose matching parent special pattern before combining " +
-            source.command.name +
-            ".",
-        );
-      next.legacyTimelineBackup.merged[source.commandId].legacyEventOffsetMinutes=schedule.legacyEventOffsetMinutes||0;
-      const marks = new Map(),
-        rowIds = new Map();
-      for (const [key, mark] of Object.entries(schedule.importantTimes || {})) {
-        let target = key;
-        if (
-          next.importantTimes[key] &&
-          next.importantTimes[key].offsetMinutes !== mark.offsetMinutes
-        )
-          target = "time_" + crypto.randomUUID().replaceAll("-", "");
-        marks.set(key, target);
-        next.importantTimes[target] = mark;
-      }
-      for (const row of vals(schedule.reminders)) {
-        const copied = clone(row);
-        copied.legacySourceCommandId=source.commandId;
-        copied.legacySourceRowId=row.id;
-        copied.label = source.command.name + " - " + copied.label;
-        if (vals(next.reminders).some((r) => r.id === copied.id))
-          copied.id = crypto.randomUUID();
-        rowIds.set(row.id, copied.id);
-        for (const anchor of [copied.start, copied.finish])
-          if (anchor?.kind === "MARK")
-            anchor.name = marks.get(anchor.name) || anchor.name;
-        append(next.reminders, copied);
-      }
-      next.timelineUsage ??= {};
-      for (const [key, usage] of Object.entries(schedule.timelineUsage || {})) {
-        const index = key.indexOf(":"),
-          newKey =
-            index >= 0
-              ? key.slice(0, index + 1) +
-                (rowIds.get(key.slice(index + 1)) || key.slice(index + 1))
-              : key;
-        const existing = next.timelineUsage[newKey] || {};
-        next.timelineUsage[newKey] = {
-          ...existing,
-          ...usage,
-          completed: !!(existing.completed || usage.completed),
-        };
-        for (const field of ["lastSentAt", "nextDueAt", "peerAt"])
-          if (Number.isFinite(existing[field]) || Number.isFinite(usage[field]))
-            next.timelineUsage[newKey][field] = Math.max(
-              existing[field] || 0,
-              usage[field] || 0,
-            );
-      }
-      Object.assign(next.messageVariants, schedule.messageVariants || {});
-      for (const m of eventMessages(source)) {
-        if (
-          !source.schedule.specialPattern ||
-          source.schedule.specialPattern === "NONE"
-        )
-          next.messageVariants[m.id] = "ALL";
-        let text = m.text;
-        for (const [key, target] of marks)
-          if (key !== target)
-            text = text.replaceAll(":" + key + "%", ":" + target + "%");
-        if (model.rewriteLegacyEventTokens)
-          text = model.rewriteLegacyEventTokens(
-            text,
-            schedule.legacyEventOffsetMinutes || 0,
-          );
-        if (m.locked && text !== m.text)
-          throw Error(
-            "Locked message needs an event-token adjustment. Unlock it explicitly before combining: " +
-              source.command.name,
-          );
-        edits.push({
-          m,
-          text,
-        });
-      }
-    }
-    requireValidTimeline(next);
-    if (
-      !confirm(
-        `Keep actual event: ${parent.command.name}\n${next.eventDate} ${next.eventTime} ${next.timeZone}\n\n${timelineReview(next)}\n\nCombine ${sources.length} helper command(s), retain every message ID and usage record, back up source settings, and pause source schedules?`,
-      )
-    )
-      return;
-
-    delete next.legacyEventOffsetMinutes;
-    Object.assign(parent.schedule, next);
-    for (const { source } of plans) {
-      source.schedule.mergedInto = parent.commandId;
-      source.schedule.paused = true;
-    }
-    for (const { m, text } of edits) {
-      m.commandId = parent.commandId;
-      m.text = text;
-    }
-    changed();
-    renderTransfer();
-  } catch (err) {
-    status("Combination stopped: " + err.message, true);
-  }
-}
-function renderTransfer() {
-  const events = list().filter((e) => !e.schedule.mergedInto);
-  $("#transfer").innerHTML =
-    `<details id="legacy-transfer"><summary>Advanced: legacy conversion and older single-event tools</summary><div class="heading"><h2>Combine legacy helpers</h2><span class="badge">EXPLICIT REVIEW</span></div><p class="help">Choose a parent event with the true event date and clock. Move existing message IDs from selected helper commands into it. Source configuration is retained as a backup; source schedules are paused to prevent duplicate delivery. No dates or reminder timing are inferred from command names.</p><div class="grid two">${select(
-      "Keep parent event",
-      "parent",
-      selected,
-      events.map((e) => [e.commandId, e.command.name]),
-    )}<label>Helper commands to combine<select id="sources" multiple size="6">${opts(events.filter((e) => e.commandId !== selected).map((e) => [e.commandId, e.command.name]))}</select></label></div><div class="actions" style="margin-top:15px"><button id="review-combine">Review combination</button><button id="portable-export">Export selected timeline JSON</button><label class="button">Import timeline JSON<input id="portable-import" type="file" accept=".json" hidden></label></div><p class="help">Portable JSON includes the selected event's schedule and unlocked messages. Review the destination guild and message content before import.</p></details>`;
-  $("#transfer [data-field=parent]").onchange = (e) => {
-    selected = e.target.value;
-    renderTransfer();
-  };
-  $("#review-combine").onclick = () => combineEvents(events);
-  $("#portable-export").onclick = () => {
-    try {
-      const e = selectedEvent();
-      if (e.schedule.timelineVersion !== 1)
-        throw Error("Convert this event to a timeline before portable export.");
-      download(
-        JSON.stringify((requireValidTimeline(e.schedule),portableEvent(e, eventMessages(e))), null, 2),
-        "SmartChatMsg-timeline.json",
-        "application/json",
-      );
-    } catch (err) {
-      status(err.message, true);
-    }
-  };
-  $("#portable-import").onchange = async (ev) => {
-    try {
-      const f = ev.target.files[0];
-      if (!f || f.size > 2 * 1024 * 1024)
-        throw Error("Choose a timeline JSON smaller than 2 MB.");
-      const e = selectedEvent(),
-        p = JSON.parse(await f.text());
-      const staged = stageImport(p, {...e,deliveryGuildIndex:model.guildIndexFromRoster(account(),e.guild)}, account().messages, guild);
-      requireValidTimeline(staged.schedule);
-      if (staged.schedule.timeZone !== guildZone())
-        throw Error(
-          "The imported timezone differs from this guild. Set the guild timezone explicitly before import.",
-        );
-      if (
-        !confirm(
-          `Replace timeline configuration for ${e.command.name} in ${guild}? Existing messages and runtime fields remain.`,
-        )
-      )
-        return;
-      for (const m of staged.messages) append(account().messages, m);
-      for(const key of ['rotationEvents','rotationEvery','occurrenceExceptions'])if(staged.schedule[key]===undefined)delete e.schedule[key];
-      Object.assign(e.schedule, staged.schedule);
-      changed();
-      renderTransfer();
-    } catch (err) {
-      status(err.message, true);
-    }
-  };
-  renderSharingPanels();
+function renderTransfer(){
+ $('#transfer').innerHTML='';
+ renderSharingPanels();
 }
 let pendingEventImport=null,exportAllGuilds=false;
 function renderSharingPanels(){
   const exportable=(exportAllGuilds?all():guildEvents()).filter(e=>!e.schedule.mergedInto);
-  const unavailable=e=>e.command.locked?'Locked command':e.settings.runAt==='SCHEDULED'&&e.schedule.timelineVersion!==1?'Convert legacy schedule first':null;
+  const unavailable=e=>e.command.locked?'Locked command':e.settings.runAt==='SCHEDULED'&&e.schedule.timelineVersion!==1?'Unsupported schedule format':null;
   let review=[];if(pendingEventImport)review=reviewEventImport(pendingEventImport,account());
   $('#transfer').insertAdjacentHTML('afterbegin',`<section class="sharing-panel"><p class="eyebrow">SHARE YOUR PLANS</p><h2>Export events</h2><p class="help">Share selected events or all events. Includes messages, announcement periods, recurrence, output channel, sound and command options. Private locked messages and cooldown history stay on your machine.</p><label class="check"><input id="export-all-guilds" type="checkbox" ${exportAllGuilds?'checked':''}>Include all guilds in this account</label><div class="actions"><button id="select-all-export">Select all</button><button id="clear-export">Clear selection</button></div><div class="sharing-list">${exportable.map(e=>`<label class="check"><input class="bulk-export-choice" type="checkbox" value="${esc(e.commandId+'|'+e.guild.toLowerCase())}" ${unavailable(e)?'disabled':'checked'}><span><strong>${esc(e.command.name)}</strong> · ${esc(e.guild)}<small>${esc(unavailable(e)||e.settings.runAt||'On demand')}</small></span></label>`).join('')||'<p class="help">No events in this account/guild.</p>'}</div><button id="export-events" class="gold">Export selected events</button></section><section class="sharing-panel"><h2>Import events</h2><p class="help">Destination account: <strong>${esc(accountName)}</strong>. Load an event JSON export, review the list, then choose what to import. Guilds match by name, events by command name. Nothing changes until you apply the selection.</p><label class="button gold">Choose import file<input id="import-events-file" type="file" accept=".json" hidden></label>${pendingEventImport?`<div class="actions"><button id="select-all-import">Select all available</button><button id="clear-import">Clear selection</button></div><div class="sharing-list" id="import-event-review">${review.map(r=>`<label class="check"><input class="bulk-import-choice" type="checkbox" value="${r.index}" ${r.reason?'disabled':'checked'}><span><strong>${esc(r.entry.eventName)}</strong> · ${esc(r.entry.guild)}<small>${esc(r.action)} · ${esc(r.reason||r.entry.messages.length+' message(s)')}${r.entry.outputChannel?' · '+esc(r.entry.outputChannel):''}</small></span></label>`).join('')}</div><p class="help">Updates replace the selected event configuration. Local runtime history, locked messages and unselected events remain. Imports do not change account-wide defaults. Skipped items are not imported.</p><button id="apply-event-import" class="gold">Import selected events</button>`:''}</section><p class="help">For a full backup or editing your own file, use Open SavedVariables and Download updated Lua in the top toolbar. Shared event JSON is a separate format.</p>`);
   $('#export-all-guilds').onchange=ev=>{exportAllGuilds=ev.target.checked;renderTransfer();};
