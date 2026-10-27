@@ -365,12 +365,18 @@ export function stageImport(p, event, existingMessages, guild) {
   };
 }
 
-const commandKeys=['runAt','reminderMinutes','reminderRetryMinutes','autoPopulateCooldownMinutes','autoPopulateOnZone','openStatusPanelOnRun','populateSound'];
+const commandKeys=['runAt','reminderMinutes','reminderRetryMinutes','autoPopulateCooldownMinutes','autoPopulateOnZone','openStatusPanelOnRun','populateSound','disabledMessageIds'];
 const normalized=value=>String(value||'').trim().toLowerCase();
 function commandConfig(source={}){
   const result={};
   for(const key of commandKeys)if(source[key]!==undefined){
     const v=source[key];
+    if(key==='disabledMessageIds'){
+      object(v,'disabled message pool');
+      const disabled={};for(const [id,flag]of Object.entries(v)){text(id,'disabled message ID');if(typeof flag!=='boolean')throw Error('Disabled message pool flags must be boolean.');if(flag)disabled[id]=true;}
+      if(Object.keys(disabled).length)result[key]=disabled;
+      continue;
+    }
     if(key==='runAt'&&!['SCHEDULED','ON_DEMAND','STARTUP'].includes(v))throw Error('Invalid Run at setting.');
     if(key==='populateSound'&&(typeof v!=='string'||v.length>200))throw Error('Invalid notification sound.');
     if(['autoPopulateOnZone','openStatusPanelOnRun'].includes(key)&&typeof v!=='boolean')throw Error('Invalid command option.');
@@ -385,6 +391,7 @@ export function exportEventBundle(account,guild,selectedIds){
     if(event.command.locked)continue;
     const messages=event.messages.filter(m=>!m.locked);
     const settings=commandConfig(event.settings),scheduled=settings.runAt==='SCHEDULED';
+    if(settings.disabledMessageIds){const sharedIds=new Set(messages.map(message=>message.id));settings.disabledMessageIds=Object.fromEntries(Object.entries(settings.disabledMessageIds).filter(([id])=>sharedIds.has(id)));if(!Object.keys(settings.disabledMessageIds).length)delete settings.disabledMessageIds;}
     if(scheduled&&event.schedule.timelineVersion!==1)throw Error('Convert legacy event before sharing: '+event.command.name);
     const portable=scheduled?portableEvent(event,messages):null;
     items.push({eventName:event.command.name,guild:event.guild,settings,outputChannel:account.chatChannels?.[event.commandId]?.[event.guild]||'Guild',schedule:portable?.schedule||null,messages:portable?.messages||orderedMessageEntries(messages).map((m,index)=>({id:m.id,text:m.text,variant:'ALL',...messageMetadata(m,index)}))});
@@ -414,6 +421,8 @@ export function readEventBundle(document){
       if(!Array.isArray(messages)||messages.length>10000)throw Error('Invalid messages.');
       const ids=new Set();messages=messages.map(m=>{exact(m,['id','text','variant','name','displayOrder'],'message');text(m.id,'message ID');text(m.text,'message text',100000);if(ids.has(m.id))throw Error('Duplicate message ID.');ids.add(m.id);return {id:m.id,text:m.text,variant:'ALL',...messageMetadata(m)};});
     }
+    const sharedIds=new Set(messages.map(message=>message.id));
+    for(const id of Object.keys(item.settings.disabledMessageIds||{}))if(!sharedIds.has(id))throw Error('Disabled message pool references an unknown message ID.');
     return {...item,settings,schedule,messages};
   })};
 }
@@ -473,16 +482,24 @@ export function importEventBundle(account,document,selectedIndices){
     const guildSlots=new Set(values(result.messages).filter(m=>normalized(m.guildName)===normalized(guild)&&Number.isInteger(m.guildIndex)).map(m=>m.guildIndex));
     const guildIndex=guildIndexFromRoster(result,guild)??destination?.guildIndex??(guildSlots.size===1?[...guildSlots][0]:undefined);
     const messageIds=new Map(),variantsByMessage=new Map(oldMessages.map(m=>[m.id,prior.messageVariants?.[m.id]||'ALL']));
+    const ordinary=entry.settings.runAt!=='SCHEDULED',claimedMessages=new Set(),reservedMessageIds=new Set(entry.messages.filter(incoming=>oldMessages.some(local=>local.id===incoming.id&&!local.locked)).map(incoming=>incoming.id));
     for(const [importIndex,incoming] of entry.messages.entries()){
-      let message=oldMessages.find(m=>m.id===incoming.id&&!m.locked)||oldMessages.find(m=>m.text===incoming.text&&variantsByMessage.get(m.id)===incoming.variant);
+      let message=oldMessages.find(m=>m.id===incoming.id&&!m.locked&&(!ordinary||!claimedMessages.has(m.id)))||oldMessages.find(m=>m.text===incoming.text&&(ordinary||variantsByMessage.get(m.id)===incoming.variant)&&(!ordinary||!claimedMessages.has(m.id)&&!reservedMessageIds.has(m.id)));
       if(!message){const id=values(result.messages).some(m=>m.id===incoming.id)?crypto.randomUUID():incoming.id;message={id,commandId,guildName:guild,useCount:0,...messageMetadata(incoming,importIndex),...(guildIndex!==undefined?{guildIndex}:{})};append(result.messages,message);oldMessages.push(message);}
       if(!message.locked){message.text=incoming.text;Object.assign(message,messageMetadata(incoming));}
+      claimedMessages.add(message.id);
       messageIds.set(incoming.id,message.id);variantsByMessage.set(message.id,incoming.variant);
+    }
+    const lockedMessages=new Map(oldMessages.filter(message=>message.locked).map(message=>[message.id,message]));
+    const disabledMessageIds=Object.fromEntries([...lockedMessages.keys()].filter(id=>settings.disabledMessageIds?.[id]===true).map(id=>[id,true]));
+    for(const [sourceId,flag]of Object.entries(entry.settings.disabledMessageIds||{})){
+      const id=messageIds.get(sourceId);if(flag===true&&id&&!lockedMessages.has(id))disabledMessageIds[id]=true;
     }
     // A shared command configuration replaces these options completely:
     // omitted keys mean native defaults/off, while recipient runtime and extra settings remain local.
     for(const key of commandKeys)delete settings[key];
     Object.assign(settings,entry.settings);
+    if(Object.keys(disabledMessageIds).length)settings.disabledMessageIds=disabledMessageIds;else delete settings.disabledMessageIds;
     if(entry.schedule){
       const schedule=cloneSavedData(entry.schedule),oldRows=values(prior.reminders);
       const rowIds=new Set();
