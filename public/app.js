@@ -191,7 +191,8 @@ function refreshCommandDelivery(){
   }
   const position=valid?Math.max(Number(range.min),Math.min(Number(range.max),n)):Number(range.min);
   range.value=String(position);range.style.setProperty('--slider-fill',(Number(range.max)>Number(range.min)?100*(position-Number(range.min))/(Number(range.max)-Number(range.min)):0)+'%');
-  range.disabled=key==='reminderRetryMinutes'&&retryDisabled;range.closest('.minute-slider').classList.toggle('is-disabled',range.disabled);
+  const disabled=editorIsScheduled()||(key==='reminderMinutes'&&read('autoPopulateOnZone').checked)||(key==='reminderRetryMinutes'&&retryDisabled);
+  input.disabled=disabled;range.disabled=disabled;range.closest('.minute-slider').classList.toggle('is-disabled',disabled);
   const text=valid?(n===0?(key==='autoPopulateCooldownMinutes'?'Enter positive minutes':'Off'):model.formatRepeatInterval(n)):'Enter whole minutes';output.textContent=text;
   range.setAttribute('aria-valuetext',position===0?'Off':model.formatRepeatInterval(position));
   note.hidden=!(valid&&n>0&&(n<Number(range.min)||n>Number(range.max)));
