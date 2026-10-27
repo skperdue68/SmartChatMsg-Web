@@ -16,7 +16,7 @@ When Run at is Scheduled, Insert substitution offers event date/day/time/countdo
 
 ## Important times
 
-Create a named time such as tickets before selecting it as an anchor. You can enter its offset directly or select a date and guild-local clock relative to the next actual occurrence. Date/time selections are saved as offsets, so recurring events carry that important time forward automatically. The interface explains this rather than pretending that an old absolute date repeats forever.
+Create a named time such as tickets before selecting it as an anchor. You can enter its offset directly or select a date and server clock in the configured guild timezone relative to the next actual occurrence. Date/time selections are saved as offsets, so recurring events carry that important time forward automatically. The interface explains this rather than pretending that an old absolute date repeats forever.
 
 Hosting is configured separately in .env. Opening and editing files does not upload them. The explicit Save to server action shares the complete configuration publicly under a unique name. No controls write into ESO's live folders.
 
@@ -107,3 +107,5 @@ Compatibility audit: previews retain unsupported tokens literally, and monthly w
 ## Public saved configurations
 
 Server library lists complete configurations saved by visitors. Loading one opens a browser editing copy; downloading includes that copy plus applied edits. Saving an edited revision to the server requires a new unique name. The original is never overwritten. Full files retain their stored account context, locked messages and cooldowns; use event import/export for selected cross-account transfers.
+
+All scheduling clocks are labeled server time and use the configured guild/event timezone, not the computer or Node host timezone. Preview simulation follows that same timezone. Native time-picker buttons sit beside the clock text.

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import * as model from "../src/model.js";
 import { readFile, mkdir, mkdtemp, readdir, unlink, rmdir } from "node:fs/promises";
 import { createServer } from "../src/server.js";
 import { existsSync } from "node:fs";
@@ -806,6 +807,15 @@ async function timelineOrderingAndPoolPreview(){
  await second.locator('[data-field="finish.minutes"]').fill('-120');
  const pool=second.locator('.pool label').first();await pool.hover();assert.match(await page.locator('#pool-preview p').textContent(),/Meet alpha/);assert.doesNotMatch(await page.locator('#pool-preview p').textContent(),/%event(time|when|countdown)%/);assert.match(await page.locator('#pool-preview small').textContent(),/%eventtime%/);
  await pool.locator('input').focus();assert.equal(await page.locator('#pool-preview').count(),1);await page.keyboard.press('Escape');assert.equal(await page.locator('#pool-preview').count(),0);
+ await second.locator('[data-action=preview]').click();
+ assert.match(await page.locator('#dialog-body').textContent(),/Simulated server time/);assert.doesNotMatch(await page.locator('#dialog-body').textContent(),/local time/i);
+ assert.equal(await page.locator('#simulate-time + .clock-zone').textContent(),'ET');
+ await page.locator('#simulate-time').fill('2026-10-22T19:00');
+ const schedule=cfg.schedule,at=model.projectedOccurrences(schedule,Math.floor(Date.now()/1000)-86400,Math.floor(Date.now()/1000)+86400*89)[0]??model.scheduleEventUtc(schedule);
+ const now=model.scheduleEventUtc({timeZone:'ET',eventDate:'2026-10-22',eventTime:'19:00'});
+ assert.equal(await page.locator('#simulate-messages .preview').first().textContent(),model.previewMessage(d.Default['@fixture'].$AccountWide.messages[1].text,schedule,at,now,{guild:'alpha',zone:'Guild Hall',localHour:19}));
+ assert.ok(await page.locator('[data-field=eventTime]').evaluate(el=>el.getBoundingClientRect().width<=180),'time field keeps its native icon close to the clock');
+ await page.locator('#close-dialog').click();
  const saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
  assert.equal(saved.reminders[1].id,'row-two');assert.equal(saved.reminders[1].finish.minutes,-120,'rejected overlap never changed saved data');assert.deepEqual(errors,[]);
  }finally{await page.close();}

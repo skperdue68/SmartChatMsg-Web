@@ -659,3 +659,12 @@ label.check>.help-icon{flex:none;margin-left:4px}
 #library-status{white-space:pre-wrap;overflow-wrap:anywhere}
 
 .message-character-count{text-align:right;color:var(--muted);font-size:12px;margin:4px 0 10px;}
+
+/* Keep native clock buttons beside the clock text, rather than at the field edge. */
+.clock-control input[type="time"]::-webkit-datetime-edit,
+.clock-control input[type="datetime-local"]::-webkit-datetime-edit{flex:0 0 auto;}
+.clock-control input[type="time"]::-webkit-calendar-picker-indicator,
+.clock-control input[type="datetime-local"]::-webkit-calendar-picker-indicator{margin-left:8px;margin-right:0;}
+
+.clock-control input[type="time"]{flex:0 1 11rem;width:11rem;max-width:100%;}
+.clock-control input[type="datetime-local"]{flex:0 1 19rem;width:19rem;max-width:100%;}
