@@ -339,21 +339,22 @@ $("#guild-timezone").onchange = () => {
   const a = account(),
     override = $("#guild-timezone").value,
     zone = override || a.schedulingTimeZone || "ET";
-  if (
-    !confirm(
-      `Set ${guild} scheduling timezone to ${zone}? All schedules for this guild keep their entered dates and clock times. Their UTC moments change. Other guilds remain unchanged.`,
-    )
-  ) {
-    renderGuildTimezone();
-    return;
-  }
+  const modal=$('#dialog'),close=$('#close-dialog'),targetAccount=accountName,targetGuild=guild;
+  $('#dialog-body').innerHTML=`<h2>Change guild timezone</h2><p>Set <strong>${esc(guild)}</strong> scheduling timezone to <strong>${esc(zone)}</strong>?</p><p class="help">All schedules for this guild keep their entered dates and clock times. Their UTC moments change. Other guilds remain unchanged.</p><div class="actions"><button id="confirm-guild-timezone" class="gold">Change timezone</button><button id="cancel-guild-timezone">Cancel</button></div>`;
+  const cancelTimezone=()=>renderGuildTimezone();modal.addEventListener('cancel',cancelTimezone);
+  close.hidden=true;modal.addEventListener('close',()=>{close.hidden=false;modal.removeEventListener('cancel',cancelTimezone);renderGuildTimezone();},{once:true});
+  $('#cancel-guild-timezone').onclick=()=>{renderGuildTimezone();modal.close();};
+  $('#confirm-guild-timezone').onclick=()=>{
+  if(accountName!==targetAccount||guild!==targetGuild){modal.close();status('The selected account or guild changed. Choose its timezone again.',true);return;}
   a.guildSchedulingTimeZones ??= {};
   if (override) a.guildSchedulingTimeZones[model.guildKey(a.guildSchedulingTimeZones,guild)] = override;
   else delete a.guildSchedulingTimeZones[model.guildKey(a.guildSchedulingTimeZones,guild)];
   for (const event of guildEvents())
     if (event.settings.schedule) event.settings.schedule.timeZone = zone;
   changed();
-  render();
+  modal.close();render();
+  };
+  modal.showModal();$('#cancel-guild-timezone').focus();
 };
 function refreshGuilds() {
   const a = account();

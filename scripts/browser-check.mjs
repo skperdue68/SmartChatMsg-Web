@@ -217,7 +217,11 @@ async function preservationAndEditing() {
       await page.locator("[data-field=settingsRunAt]").inputValue(),
       "ON_DEMAND",
     );
+    const previousTimezone=await page.locator('#guild-timezone').inputValue();let timezoneNativeDialogs=0;const countDialog=()=>timezoneNativeDialogs++;page.on('dialog',countDialog);
+    await page.locator('#guild-timezone').selectOption('PT');assert.equal(await page.locator('#confirm-guild-timezone').isVisible(),true);await page.locator('#cancel-guild-timezone').click();assert.equal(await page.locator('#guild-timezone').inputValue(),previousTimezone);
+    await page.locator('#guild-timezone').selectOption('CT');await page.keyboard.press('Escape');assert.equal(await page.locator('#guild-timezone').inputValue(),previousTimezone);
     await page.locator("#guild-timezone").selectOption("PT");
+    await page.locator('#confirm-guild-timezone').click();assert.equal(timezoneNativeDialogs,0);page.off('dialog',countDialog);
     assert.equal(
       await page.locator('label').filter({hasText:'Scheduling timezone (guild)'}).locator('input').inputValue(),
       "PT",
