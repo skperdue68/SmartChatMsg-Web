@@ -128,3 +128,10 @@ The toolbar's **Account settings** edits the default slash-command guild, unsent
 New numeric command/account inputs accept whole, nonnegative input only, including pasted data. Repeat Every accepts 0 or blank as off. Native minimums still apply on save: zone cooldown is positive, and chat timeout is at least 30 seconds. Relative scheduled offsets retain their intentional negative values.
 
 New guild entries and important-time keys use in-page forms instead of browser text prompts. Missing guild names are collected alongside the entry name, validation is inline, Enter submits, and Cancel/Escape leave the file unchanged.
+
+
+### Delivery sliders and notification sounds
+
+On demand/Startup delivery now provides linked sliders and editable exact-minute fields. Repeat Every runs from Off to 24 hours; Retry Delay from Off to 60 minutes; Cooldown from 15 minutes to 480 minutes (8 hours). Sliders move in one-minute steps, including keyboard arrows. Typing updates the slider and readable duration, such as 125 minutes → 2 hours 5 minutes. Typing a positive value outside the slider's range preserves that exact value and shows a note; loading an older value does not truncate it. Retry remains unavailable without timed repetition and is capped by Repeat Every on save. Scheduled entries keep their separate reminder intervals.
+
+Notify Sound is a real dropdown with all 22 keys in the addon's useful-sound catalog, including NONE and DUEL_START. A custom key already present in the file remains selectable and is preserved. Unlike the former suggestion field, the dropdown does not filter its choices to the currently selected name. Actual availability/playback is determined by ESO; no browser sound playback is claimed.

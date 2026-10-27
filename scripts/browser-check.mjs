@@ -1138,6 +1138,24 @@ async function sharedServerLibrary(){
  }finally{await page.close();}
 }
 
+async function commandSlidersAndSounds(){
+ const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;cfg.runAt='ON_DEMAND';cfg.populateSound='CUSTOM_EXISTING_SOUND';
+ const {page,errors}=await open(d);
+ try{
+ const sound=page.locator('[data-command-option=populateSound]');assert.equal(await sound.evaluate(el=>el.tagName),'SELECT');assert.equal(await sound.inputValue(),'CUSTOM_EXISTING_SOUND');
+ for(const key of ['NONE','DUEL_START','DEFAULT_CLICK','POSITIVE_CLICK','NEGATIVE_CLICK','DIALOG_ACCEPT','DIALOG_DECLINE','NEW_NOTIFICATION','QUEST_SHARE_ACCEPTED','BOOK_ACQUIRED','ACHIEVEMENT_AWARDED','BATTLEGROUND_CAPTURE_FLAG_TAKEN','BATTLEGROUND_CAPTURE_FLAG_RETURNED','BATTLEGROUND_MEDAL_AWARDED','CHAMPION_POINT_GAINED','TELVAR_GAINED','TELVAR_LOST','TRADE_INVITE','GROUP_INVITE','LFG_ACCEPTED','JUSTICE_NOW_KOS','JUSTICE_STATE_CHANGED'])assert.equal(await sound.locator('option').evaluateAll((els,k)=>els.some(el=>el.value===k),key),true);
+ const slider=key=>page.locator(`[data-command-slider="${key}"]`),exact=key=>page.locator(`[data-command-option="${key}"]`),duration=key=>page.locator(`[data-command-duration="${key}"]`);
+ assert.equal(await slider('reminderMinutes').getAttribute('max'),'1440');assert.equal(await slider('reminderRetryMinutes').getAttribute('min'),'0');assert.equal(await slider('autoPopulateCooldownMinutes').getAttribute('min'),'15');assert.equal(await slider('autoPopulateCooldownMinutes').getAttribute('max'),'480');assert.equal(await duration('reminderMinutes').textContent(),'Off');assert.equal(await slider('reminderRetryMinutes').isDisabled(),true);
+ await slider('reminderMinutes').focus();await page.keyboard.press('ArrowRight');assert.equal(await exact('reminderMinutes').inputValue(),'1');
+ await exact('reminderMinutes').fill('125');assert.equal(await slider('reminderMinutes').inputValue(),'125');assert.match(await duration('reminderMinutes').textContent(),/2 hours 5 minutes/);assert.equal(await slider('reminderRetryMinutes').isDisabled(),false);
+ await slider('autoPopulateCooldownMinutes').evaluate(el=>{el.value='480';el.dispatchEvent(new Event('input',{bubbles:true}));});assert.equal(await exact('autoPopulateCooldownMinutes').inputValue(),'480');assert.match(await duration('autoPopulateCooldownMinutes').textContent(),/8 hours/);await sound.selectOption('DUEL_START');await page.locator('.command-delivery').screenshot({path:resolve(temp,'command-sliders-and-sounds.png')});
+ await exact('autoPopulateCooldownMinutes').fill('1500');assert.match(await duration('autoPopulateCooldownMinutes').textContent(),/1 day 1 hour/);assert.match(await page.locator('[data-command-slider-note=autoPopulateCooldownMinutes]').textContent(),/beyond/);
+ await sound.selectOption('ACHIEVEMENT_AWARDED');await page.locator('#save-event').click();const saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;assert.equal(saved.reminderMinutes,125);assert.equal(saved.autoPopulateCooldownMinutes,1500);assert.equal(saved.populateSound,'ACHIEVEMENT_AWARDED');
+ await page.locator('[data-command-option=autoPopulateOnZone]').check();assert.equal(await duration('reminderMinutes').textContent(),'Off');assert.equal(await slider('reminderRetryMinutes').isDisabled(),true);
+ await page.locator('[data-field=settingsRunAt]').selectOption('SCHEDULED');assert.equal(await slider('reminderMinutes').isVisible(),false);assert.equal(await sound.isVisible(),true);assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 async function importantTimeCreationModal(){
  const {page,errors}=await open(fixture());let prompts=0;page.removeAllListeners('dialog');page.on('dialog',dialog=>{if(dialog.type()==='prompt')prompts++;dialog.dismiss();});
  try{await page.locator('#add-mark').click();await page.locator('#modal-submit').click();assert.match(await page.locator('#modal-error').textContent(),/unique lowercase key/);await page.locator('#form-key').fill('gathering');await page.locator('#form-key').press('Enter');assert.equal(await page.locator('.mark[data-id=gathering]').count(),1);assert.equal(prompts,0);assert.deepEqual(errors,[]);}finally{await page.close();}
@@ -1175,7 +1193,7 @@ async function accountAndCommandDefaults(){
  const d=fixture(),a=d.Default['@fixture'].$AccountWide;a.guildRoster=numeric([{guildIndex:4,guildId:101,guildName:'Alpha'},{guildIndex:2,guildId:102,guildName:'Beta'}]);a.guildSchedulingTimeZones.beta='PT';a.commandGuildSettings['command-one'].beta.schedule.timeZone='PT';a.commandGuildSettings['command-one'].alpha.runAt='ON_DEMAND';
  const {page,errors}=await open(d);
  try{
- await page.locator('[data-command-option=reminderMinutes]').fill('30');await page.locator('[data-command-option=reminderRetryMinutes]').fill('45');await page.locator('[data-command-option=populateSound]').fill('NONE');await page.locator('[data-command-option=openStatusPanelOnRun]').check();await page.locator('#save-event').click();
+ await page.locator('[data-command-option=reminderMinutes]').fill('30');await page.locator('[data-command-option=reminderRetryMinutes]').fill('45');await page.locator('[data-command-option=populateSound]').selectOption('NONE');await page.locator('[data-command-option=openStatusPanelOnRun]').check();await page.locator('#save-event').click();
  let saved=(await downloadData(page)).Default['@fixture'].$AccountWide,cfg=saved.commandGuildSettings['command-one'].alpha;assert.equal(cfg.reminderMinutes,30);assert.equal(cfg.reminderRetryMinutes,30);assert.equal(cfg.populateSound,'NONE');assert.equal(cfg.openStatusPanelOnRun,true);
  await page.locator('#account-settings').click();await page.locator('#account-default-guild').selectOption('4');await page.locator('#account-revert-seconds').fill('90');await page.locator('#account-default-zone').selectOption('CT');await page.locator('#apply-account-settings').click();
  saved=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(saved.defaultGuildIndex,4);assert.equal(saved.revertChatSeconds,90);assert.equal(saved.schedulingTimeZone,'CT');assert.equal(saved.commandGuildSettings['command-one'].alpha.schedule.timeZone,'CT');assert.equal(saved.commandGuildSettings['command-one'].beta.schedule.timeZone,'PT');assert.equal(saved.messages[1].useCount,5);
@@ -1269,6 +1287,7 @@ async function libraryHttpIntegration(){
 }
 
 try {
+  await commandSlidersAndSounds();
   await importantTimeCreationModal();
   await creationModals();
   await commandNumericInputRules();
