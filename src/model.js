@@ -464,10 +464,8 @@ export function rotationActivityName(schedule,atUtc) {
   if(schedule.specialPattern!=='EVENT_ROTATION')return null;
   return values(schedule.rotationEvents).find(activity=>activity.id===eventVariant(schedule,atUtc))?.name ?? null;
 }
-export function reminderWindows(schedule, eventAtUtc, options = {}) {
-  if (!options.includeCancelled && occurrenceCancellation(schedule,eventAtUtc)) return [];
-  const z = schedule.timeZone || "ET";
-  function resolve(a) {
+export function resolveReminderAnchor(schedule,eventAtUtc,a) {
+ const z=schedule.timeZone||"ET";
     if (!a) return null;
     const kind = a.kind || a.type;
     if (kind === "OFFSET")
@@ -487,12 +485,29 @@ export function reminderWindows(schedule, eventAtUtc, options = {}) {
     }
     return null;
   }
+
+export function reminderCalendarFields(schedule,eventAtUtc,anchor){
+ const at=resolveReminderAnchor(schedule,eventAtUtc,anchor);if(!Number.isFinite(at))return {date:'',time:''};
+ const c=civil(at,schedule.timeZone||'ET');return {date:c.slice(0,3).map((n,i)=>String(n).padStart(i?2:4,'0')).join('-'),time:String(c[3]%12||12).padStart(2,'0')+':'+String(c[4]).padStart(2,'0')+(c[3]>=12?' PM':' AM'),fold:anchor?.fold};
+}
+export function reminderCalendarAnchor(schedule,eventAtUtc,dateValue,timeValue,original){
+ const previous=reminderCalendarFields(schedule,eventAtUtc,original);
+ if(previous.date===dateValue&&previous.time===timeValue)return {...original};
+ const d=date(dateValue),t=clock(timeValue);if(!d||!t)throw Error('Choose a valid period date and server time.');
+ const fold=original?.fold,target=utc([...d,...t],schedule.timeZone||'ET',fold);
+ if(!Number.isFinite(target))throw Error('This period clock does not exist or is ambiguous. Choose a valid server time.');
+ const event=civil(eventAtUtc,schedule.timeZone||'ET');
+ return {kind:'DAY',days:Math.round((stamp(d)-stamp(event.slice(0,3)))/86400),time:timeValue,...(fold?{fold}:{})};
+}
+export function reminderWindows(schedule, eventAtUtc, options = {}) {
+  if (!options.includeCancelled && occurrenceCancellation(schedule,eventAtUtc)) return [];
+  const z = schedule.timeZone || "ET";
   return values(schedule.reminders).flatMap((row) => {
-    const start = resolve(row.start);
+    const start = resolveReminderAnchor(schedule,eventAtUtc,row.start);
     let end =
         row.once && !row.onceUntilFinish
           ? start + Number(row.lateMinutes ?? 5) * 60
-          : resolve(row.finish);
+          : resolveReminderAnchor(schedule,eventAtUtc,row.finish);
     if(!options.uncapped && schedule.eventDurationMinutes!==undefined && !row.allowAfterEventEnd){
       const ending=eventAtUtc+schedule.eventDurationMinutes*60;
       if(!(row.once && start===ending))end=Math.min(end,ending);

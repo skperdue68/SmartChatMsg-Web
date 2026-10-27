@@ -711,3 +711,7 @@ label.check>.help-icon{flex:none;margin-left:4px}
 .message.has-unapplied-changes{outline:2px solid #e3bb65;outline-offset:2px;border-radius:6px;}
 
 .event-settings.has-unapplied-changes{outline:2px solid #e3bb65;outline-offset:2px;}
+
+.period-calendar-row{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin:22px 0}.period-calendar{padding:18px;background:#142638;border:1px solid var(--line);border-radius:6px}.period-calendar h3{margin:0 0 14px}.period-calendar-fields{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:14px;align-items:end}.period-calendar-row [hidden]{display:none}.period-calendar-fields input[type=date]{width:100%}@media(max-width:760px){.period-calendar-row{grid-template-columns:1fr}}
+
+#important-times .mark{grid-template-columns:minmax(0,1fr) minmax(0,2fr) auto;align-items:end}#important-times .mark>p{grid-column:1/-1;margin:0}#important-times .mark>.period-calendar-fields{min-width:0}@media(max-width:760px){#important-times .mark{grid-template-columns:1fr}#important-times .mark>p{grid-column:1}}

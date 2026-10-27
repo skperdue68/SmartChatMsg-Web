@@ -150,3 +150,11 @@ The event settings use an **Enabled** checkbox instead of the old Enabled/Paused
 Retry Delay for ordinary On Demand/Startup repetition is bounded by the smaller of Repeat Frequency and Cooldown. Reducing either value reduces a larger retry delay; raising one does not bypass the other. Install the matching addon retry-cap update so native execution and the web editor use the same rule.
 
 Message Library cards have a highlighted border while their template or applicable variant contains unapplied changes; Apply message removes it. Reverting to the applied value removes it too. Applied edits still need a server save or Lua download to persist outside the editor. For On demand/Startup, disabled messages show `(disabled)` after their library name; pool entries use their checkboxes without that suffix. Names and outgoing text are not modified by this display label.
+
+### Calendar-based Period Timeline
+
+Each scheduled period uses **Period Label**, **Period Status**, and side-by-side **Period Starts** / **Period Stops** calendars with server-time pickers. Dates show the next event occurrence in the guild/event scheduling timezone. Future recurring periods follow the same relative day and server clock; they are not fixed one-off dates. Existing elapsed-minute and important-time references retain their meaning when unchanged. Editing a boundary converts it to a server-day/time anchor supported by the ESO addon.
+
+Normal periods must start on or before the event. Check **Allow promotion after event starts** for underway periods; event duration still caps delivery unless the existing event-end exception is enabled. Stops cannot precede starts. Use **Send once** for a notice at a single instant; repeating periods need a nonzero duration. Invalid dates, nonexistent daylight-saving clocks, and overlapping periods are reported before Apply.
+
+Create named moments with **+ Add important time** in **Important times**. Pick its date and server time and Apply; it is saved relative to the event and follows repeating occurrences. Reference it in templates with `%eventtime:key%`, `%eventwhen:key%`, `%eventdate:key%`, or `%eventcountdown:key%`. Anchor dropdowns and minute arithmetic are no longer needed in the period editor.
