@@ -488,6 +488,39 @@ function reminderBadge(row){
   const text=row.once?(row.onceUntilFinish?'Sends one message per event occurrence, anytime within this period. It does not repeat when the interval passes.':'Sends one message per event occurrence at its trigger time, with the configured late allowance. It does not repeat within this period.'):'Selects a message from this pool repeatedly while the period is open, using Repeat every. Cooldowns and other activity can delay preparation.';
   return `<span class="badge reminder-type" tabindex="0" role="note" aria-label="${esc(label+'. '+text)}">${label}<span class="help-bubble">${esc(text)} Messages are prepared in ESO chat; you still press Enter to send.</span></span>`;
 }
+function availabilityMarkup(row,zone){
+ const a=row.availability||{},clock=m=>`${String(Math.floor(m/60)%24).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+ const full=(a.startMinute??0)===0&&(a.endMinute??1440)===1440;
+ return `<details class="availability-settings" ${a.enabled?'open':''}><summary>Availability — allowed days, hours and daily limit</summary><label class="check"><input type="checkbox" data-availability="enabled" ${a.enabled?'checked':''}>Limit when this reminder may run</label><div data-availability-options ${a.enabled?'':'hidden'}><p class="help">These are announcement days, not event recurrence days. The reminder must also be inside its overall promotion period. All clocks use server time (${esc(zone)}).</p><div class="actions weekdays">${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map((d,i)=>`<label class="check"><input type="checkbox" data-availability-day="${i+1}" ${!a.weekdays||a.weekdays[i+1]?'checked':''}>${d.slice(0,3)}</label>`).join('')}</div><label class="check"><input type="checkbox" data-availability="allDay" ${full?'checked':''}>All day</label><div class="grid" data-availability-hours ${full?'hidden':''}><label>From<div class="clock-control"><input type="time" data-availability="start" value="${clock(a.startMinute??420)}"><span>${esc(zone)}</span></div></label><label>Until<div class="clock-control"><input type="time" data-availability="end" value="${clock(a.endMinute??1320)}"><span>${esc(zone)}</span></div></label></div><label>Maximum announcements per server day (optional)<input type="number" min="1" max="1000" step="1" data-availability="maxPerDay" value="${a.maxPerDay??''}" placeholder="Unlimited"></label><p class="help" data-availability-summary></p><p class="help">Confirmed sends and matching announcements from other players count toward the daily limit. Preparing a message does not count. Send once still means once per event occurrence.</p><div data-availability-overrides></div></div></details>`;
+}
+function availabilityFields(card){
+ const read=k=>card.querySelector(`[data-availability="${k}"]`),previous=card._availability||{};
+ const a={...clone(previous),enabled:read('enabled').checked};
+ if(!a.enabled)return a;
+ a.weekdays={};card.querySelectorAll('[data-availability-day]:checked').forEach(el=>setLuaValue(a.weekdays,Number(el.dataset.availabilityDay),true));
+ const minute=value=>/^\d{2}:\d{2}$/.test(value)?Number(value.slice(0,2))*60+Number(value.slice(3)):NaN;
+ a.startMinute=read('allDay').checked?0:minute(read('start').value);
+ const end=minute(read('end').value);
+ a.endMinute=read('allDay').checked?1440:end===0?1440:end;
+ if(read('maxPerDay').value==='')delete a.maxPerDay;else a.maxPerDay=Number(read('maxPerDay').value);
+ return a;
+}
+function refreshAvailability(card){
+ const a=availabilityFields(card),read=k=>card.querySelector(`[data-availability="${k}"]`);
+ card.querySelector('[data-availability-options]').hidden=!a.enabled;
+ card.querySelector('[data-availability-hours]').hidden=read('allDay').checked;
+ const summary=card.querySelector('[data-availability-summary]');
+ summary.textContent=(a.maxPerDay?`Up to ${a.maxPerDay} announcement${a.maxPerDay===1?'':'s'} per server calendar day. `:'No daily limit. ')+(read('allDay').checked?'Eligible all day.':'Eligible during the selected hours; an earlier finish clock continues into the next day.');
+ const overrides=card.querySelector('[data-availability-overrides]');overrides.replaceChildren();
+ for(const [key,title] of [['dateOverrides','Date'],['weekdayOverrides','Weekday']])for(const [id,hours] of Object.entries(a[key]||{})){
+  const line=document.createElement('div');line.className='availability-override';
+  const name=key==='weekdayOverrides'?['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][Number(id)-1]:id;
+  const clock=m=>String(Math.floor(m/60)%24).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+  const text=document.createElement('span');text.textContent=`${title} override: ${name} · ${clock(hours.startMinute)}–${clock(hours.endMinute)}`;
+  const reset=document.createElement('button');reset.type='button';reset.textContent='Reset '+title.toLowerCase();reset.onclick=()=>{delete card._availability[key][id];refreshAvailability(card);card.dispatchEvent(new Event('input',{bubbles:true}));};
+  line.append(text,reset);overrides.append(line);
+ }
+}
 function refreshReminderRelevance(card){
  const once=card.querySelector('[data-field=once]').checked;
  const whole=card.querySelector('[data-field=onceUntilFinish]').checked;
@@ -500,6 +533,7 @@ function refreshReminderRelevance(card){
 // unused metadata valid for SavedVariables/import without changing delivery mode.
 function reminderFields(card){
  const value=fields(card),integer=(n,min,max)=>Number.isInteger(n)&&n>=min&&n<=max;
+ value.availability=availabilityFields(card);
  if(value.once&&!integer(value.intervalMinutes,1,5256000))value.intervalMinutes=60;
  if((!value.once||value.onceUntilFinish)&&!integer(value.lateMinutes,1,1440))value.lateMinutes=5;
  if(value.once&&!value.onceUntilFinish){
@@ -511,6 +545,11 @@ function reminderFields(card){
 function reminderFieldError(card,value=reminderFields(card)){
  if(!value.once&&(!Number.isInteger(value.intervalMinutes)||value.intervalMinutes<1||value.intervalMinutes>5256000))return 'Repeat every: enter a positive whole number of minutes.';
  if(value.once&&!value.onceUntilFinish&&(!Number.isInteger(value.lateMinutes)||value.lateMinutes<1||value.lateMinutes>1440))return 'Late allowance: enter a whole number from 1 to 1440 minutes.';
+ const a=value.availability;
+ if(a?.enabled){
+  if(!Number.isInteger(a.startMinute)||a.startMinute<0||a.startMinute>1439||!Number.isInteger(a.endMinute)||a.endMinute<1||a.endMinute>1440||a.startMinute===a.endMinute)return 'Availability: choose valid, different start and finish clocks (or All day).';
+  if(a.maxPerDay!==undefined&&(!Number.isInteger(a.maxPerDay)||a.maxPerDay<1||a.maxPerDay>1000))return 'Maximum announcements per day must be a whole number from 1 to 1000, or blank.';
+ }
  const invalid=[...card.querySelectorAll('input[data-field]')].find(input=>{for(let node=input;node&&node!==card;node=node.parentElement)if(node.hidden)return false;return !input.checkValidity();});
  if(invalid){const label=({intervalMinutes:'Repeat every',lateMinutes:'Late allowance'})[invalid.dataset.field]||invalid.dataset.field.replace('.',' ');return label+': '+invalid.validationMessage;}
  return null;
@@ -570,7 +609,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
         ["FIRST", "First occurrence"],
         ["SECOND", "Second occurrence"],
       ],
-    )}</div><details id="event-rotation-settings" open><summary>Rotating event</summary><p class="help">The Event Date anchors the first activity. Names follow this order and repeat automatically, including while you are offline. Use <code>%eventactivity%</code> in messages for the selected name.</p>${input("Occurrences per activity","rotationEvery",s.rotationEvery||1,"number")}<div id="rotation-activities"></div><button id="add-activity" type="button">+ Add activity</button><p class="help">Upcoming selections update as you edit. Apply event settings to save these changes.</p></details><details id="weekday-options" ${vals(s.weekdays).some(Boolean)?'open':''}><summary>Event happens on multiple weekdays (advanced)</summary><label class="check"><input id="use-event-weekdays" type="checkbox" ${vals(s.weekdays).some(Boolean)?'checked':''}>Choose event weekdays instead of following Event Date</label><p class="help" id="weekday-explanation"></p><div class="actions weekdays" id="event-weekday-choices">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<label class="check"><input type="checkbox" data-weekday="${i + 1}" ${s.weekdays?.[i + 1] ? "checked" : ""}>${d.slice(0, 3)}</label>`).join("")}</div></details><div class="actions" style="margin-top:18px">${select("Event state", "eventState", stateOf(s), [["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}<button id="save-event" class="gold">Apply event settings</button></div><p class="help">Enter the real event date and time. Reminder offsets are measured from this moment; calendar-day anchors use the event timezone.</p></section><section class="panel" id="rotation-occurrences"></section><section class="panel"><div class="heading"><h2>Reminder timeline</h2><button id="add-row" class="gold">+ Add reminder</button></div>${s.timelineVersion !== 1 ? '<p class="help">This event still uses legacy scheduling. Convert this schedule to review its existing timing and message pools before adding reminders.</p>' : ""}<p class="help">Periods are automatically ordered by start time when applied. Windows cannot overlap within this event; one may finish exactly when the next starts.</p><div id="timeline-conflicts" class="timeline-conflicts" role="alert"></div><div id="rows">${rows.map((r, i) => `<article class="reminder ${r.once ? "milestone" : ""}" data-row="${esc(r.id)}"><div class="heading"><h3>${i + 1}. ${esc(r.label || "Reminder")}</h3>${reminderBadge(r)}</div><p class="effective-reminder-time" data-effective-times></p><p class="reminder-overlap-warning" data-overlap-warning hidden></p><div class="grid">${input("Reminder label", "label", r.label || "")}${select("Reminder state","rowState",stateOf(r),[["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}${input("Repeat every (minutes)", "intervalMinutes", r.intervalMinutes ?? 60, "number")}${input("Late allowance (minutes)", "lateMinutes", r.lateMinutes ?? 5, "number")}</div><h3>Starts</h3><div class="grid">${anchorMarkup(r.start, "start", s)}</div><div data-finish-window><h3>Finishes</h3><div class="grid">${anchorMarkup(r.finish || r.start, "finish", s)}</div></div><div class="actions">${check("Send once", "once", r.once)}${check("Time-sensitive", "timeSensitive", r.timeSensitive)}${check("Allow a brief notice after event end (advanced)","allowAfterEventEnd",r.allowAfterEventEnd)}${check("Allow this announcement anytime within its window", "onceUntilFinish", r.onceUntilFinish)}</div><details class="row-advanced"><summary>Advanced event-end exception</summary>${check("Allow a brief announcement after the event ends","allowAfterEventEnd",r.allowAfterEventEnd)}</details><p class="help">Choose a message pool. The addon selects a message from this pool when the reminder is due.</p><div class="pool">${messages.map((m, j) => `<label class="check" title="${esc(m.text)}"><input type="checkbox" data-message="${esc(m.id)}" ${vals(r.messageIds).includes(m.id) ? "checked" : ""}><span data-pool-message-label="${esc(m.id)}">${esc(model.messageDisplayName(m,j))}: ${esc(m.text)}</span></label>`).join("") || '<span class="help">Add a message below first.</span>'}</div><div class="actions"><button data-action="save">Apply reminder</button><button data-action="preview">Preview here</button><button data-action="remove" class="danger">Remove</button></div></article>`).join("") || '<div class="empty">No timeline reminders yet.</div>'}</div></section><section class="panel"><div class="heading"><h2>Important times</h2><button id="add-mark">+ Add time</button></div><p class="help">Name an important moment, such as doors opening or ticket sales closing, and reuse it in reminder anchors.</p><details class="important-time-guide" id="important-time-guide"><summary>How to use important times</summary><ol><li>Add a key such as <code>tickets</code>, with a label such as Ticket sales close.</li><li>Use <strong>-60</strong> minutes for one hour before the event (-30 means 30 minutes before). Positive values mean after. Click <strong>Apply</strong>.</li><li>For a reminder start or stop, choose <strong>Anchor → Important time</strong> and select it.</li><li>In messages, use <code>%eventwhen:tickets%</code>, <code>%eventtime:tickets%</code>, <code>%eventdate:tickets%</code> or <code>%eventcountdown:tickets%</code>. The key after the colon must match the key you created.</li></ol><p class="help">For an 8 PM event, tickets at -60 means 7 PM on that event day. It follows each recurring event automatically. The Pick date and time option calculates the same reusable offset, not a separate one-off date.</p></details>${Object.entries(
+    )}</div><details id="event-rotation-settings" open><summary>Rotating event</summary><p class="help">The Event Date anchors the first activity. Names follow this order and repeat automatically, including while you are offline. Use <code>%eventactivity%</code> in messages for the selected name.</p>${input("Occurrences per activity","rotationEvery",s.rotationEvery||1,"number")}<div id="rotation-activities"></div><button id="add-activity" type="button">+ Add activity</button><p class="help">Upcoming selections update as you edit. Apply event settings to save these changes.</p></details><details id="weekday-options" ${vals(s.weekdays).some(Boolean)?'open':''}><summary>Event happens on multiple weekdays (advanced)</summary><label class="check"><input id="use-event-weekdays" type="checkbox" ${vals(s.weekdays).some(Boolean)?'checked':''}>Choose event weekdays instead of following Event Date</label><p class="help" id="weekday-explanation"></p><div class="actions weekdays" id="event-weekday-choices">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<label class="check"><input type="checkbox" data-weekday="${i + 1}" ${s.weekdays?.[i + 1] ? "checked" : ""}>${d.slice(0, 3)}</label>`).join("")}</div></details><div class="actions" style="margin-top:18px">${select("Event state", "eventState", stateOf(s), [["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}<button id="save-event" class="gold">Apply event settings</button></div><p class="help">Enter the real event date and time. Reminder offsets are measured from this moment; calendar-day anchors use the event timezone.</p></section><section class="panel" id="rotation-occurrences"></section><section class="panel"><div class="heading"><h2>Reminder timeline</h2><button id="add-row" class="gold">+ Add reminder</button></div>${s.timelineVersion !== 1 ? '<p class="help">This event still uses legacy scheduling. Convert this schedule to review its existing timing and message pools before adding reminders.</p>' : ""}<p class="help">Periods are automatically ordered by start time when applied. Windows cannot overlap within this event; one may finish exactly when the next starts.</p><div id="timeline-conflicts" class="timeline-conflicts" role="alert"></div><div id="rows">${rows.map((r, i) => `<article class="reminder ${r.once ? "milestone" : ""}" data-row="${esc(r.id)}"><div class="heading"><h3>${i + 1}. ${esc(r.label || "Reminder")}</h3>${reminderBadge(r)}</div><p class="effective-reminder-time" data-effective-times></p><p class="reminder-overlap-warning" data-overlap-warning hidden></p><div class="grid">${input("Reminder label", "label", r.label || "")}${select("Reminder state","rowState",stateOf(r),[["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}${input("Repeat every (minutes)", "intervalMinutes", r.intervalMinutes ?? 60, "number")}${input("Late allowance (minutes)", "lateMinutes", r.lateMinutes ?? 5, "number")}</div><h3>Starts</h3><div class="grid">${anchorMarkup(r.start, "start", s)}</div><div data-finish-window><h3>Finishes</h3><div class="grid">${anchorMarkup(r.finish || r.start, "finish", s)}</div></div><div class="actions">${check("Send once", "once", r.once)}${check("Time-sensitive", "timeSensitive", r.timeSensitive)}${check("Allow a brief notice after event end (advanced)","allowAfterEventEnd",r.allowAfterEventEnd)}${check("Allow this announcement anytime within its window", "onceUntilFinish", r.onceUntilFinish)}</div>${availabilityMarkup(r,s.timeZone)}<details class="row-advanced"><summary>Advanced event-end exception</summary>${check("Allow a brief announcement after the event ends","allowAfterEventEnd",r.allowAfterEventEnd)}</details><p class="help">Choose a message pool. The addon selects a message from this pool when the reminder is due.</p><div class="pool">${messages.map((m, j) => `<label class="check" title="${esc(m.text)}"><input type="checkbox" data-message="${esc(m.id)}" ${vals(r.messageIds).includes(m.id) ? "checked" : ""}><span data-pool-message-label="${esc(m.id)}">${esc(model.messageDisplayName(m,j))}: ${esc(m.text)}</span></label>`).join("") || '<span class="help">Add a message below first.</span>'}</div><div class="actions"><button data-action="save">Apply reminder</button><button data-action="preview">Preview here</button><button data-action="remove" class="danger">Remove</button></div></article>`).join("") || '<div class="empty">No timeline reminders yet.</div>'}</div></section><section class="panel"><div class="heading"><h2>Important times</h2><button id="add-mark">+ Add time</button></div><p class="help">Name an important moment, such as doors opening or ticket sales closing, and reuse it in reminder anchors.</p><details class="important-time-guide" id="important-time-guide"><summary>How to use important times</summary><ol><li>Add a key such as <code>tickets</code>, with a label such as Ticket sales close.</li><li>Use <strong>-60</strong> minutes for one hour before the event (-30 means 30 minutes before). Positive values mean after. Click <strong>Apply</strong>.</li><li>For a reminder start or stop, choose <strong>Anchor → Important time</strong> and select it.</li><li>In messages, use <code>%eventwhen:tickets%</code>, <code>%eventtime:tickets%</code>, <code>%eventdate:tickets%</code> or <code>%eventcountdown:tickets%</code>. The key after the colon must match the key you created.</li></ol><p class="help">For an 8 PM event, tickets at -60 means 7 PM on that event day. It follows each recurring event automatically. The Pick date and time option calculates the same reusable offset, not a separate one-off date.</p></details>${Object.entries(
       s.importantTimes || {},
     )
       .map(
@@ -736,6 +775,8 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
     .querySelectorAll(".reminder")
     .forEach((card) => {
       const r = rows.find((r) => r.id === card.dataset.row);
+      card._availability=clone(r.availability||{});refreshAvailability(card);
+      card.querySelectorAll('[data-availability],[data-availability-day]').forEach(el=>el.addEventListener('change',()=>refreshAvailability(card)));
       const labelInput=card.querySelector('[data-field=label]'),heading=card.querySelector('.heading h3');
       heading.setAttribute('aria-live','polite');
       labelInput.addEventListener('input',()=>{heading.textContent=`${rows.indexOf(r)+1}. ${labelInput.value.trim()||'Reminder'}`;});
@@ -1177,6 +1218,15 @@ function calendarBoundary(dateKey, zone) {
   if (!Number.isFinite(value)) throw Error("Invalid overview date.");
   return value;
 }
+// Find occurrences whose reminders or event bars can reach the visible range.
+// Query recurrence in bounded chunks; availability itself expands only this view.
+function calendarOccurrences(schedule,from,to){
+ const anchor=model.scheduleEventUtc(schedule),bases=Number.isFinite(anchor)?model.reminderWindows(schedule,anchor,{uncapped:true}):[];
+ const starts=[0,...bases.map(w=>w.start-anchor)],ends=[Number(schedule.eventDurationMinutes||0)*60,...bases.map(w=>w.end-anchor)];
+ const low=Math.max(Date.UTC(2000,0,1)/1000,from-Math.max(...ends)-2*86400),high=Math.min(Date.UTC(2100,0,2)/1000,to-Math.min(...starts)+2*86400);
+ const results=new Set();for(let a=low;a<=high;){const b=Math.min(high,a+399*86400);for(const at of model.projectedOccurrences(schedule,a,b))results.add(at);a=b+1;}
+ return [...results].sort((a,b)=>a-b);
+}
 function renderCalendar() {
   const el = $("#calendar"),
     zone = guildZone(),
@@ -1278,11 +1328,7 @@ function renderCalendar() {
         throw Error(
           "Schedule timezone differs from the guild. Set the guild timezone explicitly to align its schedules.",
         );
-      for (const at of model.projectedOccurrences(
-        e.schedule,
-        start - 86400 * 32,
-        end + 86400 * 32,
-      )) {
+      for (const at of calendarOccurrences(e.schedule,start,end)) {
         if (calKind === "all" && at < end && at + Number(e.schedule.eventDurationMinutes || 0)*60 >= start)
           items.push({
             at,
@@ -1292,7 +1338,14 @@ function renderCalendar() {
             milestone: !Number(e.schedule.eventDurationMinutes),
             event: true,
           });
-        for (const w of model.reminderWindows(e.schedule, at)) {
+        const effective=model.effectiveReminderWindows(e.schedule, at, start, end);
+        if(calMode==='day')for(const base of model.reminderWindows(e.schedule,at)){
+          if(!base.row.availability?.enabled||base.end<=start||base.start>=end||effective.some(w=>w.row.id===base.row.id))continue;
+          if(calState==='active'&&(base.row.enabled===false||base.row.paused))continue;
+          if(calKind==='milestones'&&!base.row.once||calKind==='windows'&&base.row.once)continue;
+          items.push({at:base.start,end:base.end,e,label:base.row.label,rowId:base.row.id,eventAtUtc:at,blocked:true,interval:base.row.intervalMinutes});
+        }
+        for (const w of effective) {
           if(calState==='active'&&(w.row.enabled===false||w.row.paused))continue;
           if (w.end < start || w.start >= end) continue;
           if (
@@ -1302,7 +1355,7 @@ function renderCalendar() {
             continue;
           items.push({
             at: w.start,
-            end: w.end,rowId:w.row.id,eventAtUtc:at,
+            end: w.end,rowId:w.row.id,eventAtUtc:at,availability:w.availabilityDate?w:null,
             e,
             label: w.row.label+(w.row.paused?" [Paused]":w.row.enabled===false?" [Disabled]":""),
             milestone: w.row.once&&!w.row.onceUntilFinish,once:w.row.once,
@@ -1370,7 +1423,7 @@ function renderCalendar() {
         " " +
         zone +
         "; estimated eligibility, not guaranteed delivery.";
-      button.innerHTML = `${item.milestone ? "◆" : "↻"} ${esc(item.e.command.name)}<small>${esc(item.label)}${item.interval ? " / " + item.interval + "m" : ""}</small><small>${esc(clock)}</small>`;
+      button.innerHTML = `${item.milestone ? "◆" : "↻"} ${esc(item.e.command.name)}<small>${esc(item.label)}${item.interval ? " / Every " + model.formatRepeatInterval(item.interval) : ""}</small><small>${esc(clock)}</small>`;
       button.onclick = () => {
         selected = item.e.commandId;
         document.querySelector("[data-view=editor]").click();
@@ -1387,6 +1440,11 @@ function dayReminderLabel(eventName,label){
  if(!name||!text.toLowerCase().startsWith(name.toLowerCase()))return text;
  const suffix=text.slice(name.length),short=suffix.replace(/^\s*[-–—:]\s*/,'');
  return short!==suffix&&short.trim()?short:text;
+}
+function chooseAvailabilityScope(item,apply){
+ const date=item.availability.availabilityDate,day=new Date(date+'T12:00:00Z').toLocaleDateString('en-US',{weekday:'long',timeZone:'UTC'});
+ $('#dialog-body').innerHTML=`<h2>Change allowed hours</h2><p>Choose which windows should use these hours. The overall promotion period and daily limit stay unchanged.</p><p class="help">This window opens ${esc(date)} (${esc(day)}). Overnight continuations belong to their opening date. Date overrides take priority over weekday overrides, then usual hours.</p><div class="availability-scopes"><button data-scope="DATE">Only ${esc(date)}</button><button data-scope="WEEKDAY">Every ${esc(day)}</button><button data-scope="ALL">All eligible days — usual hours</button></div><p class="help">Changing usual hours keeps any existing date and weekday overrides. Close to cancel.</p>`;
+ $('#dialog-body').querySelectorAll('[data-scope]').forEach(b=>b.onclick=()=>{$('#dialog').close();apply(b.dataset.scope);});$('#dialog').showModal();
 }
 function renderDayTimeline(items,from,until,zone){
   const root=document.querySelector('#calendar-grid');root.className='day-timeline-scroll';
@@ -1421,27 +1479,40 @@ function renderDayTimeline(items,from,until,zone){
       const label=document.createElement('div');label.className='day-row-label';label.innerHTML=`<strong>${esc(item.e.command.name)}</strong><small>${esc(reminderLabel)}</small>`;
       const track=document.createElement('div');track.className='day-track';addContext(track);
       ticks.forEach(t=>{const line=document.createElement('span');line.className='day-gridline';line.style.left=x(t)+'%';track.append(line);});
-      const button=document.createElement('button');button.className='day-block'+(item.milestone?' day-milestone':'')+(item.event?' day-actual-event':'');
+      if(item.blocked){
+        const blocked=document.createElement('span');blocked.className='day-availability-base day-unavailable';blocked.style.left=x(item.at)+'%';blocked.style.width=(x(item.end)-x(item.at))+'%';blocked.textContent='Not eligible during this view';track.append(blocked);row.append(label,track);shell.append(row);continue;
+      }
+      if(item.availability){
+        const base=document.createElement('span');base.className='day-availability-base';base.style.left=x(item.availability.baseStart)+'%';base.style.width=(x(item.availability.baseEnd)-x(item.availability.baseStart))+'%';track.append(base);
+        const source=item.availability.availabilitySource;
+        const badge=document.createElement('span');badge.className='availability-badge';badge.textContent=(source==='DATE'?'Date override':source==='WEEKDAY'?'Weekday override':'Usual hours')+(item.availability.row.availability.maxPerDay?' · Up to '+item.availability.row.availability.maxPerDay+'/day':'');label.append(badge);
+        if(source!=='USUAL'){
+          const reset=document.createElement('button');reset.className='availability-reset';reset.textContent='Reset '+(source==='DATE'?'date':'weekday');reset.onclick=()=>{try{const before=clone(item.e.schedule),result=model.resetReminderAvailability(before,item.rowId,item.availability.availabilityDate,source);item.e.settings.schedule=result.schedule;dayTimelineUndo={account:accountName,guild,commandId:item.e.commandId,before,after:JSON.stringify(result.schedule)};changed();renderCalendar();status(result.notice||'Override reset. Inherited hours now apply.');}catch(error){status(error.message,true);}};label.append(reset);
+        }
+      }
+      const button=document.createElement('button');button.className='day-block' +(item.milestone?' day-milestone':'')+(item.event?' day-actual-event':'')+(item.availability?' day-availability '+item.availability.availabilitySource.toLowerCase():'');
       button.style.left=x(item.at)+'%';button.style.width=(item.milestone?0:Math.max(.3,x(item.end)-x(item.at)))+'%';
       // Each frequency gets a stable color, so a changed cadence is visible.
       const frequency=Number(item.interval||0);button.style.background=item.event?hue:(item.milestone||item.once)?'#b58a3b':`hsl(${(frequencies.indexOf(frequency)*137.508+205)%360} 45% 38%)`;
-      const frequencyText=item.event?'Event in progress':item.milestone?'Once':item.once?'Once within window':`Every ${frequency} minutes`;
+      const frequencyText=item.event?'Event in progress':item.milestone?'Once':item.once?'Once within window':`Every ${model.formatRepeatInterval(frequency)}`;
       const detail=`${reminderLabel}: ${clock(item.at)}${item.end!==item.at?' – '+clock(item.end):''} · ${frequencyText}`;
       button.textContent=item.milestone?'◆':frequencyText;button.title=detail;button.setAttribute('aria-label',detail);
       const clippedStart=item.at<from,clippedFinish=item.end>until;
       for(const [edge,clipped,arrow] of [['start',clippedStart,'◀'],['finish',clippedFinish,'▶']]){
         if(clipped){const marker=document.createElement('span');marker.className='day-continues '+edge;marker.textContent=arrow;marker.title='Continues '+(edge==='start'?'before':'after')+' the visible range; navigate to its actual edge to resize.';button.append(marker);}
+        else if(item.availability&&(edge==='start'?item.availability.clipStart:item.availability.clipEnd)){const marker=document.createElement('span');marker.className='day-continues '+edge;marker.textContent='│';marker.title='Limited by the overall promotion '+(edge==='start'?'start':'finish')+'; edit the promotion period to extend this edge.';button.append(marker);}
         else if(!item.milestone&&item.e.schedule.timelineVersion===1){const handle=document.createElement('span');handle.className='day-resize '+edge;handle.dataset.edge=edge;handle.tabIndex=0;handle.setAttribute('role','separator');handle.setAttribute('aria-orientation','vertical');handle.setAttribute('aria-label','Resize '+edge+' of '+item.label);button.append(handle);}
       }
       let suppressClick=false;
       const apply=(edge,delta)=>{
         if(!delta)return;
-        try{
-          const before=clone(item.e.schedule),result=model.editDayTimeline(before,item.eventAtUtc,item.event?null:item.rowId,edge,delta);
+        const commit=scope=>{try{
+          const before=clone(item.e.schedule),result=item.availability?model.editReminderAvailability(before,item.eventAtUtc,item.rowId,item.availability.availabilityDate,scope,edge,delta):model.editDayTimeline(before,item.eventAtUtc,item.event?null:item.rowId,edge,delta);
           item.e.settings.schedule=result.schedule;selected=item.e.commandId;changed();
           dayTimelineUndo={account:accountName,guild,commandId:item.e.commandId,before,after:JSON.stringify(item.e.settings.schedule)};
           renderCalendar();status('Timeline updated.'+(result.notice?' '+result.notice:''));
-        }catch(error){renderCalendar();status(error.message,true);}
+        }catch(error){renderCalendar();status(error.message,true);}};
+        if(item.availability)chooseAvailabilityScope(item,commit);else commit();
       };
       button.onclick=ev=>{if(suppressClick||ev.target.closest('[data-edge]')){suppressClick=false;ev.preventDefault();return;}selected=item.e.commandId;document.querySelector('[data-view=editor]').click();renderList();};
       if(item.e.schedule.timelineVersion===1){

@@ -874,6 +874,58 @@ async function effectiveReminderDatesAndNumericBounds(){
  }finally{await page.close();}
 }
 
+async function reminderAvailabilityEditing(){
+ const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;
+ cfg.runAt='SCHEDULED';cfg.schedule.recurrence='NONE';cfg.schedule.eventDate='2026-10-27';
+ const r=cfg.schedule.reminders[1];r.start={kind:'OFFSET',minutes:-2880};r.finish={kind:'OFFSET',minutes:0};
+ const {page,errors}=await open(d);
+ try{
+ const card=page.locator('.reminder').first();await card.locator('.availability-settings summary').click();
+ await card.locator('[data-availability=enabled]').check();await card.locator('[data-availability=allDay]').uncheck();
+ await card.locator('[data-availability=start]').fill('07:00');await card.locator('[data-availability=end]').fill('22:00');
+ await card.locator('[data-availability=maxPerDay]').fill('0');await card.locator('[data-action=save]').click();assert.match(await page.locator('#status').textContent(),/Maximum announcements/);
+ await card.locator('[data-availability=maxPerDay]').fill('1');await card.locator('[data-availability=end]').fill('');await card.locator('[data-action=save]').click();assert.match(await page.locator('#status').textContent(),/Availability: choose valid/);
+ await card.locator('[data-availability=end]').fill('22:00');await card.locator('[data-action=save]').click();
+ let saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
+ assert.equal(saved.reminders[1].availability.maxPerDay,1);assert.equal(saved.reminders[1].availability.startMinute,420);assert.equal(saved.reminders[1].availability.weekdays[2],true);assert.match(writeSavedVariables(saved),/\[2\] = true/);
+ await page.locator('[data-view=calendar]').click();await page.locator('#calendar [data-field=date]').fill('2026-10-26');await page.locator('#calendar [data-field=date]').dispatchEvent('change');
+ const block=page.locator('.day-availability').filter({hasText:'Every'}).first();assert.equal(await block.count(),1);
+ await block.focus();await page.keyboard.press('ArrowRight');await page.locator('[data-scope=DATE]').click();
+ saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
+ assert.equal(saved.reminders[1].availability.dateOverrides['2026-10-26'].startMinute,425);
+ assert.match(await page.locator('.availability-badge').first().textContent(),/Date override/);
+ await page.locator('.availability-reset').first().click();
+ saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
+ assert.equal(saved.reminders[1].availability.dateOverrides?.['2026-10-26'],undefined);
+ await page.locator('.day-availability').first().focus();await page.keyboard.press('ArrowRight');await page.locator('[data-scope=WEEKDAY]').click();
+ saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
+ assert.equal(saved.reminders[1].availability.weekdayOverrides[2].startMinute,425);
+ await page.locator('[data-day-undo]').click();
+ saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
+ assert.equal(saved.reminders[1].availability.weekdayOverrides?.[2],undefined);
+ await page.locator('.day-availability').first().focus();await page.keyboard.press('ArrowRight');await page.locator('[data-scope=ALL]').click();
+ saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
+ assert.equal(saved.reminders[1].availability.startMinute,425);assert.equal(saved.reminders[1].availability.maxPerDay,1);
+ await page.screenshot({path:resolve(temp,'availability-day.png'),fullPage:true});
+ await page.locator('[data-view=editor]').click();await page.locator('.availability-settings').evaluate(el=>el.open=true);await page.screenshot({path:resolve(temp,'availability-settings.png'),fullPage:true});
+ assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
+async function availabilityBlockedDay(){
+ const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;cfg.runAt='SCHEDULED';
+ const r=cfg.schedule.reminders[1];r.start={kind:'OFFSET',minutes:-2880};r.finish={kind:'OFFSET',minutes:0};r.availability={enabled:true,startMinute:420,endMinute:1320,weekdays:numeric([false,false,true,false,false,false,false])};
+ const {page,errors}=await open(d);
+ try{await page.locator('[data-view=calendar]').click();await page.locator('#calendar [data-field=date]').fill('2026-10-26');await page.locator('#calendar [data-field=date]').dispatchEvent('change');assert.equal(await page.locator('.day-unavailable').count(),1);assert.equal(await page.locator('.day-availability').count(),0);assert.deepEqual(errors,[]);}finally{await page.close();}
+}
+
+async function availabilityLongPromotion(){
+ const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;cfg.runAt='SCHEDULED';cfg.schedule.recurrence='NONE';cfg.schedule.eventDate='2027-01-24';
+ const r=cfg.schedule.reminders[1];r.start={kind:'OFFSET',minutes:-144000};r.finish={kind:'OFFSET',minutes:0};r.availability={enabled:true,startMinute:420,endMinute:1320};
+ const {page,errors}=await open(d);
+ try{await page.locator('[data-view=calendar]').click();await page.locator('#calendar [data-field=date]').fill('2026-10-26');await page.locator('#calendar [data-field=date]').dispatchEvent('change');assert.ok(await page.locator('.day-availability').count()>0,'long promotion visible while actual event is months away');assert.deepEqual(errors,[]);}finally{await page.close();}
+}
+
 async function dragDayTimeline(){
  const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;cfg.runAt='SCHEDULED';cfg.schedule.eventDurationMinutes=120;cfg.schedule.reminders[1].label='Example - Promotion';
  const {page,errors}=await open(d);
@@ -1113,6 +1165,9 @@ try {
   await liveRotationProjection();
   await cancelActiveRotation();
   await rotatingEventControls();
+  await availabilityLongPromotion();
+  await reminderAvailabilityEditing();
+  await availabilityBlockedDay();
   await messageNamesAndDragOrder();
   await overviewDefaultsAndPlainHelp();
   await dragDayTimeline();

@@ -102,7 +102,7 @@ const equal = (a, b) => {
   );
 };
 const runtime = (k) =>
-  /^(lastUsedAt|useCount|lastUsedParamText|lastUsedGuildIndex|lastAutoPopulateSentAtByZone|observedChatCooldowns|completedOccurrences|timelineDeliveries|timelineHistory|timelineUsage|nextDue.*|completed|last.*At|.*Cooldowns)$/.test(
+  /^(lastUsedAt|useCount|lastUsedParamText|lastUsedGuildIndex|lastAutoPopulateSentAtByZone|observedChatCooldowns|completedOccurrences|timelineDeliveries|timelineHistory|timelineUsage|availabilityUsage|nextDue.*|completed|last.*At|.*Cooldowns)$/.test(
     k,
   );
 export function orderedMessageEntries(messages){
@@ -502,19 +502,128 @@ export function reminderWindows(schedule, eventAtUtc, options = {}) {
       : [{ row, start, end, eventAtUtc }];
   });
 }
+export function normalizeReminderAvailability(value) {
+  if(value===undefined)return undefined;
+  if(!object(value)||Array.isArray(value))throw Error('Availability must be a table.');
+  const exact=(table,keys,label)=>{if(!object(table)||Array.isArray(table)||Object.keys(table).some(k=>!keys.includes(k)))throw Error(`Invalid ${label}.`);};
+  const integer=(x,min,max)=>Number.isInteger(x)&&x>=min&&x<=max;
+  const hours=entry=>{exact(entry,['startMinute','endMinute'],'availability hours');const start=entry.startMinute??0,end=entry.endMinute??1440;if(!integer(start,0,1439)||!integer(end,1,1440)||start===end)throw Error('Availability hours must define a nonempty window of at most 24 hours.');return {startMinute:start,endMinute:end};};
+  exact(value,['enabled','weekdays','startMinute','endMinute','maxPerDay','weekdayOverrides','dateOverrides'],'availability');
+  if(value.enabled!==undefined&&typeof value.enabled!=='boolean')throw Error('Availability enabled must be boolean.');
+  const out={enabled:value.enabled===true,...hours({...(value.startMinute!==undefined?{startMinute:value.startMinute}:{}),...(value.endMinute!==undefined?{endMinute:value.endMinute}:{})})};
+  if(value.maxPerDay!==undefined){if(!integer(value.maxPerDay,1,1000))throw Error('Daily maximum must be a whole number from 1 to 1000.');out.maxPerDay=value.maxPerDay;}
+  if(value.weekdays!==undefined){if(!object(value.weekdays)||Array.isArray(value.weekdays))throw Error('Availability weekdays must be a table.');out.weekdays={};for(const [key,allowed]of Object.entries(value.weekdays)){if(!/^[1-7]$/.test(key)||typeof allowed!=='boolean')throw Error('Invalid availability weekday.');setLuaValue(out.weekdays,Number(key),allowed);}}
+  for(const field of ['weekdayOverrides','dateOverrides'])if(value[field]!==undefined){if(!object(value[field])||Array.isArray(value[field]))throw Error('Availability overrides must be a table.');out[field]={};for(const [key,entry]of Object.entries(value[field])){if(field==='weekdayOverrides'?!/^[1-7]$/.test(key):!date(key))throw Error('Invalid availability override date or weekday.');setLuaValue(out[field],field==='weekdayOverrides'?Number(key):key,hours(entry));}}
+  return out;
+}
+export function availabilityForDate(schedule,row,dateKey) {
+  const d=date(dateKey);if(!d)throw Error('Choose a valid availability date.');
+  const a=row.availability||{},enabled=a.enabled===true,weekday=new Date(stamp(d)*1000).getUTCDay()+1;
+  const override=a.dateOverrides?.[dateKey]||a.weekdayOverrides?.[weekday];
+  const source=a.dateOverrides?.[dateKey]?'DATE':a.weekdayOverrides?.[weekday]?'WEEKDAY':'USUAL';
+  const hours={startMinute:override?.startMinute??a.startMinute??0,endMinute:override?.endMinute??a.endMinute??1440};
+  return {enabled,allowed:!enabled||a.weekdays===undefined||a.weekdays?.[weekday]===true,dateKey,weekday,source,hours,...hours,maxPerDay:a.maxPerDay,availabilityDate:dateKey,availabilityWeekday:weekday,availabilitySource:source};
+}
+export function effectiveReminderWindows(schedule,eventAtUtc,fromUtc,toUtc,options={}) {
+  if(!Number.isFinite(fromUtc)||!Number.isFinite(toUtc)||toUtc<fromUtc)return [];
+  if(toUtc-fromUtc>400*86400)throw Error('Availability preview is limited to 400 days.');
+  const result=[],zone=schedule.timeZone||'ET';
+  for(const base of reminderWindows(schedule,eventAtUtc,options)){
+    if(base.end<=fromUtc||base.start>toUtc)continue;
+    if(base.row.availability?.enabled!==true){result.push(base);continue;}
+    const first=Math.max(stamp(civil(fromUtc,zone).slice(0,3))-86400,stamp(civil(base.start,zone).slice(0,3))-86400),last=Math.min(stamp(civil(toUtc,zone).slice(0,3)),stamp(civil(base.end,zone).slice(0,3)));
+    for(let day=first;day<=last;day+=86400){
+      const d=civil(day,'UTC').slice(0,3),key=d.map((n,i)=>String(n).padStart(i?2:4,'0')).join('-'),a=availabilityForDate(schedule,base.row,key);
+      if(!a.allowed)continue;
+      const startMinute=a.startMinute,endMinute=a.endMinute,endDay=day+(endMinute<=startMinute||endMinute===1440?86400:0),ed=civil(endDay,'UTC').slice(0,3);
+      const rawStart=utc([...d,Math.floor(startMinute/60),startMinute%60,0],zone,'FIRST'),rawEnd=utc([...ed,Math.floor((endMinute%1440)/60),endMinute%60,0],zone,'SECOND');
+      if(rawStart===null||rawEnd===null)continue;
+      const start=Math.max(base.start,rawStart),end=Math.min(base.end,rawEnd);
+      if(end<=start||end<=fromUtc||start>toUtc)continue;
+      result.push({...base,start,end,availabilityDate:key,availabilityWeekday:a.weekday,availabilitySource:a.source,hours:a.hours,rawStart,rawEnd,baseStart:base.start,baseEnd:base.end,clipStart:start>rawStart,clipEnd:end<rawEnd});
+    }
+  }
+  return result.sort((a,b)=>a.start-b.start);
+}
+function availabilityCount(schedule,row,dateKey) {
+  const stored=schedule.availabilityUsage?.[`${row.id}:${dateKey}`];
+  if(stored!==undefined)return Math.max(0,+stored.count||0);
+  const candidates=[row,...Object.entries(schedule.timelineUsage||{}).filter(([key])=>key.endsWith(':'+row.id)).map(([,usage])=>usage)];
+  return candidates.some(usage=>['lastSentAt','peerAt'].some(key=>Number.isFinite(usage[key])&&civilDateKey(schedule,usage[key])===dateKey))?1:0;
+}
+export function availabilityStatus(schedule,row,eventAtUtc,nowUtc) {
+  const single={...schedule,reminders:{1:row}},base=reminderWindows(single,eventAtUtc)[0],dateKey=civilDateKey(schedule,nowUtc),enabled=row.availability?.enabled===true,maxPerDay=enabled?row.availability.maxPerDay:undefined,count=availabilityCount(schedule,row,dateKey);
+  const slices=base?effectiveReminderWindows(single,eventAtUtc,nowUtc,Math.min(base.end,nowUtc+400*86400)):[],window=slices.find(w=>w.start<=nowUtc&&w.end>nowUtc),nextWindow=slices.find(w=>w.end>nowUtc);
+  let nextEligibleAt=null;
+  for(const slice of slices){let candidate=Math.max(nowUtc,slice.start);for(let days=0;candidate<slice.end&&days<=401;days++){
+    const key=civilDateKey(schedule,candidate);if(!maxPerDay||availabilityCount(schedule,row,key)<maxPerDay){nextEligibleAt=candidate;break;}
+    const nextDay=civil(stamp(civil(candidate,schedule.timeZone||'ET').slice(0,3))+86400,'UTC').slice(0,3);candidate=utc([...nextDay,0,0,0],schedule.timeZone||'ET','FIRST');if(candidate===null)break;
+  }if(nextEligibleAt!==null)break;}
+  const status=!base||nowUtc>=base.end?'EXPIRED':nowUtc<base.start?'UPCOMING':maxPerDay&&count>=maxPerDay?'DAILY_LIMIT':window?'AVAILABLE':'OUTSIDE_HOURS';
+  return {status,available:status==='AVAILABLE',eligible:status==='AVAILABLE',count,maxPerDay,remaining:maxPerDay===undefined?null:Math.max(0,maxPerDay-count),dateKey,window,nextWindow,nextEligibleAt};
+}
+function validateAvailabilityEdit(schedule,eventAtUtc,dateKey){
+  const errors=validateTimelineForAddon(schedule);if(errors.length)throw Error(errors.join(' '));
+  const conflicts=timelineConflicts(schedule,{dateKeys:[dateKey]});if(conflicts.length)throw Error('Availability hours overlap another reminder.');
+}
+export function editReminderAvailability(source,eventAtUtc,rowId,dateKey,scope,edge,deltaMinutes){
+  if(!['DATE','WEEKDAY','ALL'].includes(scope)||!['move','start','finish'].includes(edge)||!Number.isInteger(deltaMinutes))throw Error('Invalid availability edit.');
+  const schedule=cloneSavedData(source),row=values(schedule.reminders).find(r=>r.id===rowId);if(!row)throw Error('Choose a reminder.');
+  const current=availabilityForDate(schedule,row,dateKey);if(!current.enabled||!current.allowed)throw Error('Choose an eligible availability day.');
+  let start=current.startMinute,end=current.endMinute;if(end<start)end+=1440;
+  if(edge==='move'){start+=deltaMinutes;end+=deltaMinutes;}else if(edge==='start')start+=deltaMinutes;else end+=deltaMinutes;
+  if(start<0||start>=1440||end<=start||end>start+1440||end>2880)throw Error('Hours must open on the same date and last no more than 24 hours.');
+  const hours={startMinute:start,endMinute:end>1440?end-1440:end};
+  row.availability=normalizeReminderAvailability(row.availability);
+  if(scope==='DATE'){row.availability.dateOverrides??={};row.availability.dateOverrides[dateKey]=hours;}
+  else if(scope==='WEEKDAY'){row.availability.weekdayOverrides??={};setLuaValue(row.availability.weekdayOverrides,current.weekday,hours);}
+  else Object.assign(row.availability,hours);
+  validateAvailabilityEdit(schedule,eventAtUtc,dateKey);
+  return {schedule,notice:scope==='ALL'?'Usual hours updated; date and weekday overrides remain.':scope==='DATE'?'Hours updated for this opening date.':'Hours updated for this weekday.'};
+}
+export function resetReminderAvailability(source,rowId,dateKey,scope){
+  if(!['DATE','WEEKDAY'].includes(scope))throw Error('Choose a date or weekday override to reset.');
+  const schedule=cloneSavedData(source),row=values(schedule.reminders).find(r=>r.id===rowId);if(!row)throw Error('Choose a reminder.');
+  const current=availabilityForDate(schedule,row,dateKey);
+  if(scope==='DATE')delete row.availability?.dateOverrides?.[dateKey];else if(row.availability?.weekdayOverrides)setLuaValue(row.availability.weekdayOverrides,current.weekday,undefined);
+  validateAvailabilityEdit(schedule,scheduleEventUtc(schedule),dateKey);
+  return {schedule,notice:scope==='DATE'?'Date override reset.':'Weekday override reset.'};
+}
 // Resolve with the same anchors as delivery; do not compare DAY/MARK text.
 export function orderedReminderRows(schedule, eventAtUtc = scheduleEventUtc(schedule)) {
   const starts = new Map(reminderWindows(schedule,eventAtUtc,{uncapped:true}).map(w=>[w.row.id,w.start]));
   return values(schedule.reminders).slice().sort((a,b)=>(starts.get(a.id)??Infinity)-(starts.get(b.id)??Infinity));
 }
-export function timelineConflicts(schedule) {
+export function timelineConflicts(schedule, options={}) {
   const anchor=scheduleEventUtc(schedule);
   if(!Number.isFinite(anchor))return [];
   // Only actual occurrences create windows; an explicit monthly anchor can be a date bound.
   const first=nextScheduleOccurrence(schedule,anchor);
   if(first===null)return [];
   const occurrences=projectedOccurrences(schedule,first,first+400*86400);
-  const windows=occurrences.flatMap(at=>reminderWindows(schedule,at)).sort((a,b)=>a.start-b.start);
+  let windows;
+  if(!values(schedule.reminders).some(row=>row.availability?.enabled===true))windows=occurrences.flatMap(at=>reminderWindows(schedule,at));
+  else {
+    const bases=reminderWindows(schedule,first),ranges=new Map();
+    const addRange=(from,to)=>ranges.set(`${from}:${to}`,[from,to]);
+    for(const base of bases)addRange(base.start,Math.min(base.end,base.start+400*86400));
+    for(const key of new Set([...values(schedule.reminders).flatMap(row=>Object.keys(row.availability?.dateOverrides||{})),...(options.dateKeys||[])])){
+      const d=date(key);if(d)addRange(stamp(d)-2*86400,stamp(d)+3*86400);
+    }
+    const minOffset=Math.min(0,...bases.map(w=>w.start-first)),maxOffset=Math.max(0,...bases.map(w=>w.end-first)),unique=new Map();
+    for(const [from,to]of ranges.values()){
+      const candidates=nominalOccurrences(schedule,from-maxOffset,to-minOffset,true);
+      for(const at of candidates){
+        for(const window of effectiveReminderWindows(schedule,at,from,to))unique.set(`${at}:${window.row.id}:${window.start}:${window.end}`,window);
+        const conflict=conflictsForWindows([...unique.values()],true);if(conflict.length)return conflict;
+      }
+    }
+    windows=[...unique.values()];
+  }
+  return conflictsForWindows(windows);
+}
+function conflictsForWindows(windows, firstOnly=false) {
+  windows.sort((a,b)=>a.start-b.start);
   const conflicts=[],seen=new Set();let active=[];
   for(const current of windows){
     active=active.filter(w=>w.row.once&&!w.row.onceUntilFinish?w.start>=current.start:w.end>current.start);
@@ -526,6 +635,7 @@ export function timelineConflicts(schedule) {
       const key=[previous.row.id,current.row.id].sort().join('|');
       if(seen.has(key))continue;seen.add(key);
       conflicts.push({first:previous.row,second:current.row,start:current.start,end:previousPoint||currentPoint?current.start:Math.min(previous.end,current.end)});
+      if(firstOnly)return conflicts;
     }
     active.push(current);
   }
@@ -675,7 +785,8 @@ export function simulateReminder(schedule, row, eventAtUtc, nowUtc) {
               ) > nowUtc
             ? "COOLDOWN"
             : "READY";
-  return { ...window, status, usage };
+  const availability=availabilityStatus(schedule,row,eventAtUtc,nowUtc);
+  return { ...window, status:status==='READY'&&!availability.available?availability.status:status, usage, availability };
 }
 export function scheduleEventUtc(schedule) {
   const d = date(schedule.eventDate || schedule.startDate),
@@ -1119,6 +1230,7 @@ export function validateTimelineForAddon(schedule) {
     if (typeof row.id !== "string" || !row.id || ids.has(row.id))
       errors.push(`${label}: use a unique stable ID.`);
     ids.add(row.id);
+    try{normalizeReminderAvailability(row.availability);}catch(error){errors.push(`${label}: ${error.message}`);}
     for(const flag of ["enabled","paused","allowAfterEventEnd"])if(row[flag]!==undefined&&typeof row[flag]!=="boolean")errors.push(`${label}: state flags must be boolean values.`);
     if (!integer(row.intervalMinutes ?? 60, 1, 5256000))
       errors.push(`${label}: interval must be a positive whole number.`);
@@ -1409,4 +1521,18 @@ export function previewMessage(text,schedule,eventAtUtc,nowUtc,context={}){
   if(!explicit&&!decorated){result+=' ('+formatDurationMinutes(Math.floor((target-nowUtc)/60))+')';decorated=true;}
   return result;
  });
+}
+
+// Human-readable repeat intervals for schedule overview labels.
+export function formatRepeatInterval(minutes) {
+  const total = Number(minutes);
+  if (!Number.isInteger(total) || total < 1) return "";
+  const parts = [];
+  let remaining = total;
+  for (const [size, unit] of [[1440, "day"], [60, "hour"], [1, "minute"]]) {
+    const count = Math.floor(remaining / size);
+    remaining %= size;
+    if (count) parts.push(`${count} ${unit}${count === 1 ? "" : "s"}`);
+  }
+  return parts.join(" ");
 }

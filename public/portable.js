@@ -1,4 +1,4 @@
-import { validateTimelineForAddon, cloneSavedData, events, timelineConflicts, orderedReminderRows, orderedMessageEntries, guildNames, guildIndexFromRoster, guildKey, monthlyWeekdayRule } from "/model.js";
+import { validateTimelineForAddon, cloneSavedData, events, timelineConflicts, orderedReminderRows, orderedMessageEntries, guildNames, guildIndexFromRoster, guildKey, monthlyWeekdayRule, normalizeReminderAvailability } from "/model.js";
 import { setLuaValue } from "/lua-data.js";
 const values = (x) => Object.values(x || {});
 const scheduleKeys = [
@@ -112,6 +112,7 @@ export function portableEvent(event, messages) {
       intervalMinutes: row.intervalMinutes ?? 60,
       timeSensitive: !!row.timeSensitive,
       enabled:row.enabled!==false,paused:row.paused===true,allowAfterEventEnd:row.allowAfterEventEnd===true,
+      ...(row.availability!==undefined?{availability:normalizeReminderAvailability(row.availability)}:{}),
       messageIds: array(values(row.messageIds).filter((id) => ids.has(id))),
     })),
   );
@@ -254,7 +255,7 @@ export function validatePortable(p) {
         "lateMinutes",
         "intervalMinutes",
         "timeSensitive", "enabled", "paused", "allowAfterEventEnd",
-        "messageIds",
+        "messageIds", "availability",
       ],
       "reminder",
     );
@@ -287,6 +288,7 @@ export function validatePortable(p) {
       intervalMinutes: num(r.intervalMinutes, "reminder interval", 1, 525600),
       timeSensitive: r.timeSensitive,
       enabled:r.enabled!==false,paused:r.paused===true,allowAfterEventEnd:r.allowAfterEventEnd===true,
+      ...(r.availability!==undefined?{availability:normalizeReminderAvailability(r.availability)}:{}),
       messageIds: array(pool),
     });
   }
@@ -307,6 +309,10 @@ export function validatePortable(p) {
     ...p,
     schedule: result,
   };
+}
+function matchingReminderRows(rows,incoming){
+  const exact=rows.filter(row=>row.id===incoming.id);
+  return exact.length?exact:rows.filter(row=>row.label===incoming.label&&JSON.stringify(row.start)===JSON.stringify(incoming.start)&&JSON.stringify(row.finish)===JSON.stringify(incoming.finish)&&row.once===incoming.once);
 }
 export function stageImport(p, event, existingMessages, guild) {
   p = validatePortable(p);
@@ -340,10 +346,12 @@ export function stageImport(p, event, existingMessages, guild) {
   }
   const s = p.schedule;
   if(s.recurrence==='MONTHLY_WEEKDAY')Object.assign(s,monthlyWeekdayRule(s));
+  const rowIds=new Set();
   for (const r of values(s.reminders)) {
-    const matches=values(prior.reminders).filter(old=>old.id===r.id||(old.label===r.label&&JSON.stringify(old.start)===JSON.stringify(r.start)&&JSON.stringify(old.finish)===JSON.stringify(r.finish)&&old.once===r.once));
+    const matches=matchingReminderRows(values(prior.reminders),r);
     const privateIds=matches.length===1?values(matches[0].messageIds).filter(id=>lockedIds.has(id)):[];
-    r.id = crypto.randomUUID();
+    r.id = matches.length===1&&!rowIds.has(matches[0].id)?matches[0].id:crypto.randomUUID();
+    rowIds.add(r.id);
     r.messageIds = array([...new Set([...values(r.messageIds).map((id) => ids.get(id)),...privateIds])]);
   }
   s.messageVariants = Object.fromEntries([
@@ -476,7 +484,7 @@ export function importEventBundle(account,document,selectedIndices){
       const schedule=cloneSavedData(entry.schedule),oldRows=values(prior.reminders);
       const rowIds=new Set();
       for(const row of values(schedule.reminders)){
-        const matches=oldRows.filter(old=>old.id===row.id||(old.label===row.label&&JSON.stringify(old.start)===JSON.stringify(row.start)&&JSON.stringify(old.finish)===JSON.stringify(row.finish)&&old.once===row.once));
+        const matches=matchingReminderRows(oldRows,row);
         if(matches.length===1&&!rowIds.has(matches[0].id))row.id=matches[0].id;if(rowIds.has(row.id))row.id=crypto.randomUUID();rowIds.add(row.id);
         const privateIds=matches.length===1?values(matches[0].messageIds).filter(id=>oldMessages.some(m=>m.id===id&&m.locked)):[];
         row.messageIds=array([...new Set([...values(row.messageIds).map(id=>messageIds.get(id)),...privateIds])]);
