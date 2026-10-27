@@ -442,40 +442,9 @@ function ambiguousMessages(e) {
     )
   );
 }
-function anchorMarkup(a, prefix, s) {
-  a = a || {
-    kind: "OFFSET",
-    minutes: 0,
-  };
-  return `${select("Anchor", prefix + ".kind", a.kind || "OFFSET", [
-    ["OFFSET", "Minutes from event"],
-    ["DAY", "Day and server time"],
-    ["MARK", "Important time"],
-  ])}${
-    a.kind === "DAY"
-      ? input("Days from event", prefix + ".days", a.days ?? 0, "number") +
-        input(
-          "Server clock",
-          prefix + ".time",
-          a.time || "08:00 PM",
-        )
-      : a.kind === "MARK"
-        ? select(
-            "Important time",
-            prefix + ".name",
-            a.name || "",
-            [["","Choose an important time"],...Object.entries(s.importantTimes || {}).map(([id, v]) => [
-              id,
-              v.label || id,
-            ])],
-          )+'<button type="button" class="create-important-time">+ Create important time</button>'
-        : input(
-            "Minutes (negative = before)",
-            prefix + ".minutes",
-            a.minutes ?? 0,
-            "number",
-          )
-  }`;
+function anchorMarkup(a,prefix,s){
+ const at=projectedNext(s)??model.scheduleEventUtc(s),v=model.reminderCalendarFields(s,at,a||{kind:'OFFSET',minutes:0});
+ return input('Date',prefix+'.date',v.date,'date')+input('Server time',prefix+'.time',v.time,'time');
 }
 function variantChoices(schedule,current){
  const pattern=schedule.specialPattern;
@@ -645,6 +614,14 @@ function refreshReminderRelevance(card){
 // unused metadata valid for SavedVariables/import without changing delivery mode.
 function reminderFields(card){
  const value=fields(card),integer=(n,min,max)=>Number.isInteger(n)&&n>=min&&n<=max;
+ const schedule=currentEventDraft(),at=projectedNext(schedule)??model.scheduleEventUtc(schedule);
+ const original=card._originalAnchors||{};
+ for(const key of ['start','finish']){
+  const v=value[key];if(key==='finish'&&value.once&&!value.onceUntilFinish){value.finish=original.finish||{...value.start};continue;}
+  if(!v?.date){value._periodError='Choose a valid period date and server time.';value[key]={kind:'OFFSET',minutes:NaN};continue;}
+  try{value[key]=model.reminderCalendarAnchor(schedule,at,v.date,v.time,original[key]);}catch(error){value._periodError=error.message;value[key]={kind:'OFFSET',minutes:NaN};}
+ }
+
  value.availability=availabilityFields(card);
  if(value.once&&!integer(value.intervalMinutes,1,5256000))value.intervalMinutes=60;
  if((!value.once||value.onceUntilFinish)&&!integer(value.lateMinutes,1,1440))value.lateMinutes=5;
@@ -655,7 +632,13 @@ function reminderFields(card){
  return value;
 }
 function reminderFieldError(card,value=reminderFields(card)){
- if(!value.once&&(!Number.isInteger(value.intervalMinutes)||value.intervalMinutes<1||value.intervalMinutes>5256000))return 'Repeat every: enter a positive whole number of minutes.';
+ if(value._periodError)return value._periodError;
+ const schedule=currentEventDraft(),at=projectedNext(schedule)??model.scheduleEventUtc(schedule),start=model.resolveReminderAnchor(schedule,at,value.start),stop=model.resolveReminderAnchor(schedule,at,value.finish);
+ if(!card.querySelector('[data-period-after-start]')?.checked&&start>at)return 'Period Starts must be on or before the event. Enable promotion after event starts for an underway reminder.';
+ if((!value.once||value.onceUntilFinish)&&stop<start)return 'Period Stops must be on or after Period Starts.';
+ if((!value.once||value.onceUntilFinish)&&stop===start)return 'A repeating period needs a stop after its start. Use Send once for a single announcement.';
+
+ if(!value.once&&(!Number.isInteger(value.intervalMinutes)||value.intervalMinutes<1||value.intervalMinutes>5256000))return 'Repeat Frequency: enter a positive whole number of minutes.';
  if(value.once&&!value.onceUntilFinish&&(!Number.isInteger(value.lateMinutes)||value.lateMinutes<1||value.lateMinutes>1440))return 'Late allowance: enter a whole number from 1 to 1440 minutes.';
  const a=value.availability;
  if(a?.enabled){
@@ -663,7 +646,7 @@ function reminderFieldError(card,value=reminderFields(card)){
   if(a.maxPerDay!==undefined&&(!Number.isInteger(a.maxPerDay)||a.maxPerDay<1||a.maxPerDay>1000))return 'Maximum announcements per day must be a whole number from 1 to 1000, or blank.';
  }
  const invalid=[...card.querySelectorAll('input[data-field]')].find(input=>{for(let node=input;node&&node!==card;node=node.parentElement)if(node.hidden)return false;return !input.checkValidity();});
- if(invalid){const label=({intervalMinutes:'Repeat every',lateMinutes:'Late allowance'})[invalid.dataset.field]||invalid.dataset.field.replace('.',' ');return label+': '+invalid.validationMessage;}
+ if(invalid){const label=({intervalMinutes:'Repeat Frequency',lateMinutes:'Late allowance'})[invalid.dataset.field]||invalid.dataset.field.replace('.',' ');return label+': '+invalid.validationMessage;}
  return null;
 }
 function decorateFieldLabels(root=document.querySelector('#detail')){
@@ -722,7 +705,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
         ["FIRST", "First occurrence"],
         ["SECOND", "Second occurrence"],
       ],
-    )}</div>${commandDeliveryMarkup(e)}<details id="event-rotation-settings" open><summary>Rotating event</summary><p class="help">The Event Date anchors the first activity. Names follow this order and repeat automatically, including while you are offline. Use <code>%eventactivity%</code> in messages for the selected name.</p>${input("Occurrences per activity","rotationEvery",s.rotationEvery||1,"number")}<div id="rotation-activities"></div><button id="add-activity" type="button">+ Add activity</button><p class="help">Upcoming selections update as you edit. Apply event settings to save these changes.</p></details><details id="weekday-options" ${vals(s.weekdays).some(Boolean)?'open':''}><summary>Event happens on multiple weekdays (advanced)</summary><label class="check"><input id="use-event-weekdays" type="checkbox" ${vals(s.weekdays).some(Boolean)?'checked':''}>Choose event weekdays instead of following Event Date</label><p class="help" id="weekday-explanation"></p><div class="actions weekdays" id="event-weekday-choices">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<label class="check"><input type="checkbox" data-weekday="${i + 1}" ${s.weekdays?.[i + 1] ? "checked" : ""}>${d.slice(0, 3)}</label>`).join("")}</div></details><div class="actions" style="margin-top:18px">${check("Enabled", "eventEnabled", s.enabled!==false&&!s.paused)}<button id="save-event" class="gold">Apply event settings</button></div></section><section class="panel" id="rotation-occurrences"></section><section class="panel" id="reminder-timeline"><div class="heading"><h2>Reminder timeline</h2><button id="add-row" class="gold">+ Add reminder</button></div>${s.timelineVersion !== 1 ? '<p class="help">This event still uses legacy scheduling. Convert this schedule to review its existing timing and message pools before adding reminders.</p>' : ""}<p class="help">Periods are automatically ordered by start time when applied. Windows cannot overlap within this event; one may finish exactly when the next starts.</p><div id="timeline-conflicts" class="timeline-conflicts" role="alert"></div><div id="rows">${rows.map((r, i) => `<article class="reminder ${r.once ? "milestone" : ""}" data-row="${esc(r.id)}"><div class="heading"><h3>${i + 1}. ${esc(r.label || "Reminder")}</h3>${reminderBadge(r)}</div><p class="effective-reminder-time" data-effective-times></p><p class="reminder-overlap-warning" data-overlap-warning hidden></p><div class="grid">${input("Reminder label", "label", r.label || "")}${select("Reminder state","rowState",stateOf(r),[["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}${input("Repeat every (minutes)", "intervalMinutes", r.intervalMinutes ?? 60, "number")}${input("Late allowance (minutes)", "lateMinutes", r.lateMinutes ?? 5, "number")}</div><h3>Starts</h3><div class="grid">${anchorMarkup(r.start, "start", s)}</div><div data-finish-window><h3>Finishes</h3><div class="grid">${anchorMarkup(r.finish || r.start, "finish", s)}</div></div><div class="actions">${check("Send once", "once", r.once)}${check("Time-sensitive", "timeSensitive", r.timeSensitive)}${check("Allow a brief notice after event end (advanced)","allowAfterEventEnd",r.allowAfterEventEnd)}${check("Allow this announcement anytime within its window", "onceUntilFinish", r.onceUntilFinish)}</div>${availabilityMarkup(r,s.timeZone)}<details class="row-advanced"><summary>Advanced event-end exception</summary>${check("Allow a brief announcement after the event ends","allowAfterEventEnd",r.allowAfterEventEnd)}</details><p class="help">Choose a message pool. The addon selects a message from this pool when the reminder is due.</p><div class="pool">${messages.map((m, j) => `<label class="check" title="${esc(m.text)}"><input type="checkbox" data-message="${esc(m.id)}" ${vals(r.messageIds).includes(m.id) ? "checked" : ""}><span data-pool-message-label="${esc(m.id)}">${esc(model.messageDisplayName(m,j))}: ${esc(m.text)}</span></label>`).join("") || '<span class="help">Add a message below first.</span>'}</div><div class="actions"><button data-action="save">Apply reminder</button><button data-action="preview">Preview here</button><button data-action="remove" class="danger">Remove</button></div></article>`).join("") || '<div class="empty">No timeline reminders yet.</div>'}</div></section><section class="panel" id="important-times"><div class="heading"><h2>Important times</h2><button id="add-mark">+ Add time</button></div><p class="help">Name an important moment, such as doors opening or ticket sales closing, and reuse it in reminder anchors.</p><details class="important-time-guide" id="important-time-guide"><summary>How to use important times</summary><ol><li>Add a key such as <code>tickets</code>, with a label such as Ticket sales close.</li><li>Use <strong>-60</strong> minutes for one hour before the event (-30 means 30 minutes before). Positive values mean after. Click <strong>Apply</strong>.</li><li>For a reminder start or stop, choose <strong>Anchor → Important time</strong> and select it.</li><li>In messages, use <code>%eventwhen:tickets%</code>, <code>%eventtime:tickets%</code>, <code>%eventdate:tickets%</code> or <code>%eventcountdown:tickets%</code>. The key after the colon must match the key you created.</li></ol><p class="help">For an 8 PM event, tickets at -60 means 7 PM on that event day. It follows each recurring event automatically. The Pick date and time option calculates the same reusable offset, not a separate one-off date.</p></details>${Object.entries(
+    )}</div>${commandDeliveryMarkup(e)}<details id="event-rotation-settings" open><summary>Rotating event</summary><p class="help">The Event Date anchors the first activity. Names follow this order and repeat automatically, including while you are offline. Use <code>%eventactivity%</code> in messages for the selected name.</p>${input("Occurrences per activity","rotationEvery",s.rotationEvery||1,"number")}<div id="rotation-activities"></div><button id="add-activity" type="button">+ Add activity</button><p class="help">Upcoming selections update as you edit. Apply event settings to save these changes.</p></details><details id="weekday-options" ${vals(s.weekdays).some(Boolean)?'open':''}><summary>Event happens on multiple weekdays (advanced)</summary><label class="check"><input id="use-event-weekdays" type="checkbox" ${vals(s.weekdays).some(Boolean)?'checked':''}>Choose event weekdays instead of following Event Date</label><p class="help" id="weekday-explanation"></p><div class="actions weekdays" id="event-weekday-choices">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<label class="check"><input type="checkbox" data-weekday="${i + 1}" ${s.weekdays?.[i + 1] ? "checked" : ""}>${d.slice(0, 3)}</label>`).join("")}</div></details><div class="actions" style="margin-top:18px">${check("Enabled", "eventEnabled", s.enabled!==false&&!s.paused)}<button id="save-event" class="gold">Apply event settings</button></div></section><section class="panel" id="rotation-occurrences"></section><section class="panel" id="reminder-timeline"><div class="heading"><h2>Period Timeline</h2><button id="add-row" class="gold">+ Add period</button></div>${s.timelineVersion !== 1 ? '<p class="help">This event still uses legacy scheduling. Convert this schedule to review its existing timing and message pools before adding reminders.</p>' : ""}<p class="help">Periods are automatically ordered by start time when applied. Windows cannot overlap within this event; one may finish exactly when the next starts.</p><div id="timeline-conflicts" class="timeline-conflicts" role="alert"></div><div id="rows">${rows.map((r, i) => `<article class="reminder ${r.once ? "milestone" : ""}" data-row="${esc(r.id)}"><div class="heading"><h3>${i + 1}. ${esc(r.label || "Period")}</h3>${reminderBadge(r)}</div><p class="effective-reminder-time" data-effective-times></p><p class="reminder-overlap-warning" data-overlap-warning hidden></p><div class="grid">${input("Period Label", "label", r.label || "")}${select("Period Status","rowState",stateOf(r),[["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}${input("Repeat Frequency (minutes)", "intervalMinutes", r.intervalMinutes ?? 60, "number")}${input("Late allowance (minutes)", "lateMinutes", r.lateMinutes ?? 5, "number")}</div><div class="period-calendar-row"><section class="period-calendar"><h3>Period Starts</h3><div class="period-calendar-fields">${anchorMarkup(r.start, "start", s)}</div></section><section class="period-calendar" data-finish-window><h3>Period Stops</h3><div class="period-calendar-fields">${anchorMarkup(r.finish || r.start, "finish", s)}</div></section></div><div class="actions">${check("Send once", "once", r.once)}${check("Time-sensitive", "timeSensitive", r.timeSensitive)}<label class="check" data-help="Allow this period to begin after the event starts, for underway reminders. The event duration still limits delivery."><input type="checkbox" data-period-after-start ${model.resolveReminderAnchor(s,projectedNext(s)??model.scheduleEventUtc(s),r.start)>(projectedNext(s)??model.scheduleEventUtc(s))?'checked':''}>Allow promotion after event starts</label>${check("Allow a brief notice after event end (advanced)","allowAfterEventEnd",r.allowAfterEventEnd)}${check("Allow this announcement anytime within its window", "onceUntilFinish", r.onceUntilFinish)}</div>${availabilityMarkup(r,s.timeZone)}<details class="row-advanced"><summary>Advanced event-end exception</summary>${check("Allow a brief announcement after the event ends","allowAfterEventEnd",r.allowAfterEventEnd)}</details><p class="help">Choose a message pool. The addon selects a message from this pool when the reminder is due.</p><div class="pool">${messages.map((m, j) => `<label class="check" title="${esc(m.text)}"><input type="checkbox" data-message="${esc(m.id)}" ${vals(r.messageIds).includes(m.id) ? "checked" : ""}><span data-pool-message-label="${esc(m.id)}">${esc(model.messageDisplayName(m,j))}: ${esc(m.text)}</span></label>`).join("") || '<span class="help">Add a message below first.</span>'}</div><div class="actions"><button data-action="save">Apply period</button><button data-action="preview">Preview here</button><button data-action="remove" class="danger">Remove</button></div></article>`).join("") || '<div class="empty">No periods yet.</div>'}</div></section><section class="panel" id="important-times"><div class="heading"><h2>Important times</h2><button id="add-mark">+ Add important time</button></div><p class="help">Name an important moment, such as doors opening or ticket sales closing, and reference it in message substitutions.</p><details class="important-time-guide" id="important-time-guide"><summary>How to use important times</summary><ol><li>Add a key such as <code>tickets</code>, with a label such as Ticket sales close.</li><li>Choose the date and server time for that moment, then click <strong>Apply</strong>.</li><li>Set period boundaries with their calendars and server-time pickers.</li><li>In messages, use <code>%eventwhen:tickets%</code>, <code>%eventtime:tickets%</code>, <code>%eventdate:tickets%</code> or <code>%eventcountdown:tickets%</code>. The key after the colon must match the key you created.</li></ol><p class="help">For an 8 PM event, choose 7 PM on that event day for tickets closing an hour earlier. The saved relationship follows each recurring event automatically.</p></details>${Object.entries(
       s.importantTimes || {},
     )
       .map(
@@ -761,6 +744,13 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
       if(!Number.isFinite(at))throw Error('Choose a valid event date and start time.');
       const clock=t=>new Date(t*1000).toLocaleString('en-US',{timeZone:zoneNames[draft.timeZone],month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});
       for(const card of cards){
+        if(card._originalAnchors)for(const key of ['start','finish']){
+         const v=model.reminderCalendarFields(draft,at,card._originalAnchors[key]);
+         for(const field of ['date','time']){const el=card.querySelector(`[data-field="${key}.${field}"]`),next=field==='time'?clockNative(v.time):v.date;if(el&&el.value===el.dataset.boundValue){el.value=next;el.dataset.boundValue=next;}}
+        }
+        const dateStart=card.querySelector('[data-field="start.date"]'),dateStop=card.querySelector('[data-field="finish.date"]');
+        if(dateStart){dateStart.max=card.querySelector('[data-period-after-start]')?.checked?'':model.reminderCalendarFields(draft,at,{kind:'OFFSET',minutes:0}).date;}
+        if(dateStop)dateStop.min=dateStart?.value||'';
         const summary=card.querySelector('[data-effective-times]');
         try{
           const row={...clone(rows.find(r=>r.id===card.dataset.row)),...reminderFields(card)};
@@ -791,9 +781,9 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
       if(el.value!==''&&Number(el.value)<0){el.value=numericValues.get(el)||'';status(el.dataset.field==='eventDurationMinutes'?'Event duration must be zero or a positive whole number.':'This field requires a positive whole number.',true);}
       else numericValues.set(el,el.value);
     }
-    refreshOverlapWarning();refreshEffectiveTimes();
+    refreshEffectiveTimes();refreshOverlapWarning();
   };
-  detail.onchange=()=>{editRevision++;refreshOverlapWarning();refreshEffectiveTimes();};
+  detail.onchange=()=>{editRevision++;refreshEffectiveTimes();refreshOverlapWarning();};
   const eventPanel=document.querySelector('#detail>.panel.event-settings');
   wireWholeNumberInputs(eventPanel,'input[data-command-option]');
   bindRotationEditor(e);
@@ -881,7 +871,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
     s.reminders ??= {};
     append(s.reminders, {
       id: crypto.randomUUID(),
-      label: "New reminder",
+      label: "New period",
       start: {
         kind: "OFFSET",
         minutes: -60,
@@ -903,31 +893,14 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
     .querySelectorAll(".reminder")
     .forEach((card) => {
       const r = rows.find((r) => r.id === card.dataset.row);
+      card._originalAnchors={start:clone(r.start||{kind:"OFFSET",minutes:0}),finish:clone(r.finish||r.start||{kind:"OFFSET",minutes:0})};
+      for(const key of ['start','finish'])for(const field of ['date','time']){const el=card.querySelector(`[data-field="${key}.${field}"]`);if(el)el.dataset.boundValue=el.value;}
       card._availability=clone(r.availability||{});refreshAvailability(card);
       card.querySelectorAll('[data-availability],[data-availability-day]').forEach(el=>el.addEventListener('change',()=>refreshAvailability(card)));
       const labelInput=card.querySelector('[data-field=label]'),heading=card.querySelector('.heading h3');
       heading.setAttribute('aria-live','polite');
       labelInput.addEventListener('input',()=>{heading.textContent=`${rows.indexOf(r)+1}. ${labelInput.value.trim()||'Reminder'}`;});
-      function bindAnchorSelectors() {
-        card.querySelectorAll('select[data-field$=".kind"]').forEach(
-          (sel) =>
-            (sel.onchange = () => {
-              const key = sel.dataset.field.split(".")[0],
-                anchor = {
-                  kind: sel.value,
-                  ...(sel.value === "DAY"
-                    ? { days: 0, time: "08:00 PM" }
-                    : sel.value === "MARK"
-                      ? { name: Object.keys(s.importantTimes || {})[0] || "" }
-                      : { minutes: 0 }),
-                };
-              const anchorGrid=sel.closest(".grid");anchorGrid.innerHTML = anchorMarkup(anchor, key, s);
-              decorateFieldLabels(anchorGrid);bindAnchorSelectors();refreshEffectiveTimes();
-            }),
-        );
-      }
-      bindAnchorSelectors();
-      card.addEventListener("click",ev=>{if(ev.target.closest(".create-important-time"))$("#add-mark").click();const badge=ev.target.closest(".reminder-type");if(badge)badge.classList.toggle("show-help");});
+      card.addEventListener('click',ev=>{const badge=ev.target.closest('.reminder-type');if(badge)badge.classList.toggle('show-help');});
       attachPoolPreviews(card,e,r);
       refreshReminderRelevance(card);
       card.querySelectorAll('[data-field=once],[data-field=onceUntilFinish]').forEach(control=>control.addEventListener('change',()=>refreshReminderRelevance(card)));
@@ -991,12 +964,17 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
       );
     });
   $("#add-mark").onclick = () => {
-    showInputModal({title:'Add important time',intro:'Use a short lowercase key, such as tickets or gathering, in reminder anchors and message substitutions.',fields:[{key:'key',label:'Important time key',value:'tickets',maxLength:64}],submitLabel:'Add time',onSubmit:values=>{
+    showInputModal({title:'Add important time',intro:'Use a short lowercase key, such as tickets or gathering, in message substitutions.',fields:[{key:'key',label:'Important time key',value:'tickets',maxLength:64}],submitLabel:'Add important time',onSubmit:values=>{
       const name=values.key;if(!/^[a-z][a-z0-9_]*$/.test(name)||Object.hasOwn(s.importantTimes||{},name))throw Error('Choose a unique lowercase key beginning with a letter.');
       s.importantTimes??={};s.importantTimes[name]={label:name,offsetMinutes:-30};changed();renderDetail();
     }});
   };
-  document.querySelectorAll('.mark').forEach(el=>{const d=currentEventDraft(),at=projectedNext(d)??model.scheduleEventUtc(d),mark=s.importantTimes[el.dataset.id],target=at+mark.offsetMinutes*60,parts=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:zoneNames[d.timeZone],year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(target*1000)).map(x=>[x.type,x.value]));el.insertAdjacentHTML('afterbegin','<p class="help mark-key">Message key: <code>'+esc(el.dataset.id)+'</code> · Example: <code>%eventtime:'+esc(el.dataset.id)+'%</code></p>');el.insertAdjacentHTML('beforeend','<div class="grid">'+select('Define important time','markMode','OFFSET',[["OFFSET","Minutes before / after event"],["DATE","Pick date and time"]])+input('Important date','markDate',parts.year+'-'+parts.month+'-'+parts.day,'date')+input('Important clock','markTime',parts.hour+':'+parts.minute,'time')+'</div><p class="help">Date/time choices use '+esc(d.timeZone)+' and become an offset from the selected next occurrence, so they follow recurring events.</p>');const update=()=>{const dateMode=el.querySelector('[data-field=markMode]').value==='DATE';showField(el,'markDate',dateMode);showField(el,'markTime',dateMode);showField(el,'offsetMinutes',!dateMode);};el.querySelector('[data-field=markMode]').onchange=update;update();});
+  document.querySelectorAll('.mark').forEach(el=>{const d=currentEventDraft(),at=projectedNext(d)??model.scheduleEventUtc(d),mark=s.importantTimes[el.dataset.id],v=model.reminderCalendarFields(d,at,{kind:'OFFSET',minutes:mark.offsetMinutes});
+   showField(el,'offsetMinutes',false);
+   el.insertAdjacentHTML('afterbegin','<p class="help mark-key">Message key: <code>'+esc(el.dataset.id)+'</code> · Use <code>%eventtime:'+esc(el.dataset.id)+'%</code> or <code>%eventcountdown:'+esc(el.dataset.id)+'%</code></p>');
+   el.insertAdjacentHTML('beforeend','<input type="hidden" data-field="markMode" value="DATE"><div class="period-calendar-fields">'+input('Date','markDate',v.date,'date')+input('Server time','markTime',v.time,'time')+'</div><p class="help">This moment follows future event occurrences.</p>');
+   el.insertBefore(el.querySelector('.period-calendar-fields'),el.querySelector('.actions'));
+  });
   $("#detail")
     .querySelectorAll(".mark")
     .forEach((el) =>

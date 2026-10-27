@@ -151,6 +151,18 @@ async function downloadConfirmation(){
  await downloadData(page);assert.equal(downloads,1);assert.equal(await page.locator('#dialog').isVisible(),false);assert.deepEqual(errors,[]);
  }finally{await page.close();}
 }
+async function setPeriodOffset(page,row,key,minutes){
+ const v=await page.evaluate(async minutes=>{
+ const m=await import('/model.js'),get=k=>document.querySelector(`[data-field="${k}"]`)?.value;
+ const native=get('eventTime'),h=Number(native.slice(0,2)),t=String(h%12||12).padStart(2,'0')+native.slice(2)+(h>=12?' PM':' AM');
+ const schedule={eventDate:get('eventDate'),eventTime:t,timeZone:document.querySelector('#schedule-timezone').value,recurrence:get('recurrence'),recurrenceInterval:Number(get('recurrenceInterval')||1)};
+ const at=m.nextScheduleOccurrence(schedule,Math.floor(Date.now()/1000))??m.scheduleEventUtc(schedule);
+ return m.reminderCalendarFields(schedule,at,{kind:'OFFSET',minutes});
+ },minutes);
+ await row.locator(`[data-field="${key}.date"]`).fill(v.date);
+ const match=/^(\d+):(\d+) (AM|PM)$/.exec(v.time),hour=Number(match[1])%12+(match[3]==='PM'?12:0);
+ await row.locator(`[data-field="${key}.time"]`).fill(String(hour).padStart(2,'0')+':'+match[2]);
+}
 async function downloadData(page) {
   const pending = page.waitForEvent("download");
   await page.locator("#export").click();
@@ -720,9 +732,9 @@ async function relevantSettingsAndMigration() {
   await row.locator('[data-field=once]').check();
   assert.equal(await row.locator('[data-field=intervalMinutes]').isVisible(),false);
   assert.equal(await row.locator('[data-field=lateMinutes]').isVisible(),true);
-  assert.equal(await row.locator('[data-field="finish.kind"]').isVisible(),false);
+  assert.equal(await row.locator('[data-field="finish.date"]').isVisible(),false);
   await row.locator('[data-field=onceUntilFinish]').check();
-  assert.equal(await row.locator('[data-field="finish.kind"]').isVisible(),true);
+  assert.equal(await row.locator('[data-field="finish.date"]').isVisible(),true);
   assert.equal(await row.locator('[data-field=lateMinutes]').isVisible(),false);
   assert.deepEqual(errors,[]);
  }finally{await page.close();}
@@ -748,7 +760,7 @@ async function clocksOccurrenceStatesAndHelp(){
  await page.locator('[data-field=settingsRunAt]').selectOption('SCHEDULED');await page.locator('[data-field=eventDurationMinutes]').fill('120');await page.locator('[data-field=eventEnabled]').uncheck();await page.locator('#save-event').click();
  await page.locator('details.message summary').first().click();assert.equal(await page.locator('[data-insert-token] option[value="%eventtime-1h%"]').count(),1);
  const row=page.locator('.reminder').first();await row.locator('[data-field=rowState]').selectOption('DISABLED');await row.locator('[data-action=save]').click();
- const mark=page.locator('.mark').first();await mark.locator('[data-field=markMode]').selectOption('DATE');await mark.locator('[data-field=markDate]').fill('2026-11-06');await mark.locator('[data-field=markTime]').fill('19:00');await mark.locator('[data-action=save-mark]').click();
+ const mark=page.locator('.mark').first();await mark.locator('[data-field=markDate]').fill('2026-11-06');await mark.locator('[data-field=markTime]').fill('19:00');await mark.locator('[data-action=save-mark]').click();
  const saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
  assert.equal(saved.eventDate,'2026-10-30','projection never changes anchor');assert.equal(saved.eventTime,'08:00 PM');assert.equal(saved.eventDurationMinutes,120);assert.equal(saved.paused,false);assert.equal(saved.enabled,false);assert.equal(saved.reminders[1].enabled,false);assert.equal(saved.importantTimes.tickets.offsetMinutes,-60);assert.equal(saved.timelineUsage.historic.lastSentAt,111);await page.locator('[data-field=eventDurationMinutes]').fill('');await page.locator('#save-event').click();const uncapped=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(uncapped.eventDurationMinutes,undefined);assert.deepEqual(errors,[]);
  }finally{await page.close();}
@@ -802,9 +814,9 @@ async function overlapCardHighlights(){
  const early=page.locator('.reminder[data-row=row-one]'),later=page.locator('.reminder[data-row=second]');
  assert.match(await early.locator('[data-overlap-warning]').textContent(),/Later reminder/);assert.match(await later.locator('[data-overlap-warning]').textContent(),/Early reminder/);
  await later.locator('[data-field=label]').fill('Renamed later reminder');assert.match(await early.locator('[data-overlap-warning]').textContent(),/Renamed later reminder/);
- await page.locator('.mark [data-field=offsetMinutes]').fill('-60');assert.equal(await page.locator('.reminder.has-overlap').count(),0,'resolving an important-time overlap clears both cards live');assert.equal(await page.locator('[data-overlap-warning]:visible').count(),0);
- await early.locator('[data-field="finish.minutes"]').fill('-30');assert.equal(await page.locator('.reminder.has-overlap').count(),2);assert.equal(await early.locator('[data-field="finish.minutes"]').evaluate(el=>el===document.activeElement),true,'highlighting preserves editing focus');
- await early.locator('[data-field="finish.minutes"]').fill('-60');assert.equal(await page.locator('.reminder.has-overlap').count(),0);assert.deepEqual(errors,[]);
+ await page.locator('.mark [data-field=markTime]').fill('19:00');assert.equal(await page.locator('.reminder.has-overlap').count(),0,'resolving an important-time overlap clears both cards live');assert.equal(await page.locator('[data-overlap-warning]:visible').count(),0);
+ await setPeriodOffset(page,early,'finish',-30);assert.equal(await page.locator('.reminder.has-overlap').count(),2);assert.equal(await early.locator('[data-field="finish.time"]').evaluate(el=>el===document.activeElement),true,'highlighting preserves editing focus');
+ await setPeriodOffset(page,early,'finish',-60);assert.equal(await page.locator('.reminder.has-overlap').count(),0);assert.deepEqual(errors,[]);
  }finally{await page.close();}
  const repeated=fixture(),c=repeated.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;c.runAt='SCHEDULED';c.schedule.reminders[1].start.minutes=-8*1440;
  const other=await open(repeated);
@@ -829,14 +841,14 @@ async function timelineOrderingAndPoolPreview(){
  await second.locator('[data-field=label]').fill('Start till 2 days before');assert.equal(await second.locator('.heading h3').textContent(),'2. Start till 2 days before');
  await second.locator('.row-advanced').evaluate(el=>el.open=true);
  await second.locator('[data-field=label]').fill('');assert.equal(await second.locator('.heading h3').textContent(),'2. Reminder');await second.locator('[data-field=label]').fill('Second');
- await second.locator('[data-field="start.minutes"]').fill('-180');await second.locator('[data-field="finish.minutes"]').fill('-120');await second.locator('[data-action=save]').click();
+ await setPeriodOffset(page,second,'start',-180);await setPeriodOffset(page,second,'finish',-120);await second.locator('[data-action=save]').click();
  assert.equal(await page.locator('.reminder').first().getAttribute('data-row'),'row-two',await page.locator('#status').textContent());
  await page.waitForFunction(()=>{const el=document.querySelector('.reminder[data-row="row-two"]');const r=el.getBoundingClientRect();return r.top>=0&&r.top<innerHeight;});
  assert.equal(await second.locator('.row-advanced').evaluate(el=>el.open),true,'keep the edited reminder expanded after reordering');
  assert.equal(await second.locator('[data-field=label]').evaluate(el=>el===document.activeElement),true);
- await second.locator('[data-field="finish.minutes"]').fill('-90');assert.match(await page.locator('#timeline-conflicts').textContent(),/Overlapping periods.*Second.*First/);
+ await setPeriodOffset(page,second,'finish',-90);assert.match(await page.locator('#timeline-conflicts').textContent(),/Overlapping periods.*Second.*First/);
  await second.locator('[data-action=save]').click();assert.match(await page.locator('#status').textContent(),/Overlapping periods/);
- await second.locator('[data-field="finish.minutes"]').fill('-120');
+ await setPeriodOffset(page,second,'finish',-120);
  const pool=second.locator('.pool label').first();await pool.hover();assert.match(await page.locator('#pool-preview p').textContent(),/Meet alpha/);assert.doesNotMatch(await page.locator('#pool-preview p').textContent(),/%event(time|when|countdown)%/);assert.match(await page.locator('#pool-preview small').textContent(),/%eventtime%/);
  await pool.locator('input').focus();assert.equal(await page.locator('#pool-preview').count(),1);await page.keyboard.press('Escape');assert.equal(await page.locator('#pool-preview').count(),0);
  await second.locator('[data-action=preview]').click();
@@ -849,7 +861,7 @@ async function timelineOrderingAndPoolPreview(){
  assert.ok(await page.locator('[data-field=eventTime]').evaluate(el=>el.getBoundingClientRect().width<=180),'time field keeps its native icon close to the clock');
  await page.locator('#close-dialog').click();
  const saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
- assert.equal(saved.reminders[1].id,'row-two');assert.equal(saved.reminders[1].finish.minutes,-120,'rejected overlap never changed saved data');assert.deepEqual(errors,[]);
+ assert.equal(saved.reminders[1].id,'row-two');assert.equal(saved.reminders[1].finish.time,'06:00 PM','rejected overlap never changed saved data');assert.deepEqual(errors,[]);
  }finally{await page.close();}
 }
 
@@ -868,6 +880,27 @@ async function batchEventSharing(){
  }finally{await page.close();}
 }
 
+async function calendarPeriodEditor(){
+ const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;cfg.runAt='SCHEDULED';cfg.schedule.eventDate='2026-11-03';cfg.schedule.recurrence='NONE';cfg.schedule.eventDurationMinutes=120;
+ const {page,errors}=await open(d);
+ try{
+ const row=page.locator('.reminder').first();
+ assert.match(await page.locator('#reminder-timeline h2').textContent(),/Period Timeline/);
+ assert.equal(await row.locator('select[data-field$=".kind"]').count(),0);
+ assert.equal(await row.locator('[data-field="start.date"]').inputValue(),'2026-11-03');
+ assert.equal(await row.locator('[data-field="start.time"]').inputValue(),'18:00');
+ const left=await row.locator('.period-calendar').first().boundingBox(),right=await row.locator('.period-calendar').last().boundingBox();assert.ok(Math.abs(left.y-right.y)<2);assert.ok(right.x>left.x);
+ assert.equal(await page.locator('.mark select[data-field=markMode]').count(),0);assert.equal(await page.locator('.mark [data-field=markDate]').isVisible(),true);
+ await row.screenshot({path:resolve(temp,'calendar-period-editor.png')});
+ await row.locator('[data-field="start.time"]').fill('21:00');assert.match(await row.locator('[data-effective-times]').textContent(),/on or before/);
+ await row.locator('[data-field="start.time"]').fill('19:30');await row.locator('[data-field="finish.time"]').fill('19:00');assert.match(await row.locator('[data-effective-times]').textContent(),/on or after/);
+ await row.locator('[data-field="finish.time"]').fill('20:00');await row.locator('[data-action=save]').click();
+ let schedule=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(schedule.reminders[1].start.kind,'DAY');assert.equal(schedule.reminders[1].start.time,'07:30 PM');
+ await row.locator('[data-period-after-start]').check();await row.locator('[data-field="start.time"]').fill('21:00');await row.locator('[data-field="finish.time"]').fill('21:30');await row.locator('[data-action=save]').click();
+ schedule=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(schedule.reminders[1].start.time,'09:00 PM');assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 async function effectiveReminderDatesAndNumericBounds(){
  const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;cfg.runAt='SCHEDULED';cfg.schedule.eventDate='2026-11-03';cfg.schedule.eventDurationMinutes=120;
  const {page,errors}=await open(d);
@@ -875,8 +908,8 @@ async function effectiveReminderDatesAndNumericBounds(){
  await page.clock.setFixedTime(new Date('2026-11-01T12:00:00Z'));await page.locator('[data-field=eventDate]').dispatchEvent('input');
  const row=page.locator('.reminder').first(),summary=row.locator('[data-effective-times]');
  assert.match(await summary.textContent(),/Nov 3, 2026.*6:00 PM EST/);
- await row.locator('[data-field="start.minutes"]').fill('-180');assert.match(await summary.textContent(),/5:00 PM EST/);
- await row.locator('[data-field="start.kind"]').selectOption('DAY');await row.locator('[data-field="start.days"]').fill('-1');await row.locator('[data-field="start.time"]').fill('20:00');assert.match(await summary.textContent(),/Nov 2, 2026.*8:00 PM EST/);
+ await setPeriodOffset(page,row,'start',-180);assert.match(await summary.textContent(),/5:00 PM EST/);
+ await row.locator('[data-field="start.date"]').fill('2026-11-02');await row.locator('[data-field="start.time"]').fill('20:00');assert.match(await summary.textContent(),/Nov 2, 2026.*8:00 PM EST/);
  await page.locator('[data-field=eventTime]').fill('21:00');assert.match(await summary.textContent(),/Stops:.*9:00 PM EST/);
  await page.locator('[data-field=recurrenceInterval]').fill('-2');assert.notEqual(await page.locator('[data-field=recurrenceInterval]').inputValue(),'-2');
  await page.locator('[data-field=eventDurationMinutes]').fill('-5');assert.notEqual(await page.locator('[data-field=eventDurationMinutes]').inputValue(),'-5');
@@ -1018,12 +1051,12 @@ async function onceNoticeIgnoresInactiveFields(){
  try{
  const card=page.locator('.reminder').first();assert.equal(await card.locator('[data-field=intervalMinutes]').isVisible(),false);assert.equal(await card.locator('[data-finish-window]').isVisible(),false);
  assert.doesNotMatch(await card.locator('[data-effective-times]').textContent(),/Enter valid reminder values|No valid reminder window/,'inactive repeat and finish fields cannot block a one-time notice');assert.match(await card.locator('[data-effective-times]').textContent(),/Starts:/);
- await card.locator('[data-field="start.minutes"]').fill('');await card.locator('[data-action=save]').click();assert.match(await page.locator('#status').textContent(),/anchor|start/i);await card.locator('[data-field="start.minutes"]').fill('0');
+ await card.locator('[data-field="start.date"]').fill('');await card.locator('[data-action=save]').click();assert.match(await page.locator('#status').textContent(),/period|start/i);await setPeriodOffset(page,card,'start',0);
  await card.locator('[data-action=preview]').click();assert.match(await page.locator('#simulate-messages').textContent(),/The auction has closed!/);await page.locator('#close-dialog').click();await card.locator('[data-action=save]').click();
  let saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule.reminders[1];assert.equal(saved.once,true);assert.equal(saved.start.minutes,0);assert.equal(saved.lateMinutes,5);assert.ok(saved.intervalMinutes>0);assert.equal(saved.finish.kind,'OFFSET');
  // Inactive late allowance is also harmless for a repeating reminder, while visible values stay strict.
- await card.locator('[data-field=once]').uncheck();await card.locator('[data-field="start.minutes"]').fill('-10');await card.locator('[data-field="finish.minutes"]').fill('0');await card.locator('[data-field=lateMinutes]').evaluate(el=>{el.value='0';el.dispatchEvent(new Event('input',{bubbles:true}));});
- await card.locator('[data-field=intervalMinutes]').fill('0');assert.match(await card.locator('[data-effective-times]').textContent(),/Repeat every/i);await card.locator('[data-field=intervalMinutes]').fill('15');await card.locator('[data-action=save]').click();saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule.reminders[1];assert.equal(saved.once,false);assert.equal(saved.intervalMinutes,15);assert.ok(saved.lateMinutes>0);
+ await card.locator('[data-field=once]').uncheck();await setPeriodOffset(page,card,'start',-10);await setPeriodOffset(page,card,'finish',0);await card.locator('[data-field=lateMinutes]').evaluate(el=>{el.value='0';el.dispatchEvent(new Event('input',{bubbles:true}));});
+ await card.locator('[data-field=intervalMinutes]').fill('0');assert.match(await card.locator('[data-effective-times]').textContent(),/Repeat Frequency/i);await card.locator('[data-field=intervalMinutes]').fill('15');await card.locator('[data-action=save]').click();saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule.reminders[1];assert.equal(saved.once,false);assert.equal(saved.intervalMinutes,15);assert.ok(saved.lateMinutes>0);
  assert.deepEqual(errors,[]);
  }finally{await page.close();}
 }
@@ -1410,6 +1443,7 @@ try {
   await messageNamesAndDragOrder();
   await overviewDefaultsAndPlainHelp();
   await dragDayTimeline();
+  await calendarPeriodEditor();
   await effectiveReminderDatesAndNumericBounds();
   await batchEventSharing();
   await overlapCardHighlights();
