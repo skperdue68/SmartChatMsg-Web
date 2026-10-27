@@ -167,13 +167,13 @@ function minuteSliderMarkup({key,label,help,value,min,max,ticks,exactMin=0}){
 function commandDeliveryMarkup(event){
  const c=event.settings,current=String(c.populateSound||'DUEL_START').trim().toUpperCase(),sounds=commandSoundKeys.includes(current)?commandSoundKeys:[...commandSoundKeys,current];
  const controls=[{key:'reminderMinutes',label:'Repeat Frequency',help:'Off stops timed repetition; manual use remains available.',value:c.reminderMinutes,min:0,max:1440,ticks:[[0,'Off'],[360,'6h'],[720,'12h'],[1080,'18h'],[1440,'24h']]},{key:'reminderRetryMinutes',label:'Retry Delay',help:'How often to try sending again if send fails',value:c.reminderRetryMinutes??0,min:0,max:60,ticks:[[0,'Off'],[15,'15m'],[30,'30m'],[45,'45m'],[60,'1h']]},{key:'autoPopulateCooldownMinutes',label:'Cooldown',help:'Delay before trying to send again',value:c.autoPopulateCooldownMinutes??60,min:15,max:480,exactMin:1,ticks:[[15,'15m'],[120,'2h'],[240,'4h'],[360,'6h'],[480,'8h']]}];
- return `<section class="command-delivery"><h3>Command delivery</h3><div id="ordinary-delivery"><p class="help">Drag a slider or type exact minutes. The duration label updates with your selection.</p><div class="minute-slider-list">${controls.map(minuteSliderMarkup).join('')}</div></div><div class="command-delivery-flags"><label class="check"><input type="checkbox" data-command-option="autoPopulateOnZone" ${c.autoPopulateOnZone?'checked':''}>Auto Populate Chat on Zone</label><label class="check"><input type="checkbox" data-command-option="openStatusPanelOnRun" ${c.openStatusPanelOnRun?'checked':''}>Open Status Panel on Run</label></div><label>Notify Sound<select data-command-option="populateSound">${opts(sounds.map(key=>[key,key==='NONE'?'NONE — Silent':key==='DUEL_START'?'DUEL_START — Default':key]),current)}</select></label><p class="help">Choose from the addon’s notification sounds. Existing custom selections are retained. Availability and playback depend on ESO; play sound previews in the addon.</p></section>`;
+ return `<section class="command-delivery"><h3>Command delivery</h3><div id="ordinary-delivery"><p class="help">Drag a slider or type exact minutes. The duration label updates with your selection.</p><div class="minute-slider-list">${controls.map(minuteSliderMarkup).join('')}</div></div><div class="command-delivery-flags"><label class="check"><input type="checkbox" data-command-option="autoPopulateOnZone" ${c.autoPopulateOnZone?'checked':''}>Auto Populate Chat on Zone</label><label class="check"><input type="checkbox" data-command-option="openStatusPanelOnRun" ${c.openStatusPanelOnRun?'checked':''}>Open Status Panel on Run</label><label class="command-sound-field">Notify Sound<select data-command-option="populateSound">${opts(sounds.map(key=>[key,key==='NONE'?'NONE — Silent':key==='DUEL_START'?'DUEL_START — Default':key]),current)}</select></label></div></section>`;
 }
 function refreshCommandDelivery(){
  const panel=document.querySelector('.event-settings'),read=key=>panel?.querySelector(`[data-command-option="${key}"]`);if(!read('reminderMinutes'))return;
  document.querySelector('#ordinary-delivery').hidden=editorIsScheduled();
  read('autoPopulateOnZone').closest('label').hidden=editorIsScheduled();
- const frequency=Number(read('reminderMinutes').value),retryCap=Number.isInteger(frequency)&&frequency>0?frequency:0;
+ const frequency=Number(read('reminderMinutes').value),cooldown=Number(read('autoPopulateCooldownMinutes').value),retryCap=Number.isInteger(frequency)&&frequency>0&&Number.isInteger(cooldown)&&cooldown>0?cooldown:0;
  read('reminderRetryMinutes').max=String(retryCap);
  if(!editorIsScheduled()&&Number(read('reminderRetryMinutes').value)>retryCap)read('reminderRetryMinutes').value=String(retryCap);
  const retryDisabled=editorIsScheduled()||read('autoPopulateOnZone').checked||!(Number(read('reminderMinutes').value)>0);
@@ -203,7 +203,7 @@ function readCommandDelivery(panel){
  if(!zone&&repeat!==null&&(!Number.isInteger(repeat)||repeat<1||repeat>5256000))throw Error('Repeat Frequency must be a positive whole number, or blank/0 to turn it off.');
  if(!zone&&repeat&&(!Number.isInteger(retry)||retry<0||retry>5256000))throw Error('Retry Delay must be zero or a positive whole number.');
  if(!Number.isInteger(cooldown)||cooldown<1||cooldown>5256000)throw Error('Zone cooldown must be a positive whole number.');
- out.autoPopulateOnZone=zone;out.autoPopulateCooldownMinutes=cooldown;out.reminderMinutes=zone||repeat===null?undefined:repeat;out.reminderRetryMinutes=zone||!repeat?0:Math.min(retry,repeat);
+ out.autoPopulateOnZone=zone;out.autoPopulateCooldownMinutes=cooldown;out.reminderMinutes=zone||repeat===null?undefined:repeat;out.reminderRetryMinutes=zone||!repeat?0:Math.min(retry,cooldown);
  return out;
 }
 function editorIsScheduled(){return (document.querySelector('#detail [data-field=settingsRunAt]')?.value||selectedEvent()?.settings.runAt)==='SCHEDULED';}
