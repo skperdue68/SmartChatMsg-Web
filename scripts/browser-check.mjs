@@ -946,6 +946,24 @@ async function rotatingEventControls(){
  }finally{await page.close();}
 }
 
+async function onceNoticeIgnoresInactiveFields(){
+ const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha,s=cfg.schedule;cfg.runAt='SCHEDULED';s.eventDurationMinutes=0;s.recurrence='NONE';
+ const row=s.reminders[1];row.label='Closed!';row.once=true;row.timeSensitive=true;row.intervalMinutes=0;row.start={kind:'OFFSET',minutes:0};row.finish={kind:'DAY',days:9999,time:'08:00 PM'};row.lateMinutes=5;
+ d.Default['@fixture'].$AccountWide.messages[1].text='The auction has closed!';
+ const {page,errors}=await open(d);
+ try{
+ const card=page.locator('.reminder').first();assert.equal(await card.locator('[data-field=intervalMinutes]').isVisible(),false);assert.equal(await card.locator('[data-finish-window]').isVisible(),false);
+ assert.doesNotMatch(await card.locator('[data-effective-times]').textContent(),/Enter valid reminder values|No valid reminder window/,'inactive repeat and finish fields cannot block a one-time notice');assert.match(await card.locator('[data-effective-times]').textContent(),/Starts:/);
+ await card.locator('[data-field="start.minutes"]').fill('');await card.locator('[data-action=save]').click();assert.match(await page.locator('#status').textContent(),/anchor|start/i);await card.locator('[data-field="start.minutes"]').fill('0');
+ await card.locator('[data-action=preview]').click();assert.match(await page.locator('#simulate-messages').textContent(),/The auction has closed!/);await page.locator('#close-dialog').click();await card.locator('[data-action=save]').click();
+ let saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule.reminders[1];assert.equal(saved.once,true);assert.equal(saved.start.minutes,0);assert.equal(saved.lateMinutes,5);assert.ok(saved.intervalMinutes>0);assert.equal(saved.finish.kind,'OFFSET');
+ // Inactive late allowance is also harmless for a repeating reminder, while visible values stay strict.
+ await card.locator('[data-field=once]').uncheck();await card.locator('[data-field="start.minutes"]').fill('-10');await card.locator('[data-field="finish.minutes"]').fill('0');await card.locator('[data-field=lateMinutes]').evaluate(el=>{el.value='0';el.dispatchEvent(new Event('input',{bubbles:true}));});
+ await card.locator('[data-field=intervalMinutes]').fill('0');assert.match(await card.locator('[data-effective-times]').textContent(),/Repeat every/i);await card.locator('[data-field=intervalMinutes]').fill('15');await card.locator('[data-action=save]').click();saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule.reminders[1];assert.equal(saved.once,false);assert.equal(saved.intervalMinutes,15);assert.ok(saved.lateMinutes>0);
+ assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 async function monthlyWeekdayControls(){
  const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha,s=cfg.schedule;cfg.runAt='SCHEDULED';s.recurrence='MONTHLY_WEEKDAY';s.eventDate='2026-10-28';
  const {page,errors}=await open(d);
@@ -1088,6 +1106,7 @@ async function libraryHttpIntegration(){
 try {
   await libraryHttpIntegration();
   await sharedServerLibrary();
+  await onceNoticeIgnoresInactiveFields();
   await monthlyWeekdayControls();
   await cachedGuildLegacyIdentity();
   await cachedGuildChoices();
