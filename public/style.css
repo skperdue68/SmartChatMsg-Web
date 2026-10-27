@@ -703,4 +703,7 @@ label.check>.help-icon{flex:none;margin-left:4px}
 
 .command-delivery-flags{display:flex;flex-wrap:wrap;align-items:center;gap:12px 30px;margin:14px 0;}.command-delivery-flags>label.check{margin:0;}.command-delivery-flags [hidden],.minute-slider>p[hidden]{display:none!important;}.minute-slider-heading .field-caption{display:inline-flex;align-items:center;gap:6px;}
 
+#ordinary-message-pool[hidden],.pool-empty-note[hidden]{display:none!important;}.pool-message-off{opacity:.6;}.pool-empty-note{color:#efca8b;padding:10px;border:1px solid #806b41;border-radius:5px;}.event-settings .actions:has([data-field=eventEnabled]){align-items:center;}
+
 .command-sound-field{display:flex;flex-direction:row;align-items:center;gap:10px;margin:0;min-width:0;flex:1;}.command-sound-field>.field-caption{white-space:nowrap;}.command-sound-field select{width:100%;min-width:140px;flex:1;}@media(min-width:1000px){.command-delivery-flags{flex-wrap:nowrap;}.command-delivery-flags>.check{flex:none;}.command-sound-field select{min-width:0;}}@media(max-width:650px){.command-sound-field{flex-basis:100%;}}
+
