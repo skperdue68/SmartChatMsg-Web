@@ -884,9 +884,12 @@ async function messageNamesAndDragOrder(){
  const {page,errors}=await open(d);
  try{
  const first=page.locator('.message[data-id="message-one"]');await first.locator('summary').click();await first.locator('[data-field=messageName]').fill('Gathering reminder');assert.match(await first.locator('.message-summary-title').textContent(),/^Gathering reminder/);assert.match(await page.locator('[data-pool-message-label="message-one"]').first().textContent(),/^Gathering reminder/);assert.equal(await first.locator('[data-field=messageName]').getAttribute('maxlength'),'60');
+ assert.equal(await first.locator('.message-character-count').textContent(),'13 characters · before substitutions');
+ await first.locator('textarea').fill('Hi 🌈');assert.equal(await first.locator('.message-character-count').textContent(),'4 characters · before substitutions');
+ await first.locator('[data-insert-token]').selectOption('%guild%');assert.equal(await first.locator('.message-character-count').textContent(),'11 characters · before substitutions');
  await first.locator('textarea').fill('Unsaved draft stays while sorting');
  await page.locator('.message[data-id="third"] .message-drag-handle').dragTo(first.locator('summary'),{targetPosition:{x:60,y:3}});
- assert.equal(await page.locator('.message').first().getAttribute('data-id'),'third');assert.equal(await first.evaluate(el=>el.open),true);assert.equal(await first.locator('textarea').inputValue(),'Unsaved draft stays while sorting');
+ assert.equal(await page.locator('.message').first().getAttribute('data-id'),'third');assert.equal(await first.evaluate(el=>el.open),true);assert.equal(await first.locator('textarea').inputValue(),'Unsaved draft stays while sorting');assert.equal(await first.locator('.message-character-count').textContent(),'33 characters · before substitutions');
  await page.locator('#add-message').click();assert.equal(await page.locator('.message').last().locator('[data-field=messageName]').inputValue(),'Message 4');
  const latest=parseSavedVariables(writeSavedVariables(d));latest.Default['@fixture'].$AccountWide.messages[1].useCount=99;await page.locator('#latest').setInputFiles({name:'SmartChatMsg.lua',mimeType:'text/plain',buffer:Buffer.from(writeSavedVariables(latest))});await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('for merging'));
  const saved=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(saved.messages[1].name,'Gathering reminder');assert.equal(saved.messages[1].displayOrder,2);assert.equal(saved.messages[1].useCount,99);assert.equal(saved.messages[1].text,'Hello %guild%');assert.equal(saved.messages[3].name,'Message 3');assert.equal(saved.messages[3].displayOrder,1);assert.deepEqual(errors,[]);

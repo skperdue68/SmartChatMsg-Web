@@ -657,3 +657,5 @@ label.check>.help-icon{flex:none;margin-left:4px}
 @media(max-width:600px){.library-save{align-items:stretch;flex-direction:column}}
 
 #library-status{white-space:pre-wrap;overflow-wrap:anywhere}
+
+.message-character-count{text-align:right;color:var(--muted);font-size:12px;margin:4px 0 10px;}
