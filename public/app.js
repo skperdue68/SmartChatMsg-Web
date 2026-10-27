@@ -207,7 +207,7 @@ function readCommandDelivery(panel){
  return out;
 }
 function editorIsScheduled(){return (document.querySelector('#detail [data-field=settingsRunAt]')?.value||selectedEvent()?.settings.runAt)==='SCHEDULED';}
-function insertableTokens(schedule){const scheduled=editorIsScheduled();return ['%time%','%timeofday%','%greeting%','%morning%','%guild%','%zone%',...(scheduled?['%eventwhen%','%eventtime%','%eventdate%','%eventcountdown%','%eventtime-1h%','%eventcountdown-1h%',...(schedule.specialPattern==='FACTION_ROTATION'?['%eventfaction%']:schedule.specialPattern==='EVENT_ROTATION'?['%eventactivity%']:[]),...Object.keys(schedule.importantTimes||{}).flatMap(key=>['eventwhen','eventtime','eventdate','eventcountdown'].map(token=>'%'+token+':'+key+'%'))]:[])];}
+function insertableTokens(schedule){const scheduled=editorIsScheduled();return ['%timeofday%','%guild%','%zone%',...(scheduled?['%eventwhen%','%eventtime%','%eventdate%','%eventcountdown%','%eventtime-1h%','%eventcountdown-1h%',...(schedule.specialPattern==='FACTION_ROTATION'?['%eventfaction%']:schedule.specialPattern==='EVENT_ROTATION'?['%eventactivity%']:[]),...Object.keys(schedule.importantTimes||{}).flatMap(key=>['eventwhen','eventtime','eventdate','eventcountdown'].map(token=>'%'+token+':'+key+'%'))]:[])];}
 function tableArray(items) {
   const t = {};
   items.forEach((v, i) => setLuaValue(t, i + 1, v));
