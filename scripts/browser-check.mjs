@@ -1236,6 +1236,23 @@ async function commandSettingAttributeEscaping(){
  try{assert.equal(await page.locator('[data-injected]').count(),0);await page.locator('#account-settings').click();assert.equal(await page.locator('#dialog [data-injected]').count(),0);assert.deepEqual(errors,[]);}finally{await page.close();}
 }
 
+async function legacyAccountSettings(){
+ const d=fixture(),a=d.Default['@fixture'].$AccountWide;delete a.guildRoster;
+ a.messages[1].guildName='Alpha';a.messages[1].guildIndex=4;
+ const {page,errors}=await open(d);
+ try{
+ await page.locator('#account-settings').click();
+ assert.equal(await page.locator('#account-default-guild option').count(),6);
+ assert.match(await page.locator('#account-default-guild option[value="4"]').textContent(),/Alpha/);
+ assert.equal(await page.locator('#apply-account-settings').textContent(),'Save');
+ const save=await page.locator('#apply-account-settings').boundingBox(),cancel=await page.locator('#cancel-account-settings').boundingBox();assert.ok(Math.abs(save.y-cancel.y)<2);assert.ok(cancel.x>save.x);
+ await page.locator('#account-default-guild').selectOption('4');await page.locator('#account-revert-seconds').fill('90');await page.locator('#cancel-account-settings').click();
+ await page.locator('#account-settings').click();assert.equal(await page.locator('#account-default-guild').inputValue(),'');assert.equal(await page.locator('#account-revert-seconds').inputValue(),'60');
+ await page.locator('#account-default-guild').selectOption('4');await page.locator('#apply-account-settings').click();
+ const saved=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(saved.defaultGuildIndex,4);assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 async function accountAndCommandDefaults(){
  const d=fixture(),a=d.Default['@fixture'].$AccountWide;a.guildRoster=numeric([{guildIndex:4,guildId:101,guildName:'Alpha'},{guildIndex:2,guildId:102,guildName:'Beta'}]);a.guildSchedulingTimeZones.beta='PT';a.commandGuildSettings['command-one'].beta.schedule.timeZone='PT';a.commandGuildSettings['command-one'].alpha.runAt='ON_DEMAND';
  const {page,errors}=await open(d);
@@ -1345,6 +1362,7 @@ try {
   await creationModals();
   await commandNumericInputRules();
   await commandSettingAttributeEscaping();
+  await legacyAccountSettings();
   await accountAndCommandDefaults();
   await zoneCommandOption();
   await plainCommandMessagePool();
