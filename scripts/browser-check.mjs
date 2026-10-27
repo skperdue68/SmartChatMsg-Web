@@ -36,6 +36,7 @@ const assets = new Map([
   ["/", ["public/index.html", "text/html"]],
   ["/style.css", ["public/style.css", "text/css"]],
   ["/app.js", ["public/app.js", "text/javascript"]],
+  ["/scheduling-sliders.js", ["public/scheduling-sliders.js", "text/javascript"]],
   ["/portable.js", ["public/portable.js", "text/javascript"]],
   ["/logo.svg", ["public/logo.svg", "image/svg+xml"]],
   ["/model.js", ["src/model.js", "text/javascript"]],
@@ -109,6 +110,39 @@ function fixture() {
       },
     },
   };
+}
+
+async function compactSchedulingSliders(){
+ const d=fixture(),schedule=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
+ schedule.eventDurationMinutes=480;schedule.recurrenceInterval=12;schedule.reminders[1].intervalMinutes=2880;schedule.reminders[1].availability={enabled:true,maxPerDay:50};
+ const {page,errors}=await open(d);
+ try{
+  const duration=page.locator('[data-field=eventDurationMinutes]'),recurrence=page.locator('[data-field=recurrenceInterval]'),row=page.locator('.reminder').first();
+  const frequency=row.locator('[data-field=intervalMinutes]'),cap=row.locator('[data-availability=maxPerDay]');
+  for(const [input,min,max] of [[duration,'0','240'],[recurrence,'1','10'],[frequency,'1','1440'],[cap,'0','20']]){
+   assert.equal(await input.getAttribute('type'),'range');assert.equal(await input.getAttribute('min'),min);assert.equal(await input.getAttribute('max'),max);
+   assert.equal(await input.locator('..').locator('.scheduling-slider-preserved').isVisible(),true);
+  }
+  assert.match(await duration.locator('..').locator('output').textContent(),/8 hours/);
+  await page.locator('[data-field=commandName]').fill('Unrelated name change');await page.locator('#save-event').click();
+  await row.locator('[data-field=label]').fill('Unrelated period change');await row.locator('[data-action=save]').click();
+  let saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
+  assert.equal(saved.eventDurationMinutes,480);assert.equal(saved.recurrenceInterval,12);assert.equal(saved.reminders[1].intervalMinutes,2880);assert.equal(saved.reminders[1].availability.maxPerDay,50);
+  await setRange(duration,0);assert.equal(await duration.locator('..').locator('output').textContent(),'Not set');
+  await setRange(recurrence,2);await page.locator('[data-field=recurrence]').selectOption('DAILY');assert.equal(await recurrence.locator('..').locator('output').textContent(),'Every 2 days');
+  await page.locator('[data-field=recurrence]').selectOption('WEEKLY');assert.equal(await recurrence.locator('..').locator('output').textContent(),'Every 2 weeks');
+  await page.locator('#save-event').click();await setRange(frequency,125);assert.equal(await frequency.locator('..').locator('output').textContent(),'2 hours 5 min');
+  await setRange(cap,0);assert.equal(await cap.locator('..').locator('output').textContent(),'Unlimited');await row.locator('[data-action=save]').click();
+  saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
+  assert.equal(saved.eventDurationMinutes,undefined);assert.equal(saved.recurrenceInterval,2);assert.equal(saved.reminders[1].intervalMinutes,125);assert.equal(saved.reminders[1].availability.maxPerDay,undefined);
+  await setRange(duration,240);await page.locator('#save-event').click();await setRange(cap,20);await row.locator('[data-action=save]').click();
+  saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
+  assert.equal(saved.eventDurationMinutes,240);assert.equal(saved.reminders[1].availability.maxPerDay,20);assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
+async function setRange(locator, value) {
+  await locator.evaluate((el, value) => { el.value=String(value); el.dispatchEvent(new Event('input', {bubbles:true})); el.dispatchEvent(new Event('change', {bubbles:true})); }, value);
 }
 async function open(data) {
   const page = await browser.newPage({
@@ -641,9 +675,10 @@ async function validationAndWeekdays() {
     );
     await row.locator("[data-field=lateMinutes]").fill("5");
     await row.locator("[data-field=once]").uncheck();
-    await row.locator("[data-field=intervalMinutes]").fill("1.5");
+    await setRange(row.locator("[data-field=intervalMinutes]"),"1.5");
+    assert.equal(await row.locator("[data-field=intervalMinutes]").evaluate(el=>el.checkValidity()),true);
     await row.locator("[data-action=save]").click();
-    assert.match(await page.locator("#status").textContent(), /whole/);
+    assert.ok(Number(await row.locator("[data-field=intervalMinutes]").inputValue()) >= 1);
     await row.locator("[data-action=remove]").click();
     await page.locator("#export").click();
     assert.match(await page.locator("#status").textContent(), /no reminders.*add.*reminder/i);
@@ -761,12 +796,12 @@ async function clocksOccurrenceStatesAndHelp(){
  assert.match(await page.locator('#next-occurrence').inputValue(),/Nov 6, 2026/);assert.notEqual(await page.locator('#next-occurrence').getAttribute('readonly'),null);
  await page.locator('[data-field=eventDate]').fill('2026-10-31');assert.match(await page.locator('#next-occurrence').inputValue(),/Nov 7, 2026/);await page.locator('[data-field=eventDate]').fill('2026-10-30');
  await page.locator('details.message summary').first().click();assert.equal(await page.locator('[data-insert-token] option[value="%eventtime%"]').count(),1,'scheduled mode offers event tokens');
- await page.locator('[data-field=settingsRunAt]').selectOption('SCHEDULED');await page.locator('[data-field=eventDurationMinutes]').fill('120');await page.locator('[data-field=eventEnabled]').uncheck();await page.locator('#save-event').click();
+ await page.locator('[data-field=settingsRunAt]').selectOption('SCHEDULED');await setRange(page.locator('[data-field=eventDurationMinutes]'),'120');await page.locator('[data-field=eventEnabled]').uncheck();await page.locator('#save-event').click();
  await page.locator('details.message summary').first().click();assert.equal(await page.locator('[data-insert-token] option[value="%eventtime-1h%"]').count(),1);
  const row=page.locator('.reminder').first();await row.locator('[data-field=rowState]').selectOption('DISABLED');await row.locator('[data-action=save]').click();
  const mark=page.locator('.mark').first();await mark.locator('[data-field=markDate]').fill('2026-11-06');await mark.locator('[data-field=markTime]').fill('19:00');await mark.locator('[data-action=save-mark]').click();
  const saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
- assert.equal(saved.eventDate,'2026-10-30','projection never changes anchor');assert.equal(saved.eventTime,'08:00 PM');assert.equal(saved.eventDurationMinutes,120);assert.equal(saved.paused,false);assert.equal(saved.enabled,false);assert.equal(saved.reminders[1].enabled,false);assert.equal(saved.importantTimes.tickets.offsetMinutes,-60);assert.equal(saved.timelineUsage.historic.lastSentAt,111);await page.locator('[data-field=eventDurationMinutes]').fill('');await page.locator('#save-event').click();const uncapped=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(uncapped.eventDurationMinutes,undefined);assert.deepEqual(errors,[]);
+ assert.equal(saved.eventDate,'2026-10-30','projection never changes anchor');assert.equal(saved.eventTime,'08:00 PM');assert.equal(saved.eventDurationMinutes,120);assert.equal(saved.paused,false);assert.equal(saved.enabled,false);assert.equal(saved.reminders[1].enabled,false);assert.equal(saved.importantTimes.tickets.offsetMinutes,-60);assert.equal(saved.timelineUsage.historic.lastSentAt,111);await setRange(page.locator('[data-field=eventDurationMinutes]'),'0');await page.locator('#save-event').click();const uncapped=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(uncapped.eventDurationMinutes,undefined);assert.deepEqual(errors,[]);
  }finally{await page.close();}
 }
 
@@ -915,10 +950,10 @@ async function effectiveReminderDatesAndNumericBounds(){
  await setPeriodOffset(page,row,'start',-180);assert.match(await summary.textContent(),/5:00 PM EST/);
  await row.locator('[data-field="start.date"]').fill('2026-11-02');await row.locator('[data-field="start.time"]').fill('20:00');assert.match(await summary.textContent(),/Nov 2, 2026.*8:00 PM EST/);
  await page.locator('[data-field=eventTime]').fill('21:00');assert.match(await summary.textContent(),/Stops:.*9:00 PM EST/);
- await page.locator('[data-field=recurrenceInterval]').fill('-2');assert.notEqual(await page.locator('[data-field=recurrenceInterval]').inputValue(),'-2');
- await page.locator('[data-field=eventDurationMinutes]').fill('-5');assert.notEqual(await page.locator('[data-field=eventDurationMinutes]').inputValue(),'-5');
- await page.locator('[data-field=eventDurationMinutes]').fill('0');assert.equal(await page.locator('[data-field=eventDurationMinutes]').evaluate(el=>el.checkValidity()),true);
- await page.locator('[data-field=recurrenceInterval]').fill('0');assert.equal(await page.locator('[data-field=recurrenceInterval]').evaluate(el=>el.checkValidity()),false);
+ await setRange(page.locator('[data-field=recurrenceInterval]'),'-2');assert.notEqual(await page.locator('[data-field=recurrenceInterval]').inputValue(),'-2');
+ await setRange(page.locator('[data-field=eventDurationMinutes]'),'-5');assert.notEqual(await page.locator('[data-field=eventDurationMinutes]').inputValue(),'-5');
+ await setRange(page.locator('[data-field=eventDurationMinutes]'),'0');assert.equal(await page.locator('[data-field=eventDurationMinutes]').evaluate(el=>el.checkValidity()),true);
+ await setRange(page.locator('[data-field=recurrenceInterval]'),'0');assert.equal(await page.locator('[data-field=recurrenceInterval]').evaluate(el=>el.checkValidity()),true);
  assert.deepEqual(errors,[]);
  }finally{await page.close();}
 }
@@ -932,8 +967,8 @@ async function reminderAvailabilityEditing(){
  const card=page.locator('.reminder').first();await card.locator('.availability-settings summary').click();
  await card.locator('[data-availability=enabled]').check();await card.locator('[data-availability=allDay]').uncheck();
  await card.locator('[data-availability=start]').fill('07:00');await card.locator('[data-availability=end]').fill('22:00');
- await card.locator('[data-availability=maxPerDay]').fill('0');await card.locator('[data-action=save]').click();assert.match(await page.locator('#status').textContent(),/Maximum announcements/);
- await card.locator('[data-availability=maxPerDay]').fill('1');await card.locator('[data-availability=end]').fill('');await card.locator('[data-action=save]').click();assert.match(await page.locator('#status').textContent(),/Availability: choose valid/);
+ await setRange(card.locator('[data-availability=maxPerDay]'),'0');await card.locator('[data-action=save]').click();assert.equal((await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule.reminders[1].availability.maxPerDay,undefined);
+ await setRange(card.locator('[data-availability=maxPerDay]'),'1');await card.locator('[data-availability=end]').fill('');await card.locator('[data-action=save]').click();assert.match(await page.locator('#status').textContent(),/Availability: choose valid/);
  await card.locator('[data-availability=end]').fill('22:00');await card.locator('[data-action=save]').click();
  let saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
  assert.equal(saved.reminders[1].availability.maxPerDay,1);assert.equal(saved.reminders[1].availability.startMinute,420);assert.equal(saved.reminders[1].availability.weekdays[2],true);assert.match(writeSavedVariables(saved),/\[2\] = true/);
@@ -1074,7 +1109,7 @@ async function onceNoticeIgnoresInactiveFields(){
  let saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule.reminders[1];assert.equal(saved.once,true);assert.equal(saved.start.minutes,0);assert.equal(saved.lateMinutes,5);assert.ok(saved.intervalMinutes>0);assert.equal(saved.finish.kind,'OFFSET');
  // Inactive late allowance is also harmless for a repeating reminder, while visible values stay strict.
  await card.locator('[data-field=once]').uncheck();await setPeriodOffset(page,card,'start',-10);await setPeriodOffset(page,card,'finish',0);await card.locator('[data-field=lateMinutes]').evaluate(el=>{el.value='0';el.dispatchEvent(new Event('input',{bubbles:true}));});
- await card.locator('[data-field=intervalMinutes]').fill('0');assert.match(await card.locator('[data-effective-times]').textContent(),/Repeat Frequency/i);await card.locator('[data-field=intervalMinutes]').fill('15');await card.locator('[data-action=save]').click();saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule.reminders[1];assert.equal(saved.once,false);assert.equal(saved.intervalMinutes,15);assert.ok(saved.lateMinutes>0);
+ await setRange(card.locator('[data-field=intervalMinutes]'),'0');assert.equal(await card.locator('[data-field=intervalMinutes]').inputValue(),'1');await setRange(card.locator('[data-field=intervalMinutes]'),'15');await card.locator('[data-action=save]').click();saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule.reminders[1];assert.equal(saved.once,false);assert.equal(saved.intervalMinutes,15);assert.ok(saved.lateMinutes>0);
  assert.deepEqual(errors,[]);
  }finally{await page.close();}
 }
@@ -1088,10 +1123,10 @@ async function monthlyWeekdayControls(){
  await page.locator('[data-field=eventDate]').fill('2026-10-28');await page.locator('[data-field=monthlyWeek]').selectOption('LAST');await page.locator('[data-field=monthlyWeekday]').selectOption('1');assert.match(await page.locator('#monthly-weekday-help').textContent(),/Last Sunday/);
  const expectedNext=config=>{const now=Math.floor(Date.now()/1000),at=model.projectedOccurrences(config,now,now+400*86400)[0];return new Date(at*1000).toLocaleString('en-US',{timeZone:'America/New_York',weekday:'short',year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});};
  assert.equal(await page.locator('#next-occurrence').inputValue(),expectedNext({...s,monthlyWeek:'LAST',monthlyWeekday:1}));
- await page.locator('[data-field=recurrenceInterval]').fill('2');assert.equal(await page.locator('#next-occurrence').inputValue(),expectedNext({...s,monthlyWeek:'LAST',monthlyWeekday:1,recurrenceInterval:2}));
+ await setRange(page.locator('[data-field=recurrenceInterval]'),'2');assert.equal(await page.locator('#next-occurrence').inputValue(),expectedNext({...s,monthlyWeek:'LAST',monthlyWeekday:1,recurrenceInterval:2}));
  await page.locator('[data-field=eventDate]').fill('2026-11-01');assert.equal(await page.locator('[data-field=monthlyWeek]').inputValue(),'LAST','explicit Last selection survives anchor edits');assert.equal(await page.locator('[data-field=monthlyWeekday]').inputValue(),'1');
  await page.locator('#save-event').click();let saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(saved.monthlyWeek,'LAST');assert.equal(saved.monthlyWeekday,1);assert.equal(saved.recurrenceInterval,2);
- await page.locator('[data-field=monthlyWeek]').selectOption('5');assert.match(await page.locator('#monthly-weekday-help').textContent(),/skipped/);await page.locator('[data-field=eventDate]').fill('2027-02-01');await page.locator('[data-field=recurrenceInterval]').fill('12');const sparse=model.nextScheduleOccurrence({...s,eventDate:'2027-02-01',monthlyWeek:5,monthlyWeekday:1,recurrenceInterval:12},Math.floor(Date.now()/1000));assert.equal(await page.locator('#next-occurrence').inputValue(),new Date(sparse*1000).toLocaleString('en-US',{timeZone:'America/New_York',weekday:'short',year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}),'next occurrence cannot fall back to an off-rule anchor');await page.locator('[data-field=recurrence]').selectOption('WEEKLY');assert.equal(await page.locator('#monthly-weekday-rule').isVisible(),false);await page.locator('#save-event').click();
+ await page.locator('[data-field=monthlyWeek]').selectOption('5');assert.match(await page.locator('#monthly-weekday-help').textContent(),/skipped/);await page.locator('[data-field=eventDate]').fill('2027-02-01');await setRange(page.locator('[data-field=recurrenceInterval]'),'10');const sparse=model.nextScheduleOccurrence({...s,eventDate:'2027-02-01',monthlyWeek:5,monthlyWeekday:1,recurrenceInterval:10},Math.floor(Date.now()/1000));assert.equal(await page.locator('#next-occurrence').inputValue(),new Date(sparse*1000).toLocaleString('en-US',{timeZone:'America/New_York',weekday:'short',year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}),'next occurrence cannot fall back to an off-rule anchor');await page.locator('[data-field=recurrence]').selectOption('WEEKLY');assert.equal(await page.locator('#monthly-weekday-rule').isVisible(),false);await page.locator('#save-event').click();
  saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(saved.monthlyWeek,'LAST','hidden unsaved monthly controls do not overwrite the saved rule');assert.equal(saved.recurrence,'WEEKLY');assert.deepEqual(errors,[]);
  }finally{await page.close();}
 }
@@ -1128,7 +1163,7 @@ async function liveRotationProjection(){
  await page.locator('[data-field=recurrence]').selectOption('WEEKLY');
  const weekly=await dates();assert.equal((Date.parse(weekly[1])-Date.parse(weekly[0]))/86400000,7,'upcoming rotation follows unsaved recurrence edits');
  assert.match(await page.locator('#rotation-occurrences').textContent(),/Preview.*Apply event settings/i);assert.equal(await page.locator('[data-cancel-occurrence]').first().isDisabled(),true);
- await page.locator('[data-field=recurrenceInterval]').fill('2');let intervalDates=await dates();assert.equal((Date.parse(intervalDates[1])-Date.parse(intervalDates[0]))/86400000,14);await page.locator('[data-field=recurrenceInterval]').fill('1');
+ await setRange(page.locator('[data-field=recurrenceInterval]'),'2');let intervalDates=await dates();assert.equal((Date.parse(intervalDates[1])-Date.parse(intervalDates[0]))/86400000,14);await setRange(page.locator('[data-field=recurrenceInterval]'),'1');
  await page.locator('[data-field=rotationEvery]').fill('0');assert.equal(await page.locator('.rotation-upcoming').count(),0,'invalid frequency cannot leave stale projection rows visible');await page.locator('[data-field=rotationEvery]').fill('1');
  const changedDate=new Date(Date.now()+3*86400000).toISOString().slice(0,10);await page.locator('[data-field=eventDate]').fill(changedDate);assert.equal((await dates())[0],changedDate,'upcoming rotation follows unsaved anchor edits');
  await page.locator('[data-field=eventTime]').fill('19:00');assert.match(await page.locator('.rotation-upcoming strong').first().textContent(),/7:00 PM/);
@@ -1452,6 +1487,7 @@ async function libraryHttpIntegration(){
 }
 
 try {
+  await compactSchedulingSliders();
   await messageApplyBorderAndDisabledLabels();
   await legacyPausedEventCheckbox();
   await ordinaryPoolAndEventToggle();
