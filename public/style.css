@@ -677,3 +677,6 @@ label.check>.help-icon{flex:none;margin-left:4px}
 .rotation-occurrence{display:flex;gap:14px;align-items:center;justify-content:space-between;padding:12px;border:1px solid var(--line);border-radius:6px;background:#102032;}
 .rotation-occurrence span{display:block;color:var(--muted);font-size:13px;margin-top:5px;}.rotation-occurrence button{flex:none;}.rotation-occurrence.cancelled{border-style:dashed;}
 @media(max-width:650px){.rotation-activity,.rotation-occurrence{align-items:stretch;flex-direction:column;}}
+
+.reminder.has-overlap{border-color:#ef9a80;border-left-color:#ef9a80;box-shadow:0 0 0 1px rgba(239,154,128,.4);}
+.reminder-overlap-warning{color:#ffd1c4;background:#462b2b;border:1px solid #da826d;border-radius:5px;padding:9px 11px;font-size:13px;line-height:1.5;}
