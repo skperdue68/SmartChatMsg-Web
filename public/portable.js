@@ -19,6 +19,8 @@ const scheduleKeys = [
   "rotationFactions",
   "eventFold",
   "eventDurationMinutes",
+  "dailyLimitShared",
+  "sharedDailyLimit",
   "importantTimes",
   "reminders",
   "messageVariants",
@@ -514,7 +516,7 @@ export function importEventBundle(account,document,selectedIndices){
       schedule.reminders=array(orderedReminderRows(schedule));
       settings.schedule={...prior,...schedule};
       delete settings.schedule.mergedInto;
-      for(const key of ['rotationEvents','rotationEvery','occurrenceExceptions','monthlyWeek','monthlyWeekday'])if(schedule[key]===undefined)delete settings.schedule[key];
+      for(const key of ['rotationEvents','rotationEvery','occurrenceExceptions','monthlyWeek','monthlyWeekday','dailyLimitShared','sharedDailyLimit'])if(schedule[key]===undefined)delete settings.schedule[key];
       // An imported duration can explicitly clear the old optional cap.
       if(schedule.eventDurationMinutes===undefined)delete settings.schedule.eventDurationMinutes;
       const errors=validateTimelineForAddon(settings.schedule);if(errors.length)throw Error(errors.join(' '));

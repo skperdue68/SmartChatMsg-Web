@@ -61,20 +61,22 @@ test('status bootstraps peer/sent counts, uses civil midnight, and once completi
  s.paused=true;assert.equal(model.simulateReminder(s,row,at,now).status,'PAUSED');assert.equal(model.availabilityStatus(s,row,at,now).count,1);
 });
 test('latest availability counters survive hours edits and Lua full roundtrip',()=>{
- const s=fixture(),base={schedule:s},edited=model.cloneSavedData(base),latest=model.cloneSavedData(base);edited.schedule.reminders[1].availability.startMinute=480;edited.schedule.availabilityUsage={'r:2026-10-27':{count:0,lastAt:0}};latest.schedule.availabilityUsage={'r:2026-10-27':{count:2,lastAt:123}};
- const result=model.mergeSavedVariables(base,edited,latest);assert.deepEqual(result.conflicts,[]);assert.equal(result.data.schedule.availabilityUsage['r:2026-10-27'].count,2);assert.equal(result.data.schedule.reminders[1].availability.startMinute,480);
+ const s=fixture(),base={schedule:s},edited=model.cloneSavedData(base),latest=model.cloneSavedData(base);edited.schedule.reminders[1].availability.startMinute=480;edited.schedule.availabilityUsage={'r:2026-10-27':{count:0,lastAt:0}};latest.schedule.availabilityUsage={'r:2026-10-27':{count:2,lastAt:123},'_command:2026-10-27':{count:4,lastAt:456}};edited.schedule.dailyLimitShared=true;edited.schedule.sharedDailyLimit=5;
+ const result=model.mergeSavedVariables(base,edited,latest);assert.deepEqual(result.conflicts,[]);assert.equal(result.data.schedule.availabilityUsage['_command:2026-10-27'].count,4);assert.equal(result.data.schedule.dailyLimitShared,true);assert.equal(result.data.schedule.sharedDailyLimit,5);assert.equal(result.data.schedule.availabilityUsage['r:2026-10-27'].count,2);assert.equal(result.data.schedule.reminders[1].availability.startMinute,480);
 });
 
 test('portable availability normalizes numeric keys, strips counters and preserves matching recipient row counters',async()=>{
  const source=fs.readFileSync(new URL('../public/portable.js',import.meta.url),'utf8').replaceAll('"/model.js"',JSON.stringify(new URL('../src/model.js',import.meta.url).href)).replaceAll('"/lua-data.js"',JSON.stringify(new URL('../src/lua-data.js',import.meta.url).href));
  const {portableEvent,validatePortable,stageImport,exportEventBundle,importEventBundle}=await import('data:text/javascript;base64,'+Buffer.from(source+'\n//# sourceURL=availability-portable-test.js').toString('base64'));
- const s=fixture(),messages=[{id:'m',commandId:'c',guildName:'guild',text:'Message'}];s.reminders[1].messageIds=seq(['m']);s.reminders[1].availability.weekdays={};setLuaValue(s.reminders[1].availability.weekdays,3,true);s.reminders[1].availability.weekdayOverrides={};setLuaValue(s.reminders[1].availability.weekdayOverrides,3,{startMinute:480,endMinute:1200});s.availabilityUsage={'r:2026-10-27':{count:5,lastAt:123}};
+ const s=fixture(),messages=[{id:'m',commandId:'c',guildName:'guild',text:'Message'}];s.reminders[1].messageIds=seq(['m']);s.reminders[1].availability.weekdays={};setLuaValue(s.reminders[1].availability.weekdays,3,true);s.reminders[1].availability.weekdayOverrides={};setLuaValue(s.reminders[1].availability.weekdayOverrides,3,{startMinute:480,endMinute:1200});s.dailyLimitShared=true;s.sharedDailyLimit=6;s.availabilityUsage={'r:2026-10-27':{count:5,lastAt:123},'_command:2026-10-27':{count:6,lastAt:456}};
  const event={commandId:'c',command:{name:'Available'},guild:'guild',schedule:s},payload=JSON.parse(JSON.stringify(portableEvent(event,messages)));assert.doesNotMatch(JSON.stringify(payload),/availabilityUsage|lastAt/);
+ assert.equal(payload.schedule.dailyLimitShared,true);assert.equal(payload.schedule.sharedDailyLimit,6);
  const validated=validatePortable(payload);assert.equal(validated.schedule.reminders[1].availability.weekdays[3],true);assert.equal(model.validateTimelineForAddon(validated.schedule).length,0);
  const staged=stageImport(payload,event,seq(messages),'guild');assert.equal(staged.schedule.reminders[1].id,'r');assert.equal(staged.schedule.availabilityUsage,undefined);
  const account={commands:seq([{id:'c',name:'Available'}]),messages:seq(messages),schedulingTimeZone:'ET',commandGuildSettings:{c:{guild:{runAt:'SCHEDULED',schedule:s}}}};
  const bundle=exportEventBundle(account,'guild',['c']);bundle.items[0].schedule.reminders[1].availability.startMinute=500;
- const imported=importEventBundle(account,bundle,[0]).account.commandGuildSettings.c.guild.schedule;assert.equal(imported.availabilityUsage['r:2026-10-27'].count,5);assert.equal(imported.reminders[1].id,'r');assert.equal(imported.reminders[1].availability.startMinute,500);
+ const imported=importEventBundle(account,bundle,[0]).account.commandGuildSettings.c.guild.schedule;assert.equal(imported.availabilityUsage['_command:2026-10-27'].count,6);assert.equal(imported.dailyLimitShared,true);assert.equal(imported.sharedDailyLimit,6);assert.equal(imported.availabilityUsage['r:2026-10-27'].count,5);assert.equal(imported.reminders[1].id,'r');assert.equal(imported.reminders[1].availability.startMinute,500);
+ delete bundle.items[0].schedule.dailyLimitShared;delete bundle.items[0].schedule.sharedDailyLimit;const reset=importEventBundle(account,bundle,[0]).account.commandGuildSettings.c.guild.schedule;assert.equal(reset.dailyLimitShared,undefined);assert.equal(reset.sharedDailyLimit,undefined);assert.equal(reset.availabilityUsage['_command:2026-10-27'].count,6);
  payload.schedule.reminders[1].availability.dateOverrides={'2026-10-27':{startMinute:50,endMinute:50}};assert.throws(()=>validatePortable(payload),/nonempty/);
 });
 test('overnight availability resolves DST in the opening day timezone',()=>{
@@ -98,4 +100,30 @@ test('exact recipient row IDs win over identical base geometry on single and bun
  const account={commands:seq([{id:'c',name:'Same geometry'}]),messages:seq(messages),schedulingTimeZone:'ET',commandGuildSettings:{c:{guild:{runAt:'SCHEDULED',schedule:s}}}},bundle=exportEventBundle(account,'guild',['c']),imported=importEventBundle(account,bundle,[0]).account.commandGuildSettings.c.guild.schedule;
  assert.deepEqual(Object.values(imported.reminders).map(row=>row.id),['r','r2']);assert.equal(imported.availabilityUsage['r:2026-10-27'].count,1);assert.equal(imported.availabilityUsage['r2:2026-10-27'].count,1);
  const stagedResult={...s,...staged.schedule};assert.equal(model.availabilityStatus(stagedResult,stagedResult.reminders[1],model.scheduleEventUtc(s),seconds('2026-10-27T12:00Z')).status,'DAILY_LIMIT');
+});
+
+
+test('daily quotas apply independently of allowed-hours restrictions',()=>{
+ const s=fixture(),row=s.reminders[1],at=model.scheduleEventUtc(s),now=seconds('2026-10-27T13:00Z');
+ row.availability={enabled:false,maxPerDay:2};s.availabilityUsage={'r:2026-10-27':{count:2,lastAt:now-1}};
+ assert.equal(model.availabilityStatus(s,row,at,now).status,'DAILY_LIMIT');
+ assert.equal(model.availabilityStatus(s,row,at,now).nextEligibleAt,seconds('2026-10-28T04:00Z'));
+});
+
+test('shared quota uses the command counter across all periods and preserves dormant local limits',()=>{
+ const s=fixture(),row=s.reminders[1],now=seconds('2026-10-27T13:00Z'),at=model.scheduleEventUtc(s);
+ row.availability={enabled:false,maxPerDay:1};setLuaValue(s.reminders,2,{...row,id:'other',availability:{enabled:false,maxPerDay:9}});
+ s.dailyLimitShared=true;s.sharedDailyLimit=3;s.availabilityUsage={'_command:2026-10-27':{count:3,lastAt:now-1},'r:2026-10-27':{count:1},'other:2026-10-27':{count:1}};
+ for(const r of Object.values(s.reminders)){const status=model.availabilityStatus(s,r,at,now);assert.equal(status.count,3);assert.equal(status.status,'DAILY_LIMIT');assert.equal(status.maxPerDay,3);}
+ delete s.sharedDailyLimit;assert.equal(model.availabilityStatus(s,row,at,now).status,'AVAILABLE');
+ s.dailyLimitShared=false;assert.equal(model.availabilityStatus(s,row,at,now).status,'DAILY_LIMIT');assert.equal(model.availabilityStatus(s,s.reminders[2],at,now).status,'AVAILABLE');
+ s.dailyLimitShared=true;s.sharedDailyLimit=2;delete s.availabilityUsage['_command:2026-10-27'];assert.equal(model.availabilityStatus(s,row,at,now).count,2);
+ s.availabilityUsage={};s.timelineUsage={[at+':r']:{lastSentAt:now-1,peerAt:now-2},[at+':other']:{peerAt:now-3}};assert.equal(model.availabilityStatus(s,row,at,now).count,2,'legacy send and matching peer records bootstrap each period once');
+ s.availabilityUsage={'_command:2026-10-27':{count:0,lastAt:now}};assert.equal(model.availabilityStatus(s,row,at,now).count,0,'an existing shared counter is authoritative');
+});
+
+test('shared daily quota validates its boolean scope and optional positive integer limit',()=>{
+ for(const value of ['true',1,null])assert.match(model.validateTimelineForAddon(fixture({dailyLimitShared:value})).join(' '),/daily.*boolean/i);
+ for(const value of [0,1001,1.2,'2',null])assert.match(model.validateTimelineForAddon(fixture({sharedDailyLimit:value})).join(' '),/shared.*1.*1000/i);
+ for(const value of [undefined,1,1000])assert.deepEqual(model.validateTimelineForAddon(fixture({dailyLimitShared:false,...(value===undefined?{}:{sharedDailyLimit:value})})),[]);
 });
