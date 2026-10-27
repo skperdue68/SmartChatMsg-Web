@@ -779,6 +779,26 @@ async function populatedAccountDefault(){
  }finally{await page.close();}
 }
 
+async function overlapCardHighlights(){
+ const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha,s=cfg.schedule;cfg.runAt='SCHEDULED';
+ s.importantTimes.tickets.offsetMinutes=-90;
+ const first=s.reminders[1];first.label='Early reminder';first.finish.minutes=-60;
+ s.reminders=numeric([first,{...first,id:'second',label:'Later reminder',start:{kind:'MARK',name:'tickets'},finish:{kind:'OFFSET',minutes:0}},{...first,id:'third',label:'Unrelated reminder',start:{kind:'OFFSET',minutes:60},finish:{kind:'OFFSET',minutes:120}}]);
+ const {page,errors}=await open(d);
+ try{
+ assert.equal(await page.locator('.reminder.has-overlap').count(),2,'both conflicting reminder cards are highlighted on load');assert.equal(await page.locator('.reminder[data-row=third].has-overlap').count(),0);
+ const early=page.locator('.reminder[data-row=row-one]'),later=page.locator('.reminder[data-row=second]');
+ assert.match(await early.locator('[data-overlap-warning]').textContent(),/Later reminder/);assert.match(await later.locator('[data-overlap-warning]').textContent(),/Early reminder/);
+ await later.locator('[data-field=label]').fill('Renamed later reminder');assert.match(await early.locator('[data-overlap-warning]').textContent(),/Renamed later reminder/);
+ await page.locator('.mark [data-field=offsetMinutes]').fill('-60');assert.equal(await page.locator('.reminder.has-overlap').count(),0,'resolving an important-time overlap clears both cards live');assert.equal(await page.locator('[data-overlap-warning]:visible').count(),0);
+ await early.locator('[data-field="finish.minutes"]').fill('-30');assert.equal(await page.locator('.reminder.has-overlap').count(),2);assert.equal(await early.locator('[data-field="finish.minutes"]').evaluate(el=>el===document.activeElement),true,'highlighting preserves editing focus');
+ await early.locator('[data-field="finish.minutes"]').fill('-60');assert.equal(await page.locator('.reminder.has-overlap').count(),0);assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+ const repeated=fixture(),c=repeated.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;c.runAt='SCHEDULED';c.schedule.reminders[1].start.minutes=-8*1440;
+ const other=await open(repeated);
+ try{assert.equal(await other.page.locator('.reminder.has-overlap').count(),1);assert.match(await other.page.locator('[data-overlap-warning]').textContent(),/another occurrence/i);assert.deepEqual(other.errors,[]);}finally{await other.page.close();}
+}
+
 async function timelineOrderingAndPoolPreview(){
  const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;cfg.runAt='SCHEDULED';
  const one=cfg.schedule.reminders[1];one.label='First';one.finish.minutes=-60;
@@ -1037,6 +1057,7 @@ try {
   await dragDayTimeline();
   await effectiveReminderDatesAndNumericBounds();
   await batchEventSharing();
+  await overlapCardHighlights();
   await timelineOrderingAndPoolPreview();
   await populatedAccountDefault();
   await dayTimeline();
