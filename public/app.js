@@ -687,7 +687,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
     return;
   }
   const pendingRunAt=preserveScroll?document.querySelector('#detail [data-field=settingsRunAt]')?.value:undefined;
-  const s = (e.settings.schedule ??= {}),
+  const s = e.settings.schedule || {},
     messages = eventMessages(e),
     rows = model.orderedReminderRows(s,projectedNext(s)??model.scheduleEventUtc(s));
   const monthlyRule=model.monthlyWeekdayRule(s);let monthlyRulePinned=s.monthlyWeek!==undefined||s.monthlyWeekday!==undefined;
@@ -828,7 +828,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
       status("Use an event date and a clock such as 08:00 PM.", true);
       return;
     }
-    const candidate = { ...clone(s), ...v, timeZone: guildZone() };
+    const candidate = { ...clone(s), timelineVersion:1, mode:"EVENT", reminders:s.reminders||{}, importantTimes:s.importantTimes||{}, ...v, timeZone: guildZone() };
     candidate.weekdays=currentEventDraft().weekdays;
     if(candidate.specialPattern==='EVENT_ROTATION'){const ids=new Set(vals(candidate.rotationEvents).map(a=>a.id));candidate.messageVariants=clone(s.messageVariants||{});for(const [id,variant] of Object.entries(candidate.messageVariants))if(variant!=='ALL'&&!ids.has(variant))candidate.messageVariants[id]='ALL';v.messageVariants=candidate.messageVariants;}
     delete candidate.commandName;
@@ -861,11 +861,13 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
 
     if(v.eventDurationMinutes===null){delete s.eventDurationMinutes;delete v.eventDurationMinutes;}
     if(v.eventDurationMinutes===null){delete s.eventDurationMinutes;delete v.eventDurationMinutes;}
-    Object.assign(s, v);
+    Object.assign(s, {timelineVersion:1,mode:"EVENT",reminders:s.reminders||{},importantTimes:s.importantTimes||{}}, v);
+    e.settings.schedule=s;
     changed();
     renderList();
   };
   $("#add-row").onclick = () => {
+    e.settings.schedule=s;
     s.timelineVersion = 1;
     s.mode = "EVENT";
     s.reminders ??= {};

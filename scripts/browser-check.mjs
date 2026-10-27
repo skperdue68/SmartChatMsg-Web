@@ -1166,6 +1166,24 @@ async function runModeRelevantFields(){
  }finally{await page.close();}
 }
 
+async function ordinaryLibraryWithoutSchedule(){
+ const directory=await mkdtemp(resolve(temp,'library-ordinary-')),server=createServer({libraryDir:directory});let page;
+ try{
+  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});const origin=`http://127.0.0.1:${server.address().port}`;
+  page=await browser.newPage();const errors=[];page.on('pageerror',error=>errors.push(error.message));page.on('dialog',dialog=>dialog.accept());
+  for(const mode of ['ON_DEMAND','STARTUP']){
+   const d=fixture(),settings=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;settings.runAt=mode;delete settings.schedule;
+   await page.goto(origin);await page.locator('#open').setInputFiles({name:'SmartChatMsg.lua',mimeType:'text/plain',buffer:Buffer.from(writeSavedVariables(d))});await page.locator('#workspace').waitFor({state:'visible'});
+   await page.locator('#save-event').click();await page.locator('#save-server').click();await page.locator('#library-name').fill(mode);await page.locator('#library-save').click();
+   await page.waitForFunction(name=>document.querySelector('#library-status')?.textContent.includes('Saved “'+name+'”'),mode,{timeout:5000});
+   const files=(await(await fetch(origin+'/api/library')).json()).files,file=files.find(f=>f.name===mode);assert.ok(file);
+   const saved=parseSavedVariables(await(await fetch(origin+'/api/library/'+file.id)).text()).Default['@fixture'].$AccountWide;
+   assert.equal(saved.commandGuildSettings['command-one'].alpha.schedule,undefined);assert.equal(saved.commandGuildSettings['command-one'].alpha.runAt,mode);assert.equal(saved.messages[1].text,'Hello %guild%');assert.equal(saved.messages[1].useCount,5);
+  }
+  assert.deepEqual(errors,[]);
+ }finally{if(page)await page.close();if(server.listening)await new Promise(resolve=>server.close(resolve));for(const name of await readdir(directory))await unlink(resolve(directory,name));await rmdir(directory);}
+}
+
 async function libraryIncompleteDraft(){
  const directory=await mkdtemp(resolve(temp,'library-draft-')),server=createServer({libraryDir:directory});let page;
  try{
@@ -1221,6 +1239,7 @@ try {
   await zoneCommandOption();
   await plainCommandMessagePool();
   await runModeRelevantFields();
+  await ordinaryLibraryWithoutSchedule();
   await libraryIncompleteDraft();
   await libraryHttpIntegration();
   await sharedServerLibrary();
