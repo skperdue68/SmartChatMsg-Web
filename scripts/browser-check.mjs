@@ -203,6 +203,7 @@ async function preservationAndEditing() {
   await page.locator("#add-message").click();
     assert.equal(await page.locator("details.message").count(), 2);
     const message = page.locator("details.message").last();
+    await message.locator("textarea").waitFor({state:"visible"});
     assert.equal(await message.evaluate(el=>el.open),true);
     await message.locator("textarea").fill("Tickets: ");
     await message
@@ -733,12 +734,12 @@ async function clocksOccurrenceStatesAndHelp(){
  assert.match(await page.locator('#next-occurrence').inputValue(),/Nov 6, 2026/);assert.notEqual(await page.locator('#next-occurrence').getAttribute('readonly'),null);
  await page.locator('[data-field=eventDate]').fill('2026-10-31');assert.match(await page.locator('#next-occurrence').inputValue(),/Nov 7, 2026/);await page.locator('[data-field=eventDate]').fill('2026-10-30');
  await page.locator('details.message summary').first().click();assert.equal(await page.locator('[data-insert-token] option[value="%eventtime%"]').count(),1,'scheduled mode offers event tokens');
- await page.locator('[data-field=settingsRunAt]').selectOption('SCHEDULED');await page.locator('[data-field=eventDurationMinutes]').fill('120');await page.locator('[data-field=eventState]').selectOption('PAUSED');await page.locator('#save-event').click();
+ await page.locator('[data-field=settingsRunAt]').selectOption('SCHEDULED');await page.locator('[data-field=eventDurationMinutes]').fill('120');await page.locator('[data-field=eventEnabled]').uncheck();await page.locator('#save-event').click();
  await page.locator('details.message summary').first().click();assert.equal(await page.locator('[data-insert-token] option[value="%eventtime-1h%"]').count(),1);
  const row=page.locator('.reminder').first();await row.locator('[data-field=rowState]').selectOption('DISABLED');await row.locator('[data-action=save]').click();
  const mark=page.locator('.mark').first();await mark.locator('[data-field=markMode]').selectOption('DATE');await mark.locator('[data-field=markDate]').fill('2026-11-06');await mark.locator('[data-field=markTime]').fill('19:00');await mark.locator('[data-action=save-mark]').click();
  const saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
- assert.equal(saved.eventDate,'2026-10-30','projection never changes anchor');assert.equal(saved.eventTime,'08:00 PM');assert.equal(saved.eventDurationMinutes,120);assert.equal(saved.paused,true);assert.equal(saved.enabled,true);assert.equal(saved.reminders[1].enabled,false);assert.equal(saved.importantTimes.tickets.offsetMinutes,-60);assert.equal(saved.timelineUsage.historic.lastSentAt,111);await page.locator('[data-field=eventDurationMinutes]').fill('');await page.locator('#save-event').click();const uncapped=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(uncapped.eventDurationMinutes,undefined);assert.deepEqual(errors,[]);
+ assert.equal(saved.eventDate,'2026-10-30','projection never changes anchor');assert.equal(saved.eventTime,'08:00 PM');assert.equal(saved.eventDurationMinutes,120);assert.equal(saved.paused,false);assert.equal(saved.enabled,false);assert.equal(saved.reminders[1].enabled,false);assert.equal(saved.importantTimes.tickets.offsetMinutes,-60);assert.equal(saved.timelineUsage.historic.lastSentAt,111);await page.locator('[data-field=eventDurationMinutes]').fill('');await page.locator('#save-event').click();const uncapped=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(uncapped.eventDurationMinutes,undefined);assert.deepEqual(errors,[]);
  }finally{await page.close();}
 }
 
@@ -951,7 +952,7 @@ async function overviewDefaultsAndPlainHelp(){
  const {page,errors}=await open(fixture());
  try{
  await page.clock.setFixedTime(new Date('2026-10-27T02:00:00Z'));
- const state=await page.locator('[data-field=eventState]').boundingBox(),apply=await page.locator('#save-event').boundingBox();assert.ok(Math.abs(state.y+state.height-apply.y-apply.height)<2,'state and Apply bottoms align');
+ const state=await page.locator('[data-field=eventEnabled]').boundingBox(),apply=await page.locator('#save-event').boundingBox();assert.ok(Math.abs(state.y+state.height/2-apply.y-apply.height/2)<3,'Enabled and Apply are vertically centered');
  await page.locator('.reminder-type').first().focus();assert.match(await page.locator('.reminder-type').first().textContent(),/REPEATING REMINDER/);assert.equal(await page.locator('.reminder-type .help-bubble').first().isVisible(),true);
  assert.equal(await page.locator('#snapshot-help').count(),0);await page.locator('#latest-snapshot-button').focus();assert.equal(await page.locator('#snapshot-help-text').isVisible(),true);assert.match(await page.locator('#snapshot-help-text').textContent(),/separate copy into memory/);
  await page.locator('.important-time-guide summary').click();assert.match(await page.locator('.important-time-guide').textContent(),/%eventtime:tickets%/);
@@ -1138,9 +1139,26 @@ async function sharedServerLibrary(){
  }finally{await page.close();}
 }
 
+async function legacyPausedEventCheckbox(){
+ const d=fixture(),s=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;s.enabled=true;s.paused=true;const {page,errors}=await open(d);
+ try{const enabled=page.locator('[data-field=eventEnabled]');assert.equal(await enabled.isChecked(),false);await enabled.check();await page.locator('#save-event').click();const saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(saved.enabled,true);assert.equal(saved.paused,false);assert.deepEqual(errors,[]);}finally{await page.close();}
+}
+
+async function ordinaryPoolAndEventToggle(){
+ const d=fixture(),a=d.Default['@fixture'].$AccountWide;a.commandGuildSettings['command-one'].alpha.runAt='ON_DEMAND';setLuaValue(a.messages,2,{id:'pool-two',commandId:'command-one',guildName:'alpha',text:'Second %guild%',useCount:2});setLuaValue(a.messages,3,{id:'other-guild',commandId:'command-one',guildName:'beta',text:'Other guild'});
+ const {page,errors}=await open(d);
+ try{
+ const pool=page.locator('#ordinary-message-pool');assert.equal(await pool.isVisible(),true);assert.equal(await pool.locator('[data-ordinary-message]').count(),2);assert.equal(await pool.locator('[data-ordinary-message]:checked').count(),2);
+ await pool.locator('label').first().hover();assert.match(await page.locator('#pool-preview p').textContent(),/Hello alpha/);assert.match(await page.locator('#pool-preview small').textContent(),/Template: Hello %guild%/);
+ await pool.locator('[data-ordinary-message="message-one"]').uncheck();let saved=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(saved.commandGuildSettings['command-one'].alpha.disabledMessageIds['message-one'],true);assert.equal(saved.messages[1].useCount,5);
+ await pool.locator('[data-ordinary-message="pool-two"]').uncheck();assert.equal(await pool.locator('[data-pool-empty]').isVisible(),true);await pool.locator('[data-ordinary-message="message-one"]').check();assert.equal(await pool.locator('[data-pool-empty]').isVisible(),false);const editor=page.locator('.message').first();await editor.locator('summary').click();await editor.locator('textarea').fill('Updated pool template');await editor.locator('[data-action=save-message]').click();assert.match(await pool.locator('[data-pool-message-label="message-one"]').textContent(),/Updated pool template/);
+ await page.locator('[data-field=settingsRunAt]').selectOption('SCHEDULED');assert.equal(await pool.isVisible(),false);const enabled=page.locator('[data-field=eventEnabled]');assert.equal(await enabled.getAttribute('type'),'checkbox');assert.equal(await enabled.isChecked(),true);await enabled.uncheck();await page.locator('#save-event').click();saved=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(saved.commandGuildSettings['command-one'].alpha.schedule.enabled,false);assert.equal(saved.commandGuildSettings['command-one'].alpha.schedule.paused,false);assert.equal(await page.locator('#event-schedule-help').count(),0);assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 async function newMessageOpens(){
  const {page,errors}=await open(fixture());
- try{await page.locator('#add-message').click();const card=page.locator('.message').last();assert.equal(await card.evaluate(el=>el.open),true);await card.locator('textarea').waitFor({state:'visible'});assert.equal(await card.locator('textarea').evaluate(el=>el===document.activeElement),true);assert.equal(await page.locator('.message').first().evaluate(el=>el.open),false);await card.locator('[data-field=messageName]').fill('A useful name');assert.match(await card.locator('.message-summary-title').textContent(),/A useful name/);assert.equal(await card.locator('.message-full-name').count(),0);assert.deepEqual(errors,[]);}finally{await page.close();}
+ try{await page.locator('#add-message').click();const card=page.locator('.message').last();await card.locator('textarea').waitFor({state:'visible'});assert.equal(await card.evaluate(el=>el.open),true);assert.equal(await card.locator('textarea').evaluate(el=>el===document.activeElement),true);assert.equal(await page.locator('.message').first().evaluate(el=>el.open),false);await card.locator('[data-field=messageName]').fill('A useful name');assert.match(await card.locator('.message-summary-title').textContent(),/A useful name/);assert.equal(await card.locator('.message-full-name').count(),0);assert.deepEqual(errors,[]);}finally{await page.close();}
 }
 
 async function deliverySliderClarity(){
@@ -1238,7 +1256,7 @@ async function plainCommandMessagePool(){
  const {page,errors}=await open(d);
  try{
  await page.clock.setFixedTime(new Date('2026-10-26T12:00:00Z'));
- assert.equal(await page.locator('#reminder-timeline').isVisible(),false);assert.match(await page.locator('#message-library-title').textContent(),/Message pool/);assert.equal(await page.locator('.message').count(),2);
+ assert.equal(await page.locator('#reminder-timeline').isVisible(),false);assert.match(await page.locator('#ordinary-message-pool h2').textContent(),/Message pool/);assert.equal(await page.locator('.message').count(),2);
  const card=page.locator('.message').first();await card.locator('summary').click();assert.equal(await card.locator('[data-field=variant]').isVisible(),false);
  assert.equal(await card.locator('[data-insert-token] option').evaluateAll(els=>els.some(el=>el.value.startsWith('%event'))),false);
  for(const token of ['%time%','%timeofday%','%morning%','%greeting%','%guild%','%zone%'])assert.equal(await card.locator('[data-insert-token] option').evaluateAll((els,t)=>els.some(el=>el.value===t),token),true);
@@ -1306,6 +1324,8 @@ async function libraryHttpIntegration(){
 }
 
 try {
+  await legacyPausedEventCheckbox();
+  await ordinaryPoolAndEventToggle();
   await newMessageOpens();
   await deliverySliderClarity();
   await commandSlidersAndSounds();
