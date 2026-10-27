@@ -86,3 +86,7 @@ Save and download use the same validation and latest-snapshot merge, preserving 
 The server stores records in `data/shared-library` by default, excluded from Git. Set `LIBRARY_DIR` in `.env` to change it; relative paths resolve from the server working directory. Keep this directory across deployments and back it up. The systemd service user must be able to write it. Internal `.scm` records contain metadata plus Lua; use the app's download button to obtain the installable `SmartChatMsg.lua`.
 
 Uploads accept Lua files up to 20 MiB. If Nginx Proxy Manager rejects larger uploads, set `client_max_body_size 40m;` in the proxy host's Advanced configuration. After pulling the update, restart your service with `sudo systemctl restart scm-web`. No new runtime dependencies are required.
+
+## Rotating activities
+
+Special pattern **Rotating event** cycles an ordered list of activity names by scheduled occurrence. `%eventactivity%` inserts the selected name. Both activity and faction rotations support cancelling individual dates with Keep rotation moving or Postpone selection, plus Undo. All settings and exceptions are retained in SavedVariables and sharing. See [rotation and cancellation controls](docs/event-controls.md#rotating-event-and-cancellations). This feature requires the matching SmartChatMsg addon update; earlier addon releases do not understand EVENT_ROTATION.

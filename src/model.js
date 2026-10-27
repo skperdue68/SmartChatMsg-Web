@@ -159,6 +159,18 @@ export function mergeSavedVariables(base, edited, latest = base) {
     }
     if (equal(b, e)) return l;
     if (equal(e, l)) return l;
+    if (path.at(-1) === 'rotationEvents' && object(b) && object(e) && object(l)) {
+      const order=x=>values(x).map(a=>a.id), bo=order(b),eo=order(e),lo=order(l);
+      let chosen=equal(bo,lo)?eo:lo;
+      if(!equal(bo,eo)&&!equal(bo,lo)&&!equal(eo,lo))conflicts.push({path:path.join('.')+'.order',base:bo,edited:eo,latest:lo});
+      const out={};let index=1;
+      for(const id of new Set([...chosen,...eo,...lo,...bo])){
+        const byId=x=>values(x).find(a=>a.id===id);
+        const value=merge(byId(b),byId(e),byId(l),[...path,id]);
+        if(value!==undefined)setLuaValue(out,index++,value);
+      }
+      return out;
+    }
     if (object(b) && object(e) && object(l)) {
       const entities = (x) =>
         Object.entries(x).length > 0 &&
@@ -304,10 +316,10 @@ function date(s) {
   const c = m.slice(1).map(Number);
   return equal(civil(stamp(c), "UTC").slice(0, 3), c) ? c : null;
 }
-export function projectedOccurrences(schedule, fromUtc, toUtc) {
+function nominalOccurrences(schedule, fromUtc, toUtc, unlimited = false) {
   if (!Number.isFinite(fromUtc) || !Number.isFinite(toUtc) || toUtc < fromUtc)
     return [];
-  if (toUtc - fromUtc > 400 * 86400)
+  if (!unlimited && toUtc - fromUtc > 400 * 86400)
     throw Error("Preview is limited to 400 days.");
   const z = schedule.timeZone || "ET",
     d = date(schedule.eventDate || schedule.startDate),
@@ -327,7 +339,7 @@ export function projectedOccurrences(schedule, fromUtc, toUtc) {
   const start = Math.max(anchor, Math.floor((fromUtc - 86400) / 86400) * 86400),
     end = toUtc + 86400;
   for (let day = start; day <= end; day += 86400) {
-    const c = civil(day, "UTC").slice(0, 3),
+    const dayDate = new Date(day * 1000), c = [dayDate.getUTCFullYear(),dayDate.getUTCMonth()+1,dayDate.getUTCDate()],
       diff = Math.round((day - anchor) / 86400),
       dow = new Date(day * 1000).getUTCDay(),
       months = (c[0] - d[0]) * 12 + c[1] - d[1];
@@ -355,7 +367,52 @@ export function projectedOccurrences(schedule, fromUtc, toUtc) {
   }
   return result;
 }
+const nominalCache = new Map();
+function nominalHistory(schedule, at) {
+  const key = JSON.stringify([schedule.eventDate,schedule.startDate,schedule.eventTime,schedule.startTime,schedule.timeZone,schedule.eventFold,schedule.recurrence,schedule.interval,schedule.recurrenceInterval,schedule.weekdays]);
+  let cached = nominalCache.get(key);
+  if (!cached || cached.until < at) {
+    const anchor = scheduleEventUtc(schedule);
+    const interval=Math.max(1,Math.floor(+schedule.interval||+schedule.recurrenceInterval||1));
+    const cadenceDays=schedule.recurrence?.startsWith('MONTHLY')?32:['WEEKLY','BIWEEKLY'].includes(schedule.recurrence)?14:7;
+    const until = Math.min(at + Math.max(400,interval*cadenceDays) * 86400, Date.UTC(2101,0,1)/1000);
+    cached = {until, occurrences: Number.isFinite(anchor) ? nominalOccurrences(schedule,anchor,until,true) : []};
+    if (nominalCache.size >= 32) nominalCache.delete(nominalCache.keys().next().value);
+    nominalCache.set(key,cached);
+  }
+  return cached.occurrences;
+}
+const civilDateKey = (schedule, at) => civil(at,schedule.timeZone||'ET').slice(0,3).map((n,i)=>String(n).padStart(i?2:4,'0')).join('-');
+export function occurrenceCancellation(schedule, atUtc) {
+  if (!Number.isFinite(atUtc)) return null;
+  const action = schedule.occurrenceExceptions?.[civilDateKey(schedule,atUtc)]?.action;
+  return ['KEEP','POSTPONE'].includes(action) && nominalOccurrences(schedule,atUtc,atUtc).includes(atUtc) ? action : null;
+}
+export function projectedOccurrences(schedule, fromUtc, toUtc, options = {}) {
+  const occurrences = nominalOccurrences(schedule,fromUtc,toUtc);
+  return options.includeCancelled ? occurrences : occurrences.filter(at=>!occurrenceCancellation(schedule,at));
+}
+export function plannedOccurrences(schedule, fromUtc, toUtc) {
+  return nominalOccurrences(schedule,fromUtc,toUtc,true);
+}
+function postponements(schedule, atUtc) {
+  if (!Object.values(schedule.occurrenceExceptions||{}).some(e=>e?.action==='POSTPONE')) return {count:0,days:0};
+  const history = nominalHistory(schedule,atUtc); let count=0,days=0;
+  history.dateIndex ??= new Map(history.map((at,i)=>[civilDateKey(schedule,at),i]));
+  for(const [key,exception] of Object.entries(schedule.occurrenceExceptions||{})) {
+    const i=history.dateIndex.get(key);
+    if(exception?.action!=='POSTPONE'||i===undefined||history[i]>=atUtc)continue;
+    count++;
+    if(history[i+1]!==undefined) days+=(stamp(civil(history[i+1],schedule.timeZone||'ET').slice(0,3))-stamp(civil(history[i],schedule.timeZone||'ET').slice(0,3)))/86400;
+  }
+  return {count,days};
+}
+export function rotationActivityName(schedule,atUtc) {
+  if(schedule.specialPattern!=='EVENT_ROTATION')return null;
+  return values(schedule.rotationEvents).find(activity=>activity.id===eventVariant(schedule,atUtc))?.name ?? null;
+}
 export function reminderWindows(schedule, eventAtUtc, options = {}) {
+  if (!options.includeCancelled && occurrenceCancellation(schedule,eventAtUtc)) return [];
   const z = schedule.timeZone || "ET";
   function resolve(a) {
     if (!a) return null;
@@ -473,6 +530,11 @@ export function editDayTimeline(source,eventAtUtc,rowId,edge,deltaMinutes){
 }
 export function eventVariant(schedule, eventAtUtc) {
   const zone = schedule.timeZone || "ET";
+  if (schedule.specialPattern === "EVENT_ROTATION") {
+    const activities=values(schedule.rotationEvents), history=nominalHistory(schedule,eventAtUtc);
+    const ordinal=history.filter(at=>at<eventAtUtc).length-postponements(schedule,eventAtUtc).count;
+    return activities.length ? activities[Math.floor(Math.max(0,ordinal)/Math.max(1,+schedule.rotationEvery||1))%activities.length].id : 'ALL';
+  }
   if (schedule.specialPattern === "FACTION_ROTATION") {
     const anchor = scheduleEventUtc(schedule);
     const days =
@@ -485,7 +547,7 @@ export function eventVariant(schedule, eventAtUtc) {
     return factions.length
       ? factions[
           Math.floor(
-            Math.floor(Math.max(0, days) / 7) /
+            Math.floor(Math.max(0, days - postponements(schedule,eventAtUtc).days) / 7) /
               Math.max(1, +schedule.rotationWeeks || 4),
           ) % factions.length
         ]
@@ -508,6 +570,7 @@ export function eventVariant(schedule, eventAtUtc) {
 }
 export function messageVariant(schedule, messageId) {
   const v = schedule.messageVariants?.[messageId];
+  if(schedule.specialPattern === "EVENT_ROTATION") return v === "ALL" || values(schedule.rotationEvents).some(a=>a.id===v) ? v : "ALL";
   if (schedule.specialPattern === "FACTION_ROTATION")
     return ["ALL", "AD", "EP", "DC"].includes(v) ? v : "ALL";
   if (schedule.specialPattern === "MONTH_FINAL")
@@ -862,8 +925,30 @@ export function legacyToTimeline(
     throw Error("No reminder periods were found to convert.");
   return mapLegacyTimelineUsage(schedule, result);
 }
+export function validateEventRotation(schedule = {}) {
+  const errors=[], activities=values(schedule.rotationEvents), ids=new Set();
+  if(schedule.specialPattern!==undefined && !['NONE','MONTH_FINAL','FACTION_ROTATION','EVENT_ROTATION'].includes(schedule.specialPattern)) errors.push('Choose a valid special pattern.');
+  if(schedule.specialPattern==='EVENT_ROTATION' && ((schedule.mode||'EVENT')!=='EVENT'||(schedule.recurrence||'NONE')==='NONE'))errors.push('Rotating events require a recurring EVENT schedule.');
+  if((schedule.rotationEvents!==undefined && activities.length>0) || schedule.specialPattern==='EVENT_ROTATION') {
+    const table=schedule.rotationEvents;
+    if(!object(table)||Array.isArray(table)||Object.keys(table).some((key,i)=>key!==String(i+1)||!isLuaNumericKey(table,key)))errors.push('Rotating events must be a Lua sequence table.');
+    if(activities.length<1||activities.length>50)errors.push('Choose between one and 50 rotating events.');
+    for(const activity of activities){
+      if(!object(activity)||typeof activity.id!=='string'||!activity.id.trim()||activity.id==='ALL'||ids.has(activity.id))errors.push('Rotating events need unique stable IDs other than ALL.');
+      ids.add(activity?.id);
+      if(typeof activity?.name!=='string'||!activity.name.trim()||[...activity.name].length>80)errors.push('Rotating event names must contain 1 to 80 characters.');
+    }
+  }
+  if(schedule.rotationEvery!==undefined&&(!Number.isInteger(schedule.rotationEvery)||schedule.rotationEvery<1||schedule.rotationEvery>1000))errors.push('Rotate every must be a whole number from 1 to 1000.');
+  if(schedule.specialPattern==='EVENT_ROTATION')for(const variant of values(schedule.messageVariants))if(variant!=='ALL'&&!ids.has(variant))errors.push('Message variant must reference a rotating event or ALL.');
+  if(schedule.occurrenceExceptions!==undefined){
+    if(!object(schedule.occurrenceExceptions)||Array.isArray(schedule.occurrenceExceptions))errors.push('Occurrence exceptions must be a date map.');
+    else for(const [key,exception] of Object.entries(schedule.occurrenceExceptions))if(!date(key)||!object(exception)||Array.isArray(exception)||Object.keys(exception).some(k=>k!=='action')||!['KEEP','POSTPONE'].includes(exception.action))errors.push('Occurrence exceptions need actual dates and KEEP or POSTPONE actions.');
+  }
+  return [...new Set(errors)];
+}
 export function validateTimelineForAddon(schedule) {
-  const errors = [];
+  const errors = validateEventRotation(schedule);
   if (!schedule?.timelineVersion) return errors;
   const integer = (x, min, max) =>
     typeof x === "number" && Number.isInteger(x) && x >= min && x <= max;
@@ -978,7 +1063,7 @@ export function validateTimelineForAddon(schedule) {
         const window = reminderWindows(
           { ...schedule, reminders: { 1: row } },
           event,
-          {uncapped:true},
+          {uncapped:true,includeCancelled:true},
         )[0];
         if (!window || window.end <= window.start)
           errors.push(
@@ -1231,10 +1316,11 @@ export function previewMessage(text,schedule,eventAtUtc,nowUtc,context={}){
  const explicit=/%eventcountdown(?::[a-z][a-z0-9_]*|[+-]\d+[mhd])?%/i.test(text);let decorated=false;
  return String(text).replace(/%([a-z][a-z0-9_:+-]*)%/gi,(whole,raw)=>{
   const token=raw.toLowerCase();if(Object.hasOwn(normal,token)&&normal[token])return normal[token];
-  const m=/^(eventwhen|eventtime|eventdate|eventcountdown|eventfaction)(?::([a-z][a-z0-9_]*)|([+-])(\d+)([mhd]))?$/.exec(token);
+  const m=/^(eventwhen|eventtime|eventdate|eventcountdown|eventfaction|eventactivity)(?::([a-z][a-z0-9_]*)|([+-])(\d+)([mhd]))?$/.exec(token);
   if(!m)return whole;const kind=m[1];let offset=0;
-  if(m[2]){const mark=schedule.importantTimes?.[m[2]];if(!mark||!Number.isFinite(mark.offsetMinutes)||kind==='eventfaction')return whole;offset=mark.offsetMinutes*60;}
-  if(m[3]){offset=Number(m[4])*{m:60,h:3600,d:86400}[m[5]]*(m[3]==='-'?-1:1);if(kind==='eventfaction'||Math.abs(offset)>36500*86400)return whole;}
+  if(m[2]){const mark=schedule.importantTimes?.[m[2]];if(!mark||!Number.isFinite(mark.offsetMinutes)||(kind==='eventfaction'||kind==='eventactivity'))return whole;offset=mark.offsetMinutes*60;}
+  if(m[3]){offset=Number(m[4])*{m:60,h:3600,d:86400}[m[5]]*(m[3]==='-'?-1:1);if((kind==='eventfaction'||kind==='eventactivity')||Math.abs(offset)>36500*86400)return whole;}
+  if(kind==='eventactivity')return rotationActivityName(schedule,eventAtUtc)||whole;
   if(kind==='eventfaction')return {EP:'Ebonheart Pact',AD:'Aldmeri Dominion',DC:'Daggerfall Covenant'}[eventVariant(schedule,eventAtUtc)]||whole;
   const target=eventAtUtc+offset,part=civil(target,zone);if(kind==='eventcountdown')return formatEventCountdown(target-nowUtc);
   const dateText=String(part[1]).padStart(2,'0')+'/'+String(part[2]).padStart(2,'0')+'/'+part[0];

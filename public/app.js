@@ -54,7 +54,7 @@ function overlapNotes(schedule){
   });
 }
 function requireValidTimeline(schedule) {
-  if (schedule.timelineVersion !== 1) return;
+  if (schedule.timelineVersion !== 1) {const errors=model.validateEventRotation(schedule);if(errors.length)throw Error(errors.join(' '));return;}
   const errors = model.validateTimelineForAddon(schedule);
   if (errors.length) throw Error(errors.join(" "));
   const overlaps=overlapNotes(schedule);if(overlaps.length)throw Error(overlaps.join(" "));
@@ -99,7 +99,8 @@ const fieldHelp = {
  eventTime:'The real event clock in the displayed scheduling timezone. Native clock controls use your browser clock format; the Lua file keeps an AM/PM clock.',
  recurrence:'How actual event dates repeat. Reminder windows repeat around each actual event occurrence.',
  recurrenceInterval:'A whole number of recurrence periods between occurrences. For example, 2 with Weekly means every other week.',
- specialPattern:'Use month-final message pools or rotate faction pools across recurring events.',
+ specialPattern:'Use month-final pools, faction rotation, or Rotating event for an ordered list of trials or other activities.',
+ rotationEvery:'Scheduled occurrences per activity before moving to the next name. The Event Date anchors the first entry. Cancelled occurrences can keep or postpone this progression.',
  rotationWeeks:'Number of weeks assigned to each faction before moving to the next faction in the list.',
  eventFold:'During the repeated clock hour when daylight saving time ends, choose the first or second occurrence.',
  eventDurationMinutes:'Optional whole minutes from event start to event end. Reminder windows stop at this end unless their advanced after-event exception is enabled. Leave blank for no event-end cap.',
@@ -127,16 +128,16 @@ function helpText(key){return fieldHelp[key]||fieldHelp[key.split('.').at(-1)]||
 function helpAttributes(key){const text=helpText(key);return text?` title="${esc(text)}" data-help="${esc(text)}" aria-description="${esc(text)}"`:'';}
 function clockNative(value){const m=/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec(String(value||''));if(!m)return /^\d{2}:\d{2}$/.test(value||'')?value:'';return String((Number(m[1])%12)+(m[3].toUpperCase()==='PM'?12:0)).padStart(2,'0')+':'+m[2];}
 function clockStored(value){const m=/^(\d{2}):(\d{2})$/.exec(String(value||''));if(!m)return '';const h=Number(m[1]);return String(h%12||12).padStart(2,'0')+':'+m[2]+' '+(h>=12?'PM':'AM');}
-function numberLimits(key){const suffix=key.split('.').at(-1);if(['recurrenceInterval','rotationWeeks'].includes(suffix))return [1,1000000];if(suffix==='lateMinutes')return [1,1440];if(suffix==='intervalMinutes')return [1,5256000];if(suffix==='days')return [-3650,3650];if(['minutes','offsetMinutes'].includes(suffix))return [-5256000,5256000];if(suffix==='eventDurationMinutes')return [0,5256000];return [undefined,undefined];}
+function numberLimits(key){const suffix=key.split('.').at(-1);if(suffix==='rotationEvery')return [1,1000];if(['recurrenceInterval','rotationWeeks'].includes(suffix))return [1,1000000];if(suffix==='lateMinutes')return [1,1440];if(suffix==='intervalMinutes')return [1,5256000];if(suffix==='days')return [-3650,3650];if(['minutes','offsetMinutes'].includes(suffix))return [-5256000,5256000];if(suffix==='eventDurationMinutes')return [0,5256000];return [undefined,undefined];}
 const input=(label,key,value,type='text')=>{const [min,max]=numberLimits(key), numeric=type==='number'?` step="1"${min!==undefined?` min="${min}" max="${max}"`:''}`:'', clock=type==='time'||key==='eventTime'||key.endsWith('.time');if(clock)type='time';return `<label${helpAttributes(key)}>${esc(label)}${clock?'<span class="clock-control">':''}<input data-field="${key}" type="${type}" value="${esc(clock?clockNative(value):value)}"${numeric}${clock?' step="60"':''}${helpAttributes(key)}>${clock?`<span class="clock-zone">${esc(guildZone())}</span></span>`:''}</label>`;};
 const select=(label,key,value,options)=>`<label${helpAttributes(key)}>${esc(label)}<select data-field="${key}"${helpAttributes(key)}>${opts(options,value)}</select></label>`;
 const check=(label,key,value)=>`<label class="check"${helpAttributes(key)}><input type="checkbox" data-field="${key}" ${value?'checked':''}${helpAttributes(key)}>${esc(label)}</label>`;
 const stateOf=value=>value.paused?'PAUSED':value.enabled===false?'DISABLED':'ENABLED';
 function applyState(value,key){if(!value[key])return value;value.enabled=value[key]!=='DISABLED';value.paused=value[key]==='PAUSED';delete value[key];return value;}
-function currentEventDraft(){const e=selectedEvent(),panel=document.querySelector('#detail>.panel.event-settings');const v=panel?fields(panel):{};const d={...e.schedule,...v,timeZone:guildZone()};if(d.eventDurationMinutes===null)delete d.eventDurationMinutes;d.weekdays={};if(document.querySelector('#use-event-weekdays')?.checked)panel.querySelectorAll('[data-weekday]:checked').forEach(x=>setLuaValue(d.weekdays,Number(x.dataset.weekday),true));return d;}
-function projectedNext(draft){const now=Math.floor(Date.now()/1000),anchor=model.scheduleEventUtc(draft);if(anchor===null)return null;return model.projectedOccurrences(draft,now,now+400*86400)[0]??(anchor>=now?anchor:null);}
+function currentEventDraft(){const e=selectedEvent(),panel=document.querySelector('#detail>.panel.event-settings');const v=panel?fields(panel):{};const d={...e.schedule,...v,timeZone:guildZone()};if(d.eventDurationMinutes===null)delete d.eventDurationMinutes;d.rotationFactions=typeof d.rotationFactions==='string'?tableArray(d.rotationFactions.split(',').map(x=>x.trim()).filter(Boolean)):d.rotationFactions;const activities=panel?.querySelectorAll('[data-activity-id]');if(activities?.length)d.rotationEvents=tableArray([...activities].map(row=>({id:row.dataset.activityId,name:row.querySelector('input').value.trim()})));else if(d.specialPattern==='EVENT_ROTATION')d.rotationEvents={};d.weekdays={};if(document.querySelector('#use-event-weekdays')?.checked)panel.querySelectorAll('[data-weekday]:checked').forEach(x=>setLuaValue(d.weekdays,Number(x.dataset.weekday),true));return d;}
+function projectedNext(draft){const now=Math.floor(Date.now()/1000),anchor=model.scheduleEventUtc(draft);if(anchor===null)return null;return model.projectedOccurrences(draft,now,now+400*86400)[0]??(anchor>=now&&!model.occurrenceCancellation(draft,anchor)?anchor:null);}
 function refreshNextOccurrence(){const field=document.querySelector('#next-occurrence');if(!field)return;try{const d=currentEventDraft(),next=projectedNext(d);field.value=next===null?'No upcoming occurrence in the preview range':new Date(next*1000).toLocaleString('en-US',{timeZone:zoneNames[d.timeZone],weekday:'short',year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});}catch{field.value='Choose a valid event date, clock and recurrence';}}
-function insertableTokens(schedule){const scheduled=selectedEvent()?.settings.runAt==='SCHEDULED';return ['%guild%','%greeting%','%zone%',...(scheduled?['%eventwhen%','%eventtime%','%eventdate%','%eventcountdown%','%eventtime-1h%','%eventcountdown-1h%',...(schedule.specialPattern==='FACTION_ROTATION'?['%eventfaction%']:[]),...Object.keys(schedule.importantTimes||{}).flatMap(key=>['eventwhen','eventtime','eventdate','eventcountdown'].map(token=>'%'+token+':'+key+'%'))]:[])];}
+function insertableTokens(schedule){const scheduled=selectedEvent()?.settings.runAt==='SCHEDULED';return ['%guild%','%greeting%','%zone%',...(scheduled?['%eventwhen%','%eventtime%','%eventdate%','%eventcountdown%','%eventtime-1h%','%eventcountdown-1h%',...(schedule.specialPattern==='FACTION_ROTATION'?['%eventfaction%']:schedule.specialPattern==='EVENT_ROTATION'?['%eventactivity%']:[]),...Object.keys(schedule.importantTimes||{}).flatMap(key=>['eventwhen','eventtime','eventdate','eventcountdown'].map(token=>'%'+token+':'+key+'%'))]:[])];}
 function tableArray(items) {
   const t = {};
   items.forEach((v, i) => setLuaValue(t, i + 1, v));
@@ -387,9 +388,9 @@ function anchorMarkup(a, prefix, s) {
 }
 function variantChoices(schedule,current){
  const pattern=schedule.specialPattern;
- const values=pattern==='MONTH_FINAL'?['ALL','REGULAR','FINAL']:pattern==='FACTION_ROTATION'?['ALL',...vals(schedule.rotationFactions||{1:'AD',2:'EP',3:'DC'}).filter(code=>['AD','EP','DC'].includes(code))]:['ALL'];
+ const values=pattern==='MONTH_FINAL'?['ALL','REGULAR','FINAL']:pattern==='FACTION_ROTATION'?['ALL',...vals(schedule.rotationFactions||{1:'AD',2:'EP',3:'DC'}).filter(code=>['AD','EP','DC'].includes(code))]:pattern==='EVENT_ROTATION'?[['ALL','All activities'],...vals(schedule.rotationEvents).map(a=>[a.id,a.name])]:['ALL'];
  const choices=[...new Set(values)];
- if(current&&!choices.includes(current))return [...choices,[current,current+' (not active for this pattern)']];
+ if(current&&!choices.some(choice=>(Array.isArray(choice)?choice[0]:choice)===current))return [...choices,[current,current+' (not active for this pattern)']];
  return choices;
 }
 function legacyMigrationBanner(event) {
@@ -405,7 +406,9 @@ function refreshEventRelevance(){
  showField(panel,'recurrenceInterval',repeating);showField(panel,'specialPattern',repeating);
  showField(panel,'rotationWeeks',faction);showField(panel,'rotationFactions',faction);
  const pattern=repeating?panel.querySelector('[data-field=specialPattern]').value:'NONE';
- document.querySelectorAll('.message [data-field=variant]').forEach(field=>{const value=field.value;field.closest('label').hidden=pattern==='NONE';field.innerHTML=opts(variantChoices({...selectedEvent().schedule,specialPattern:pattern},value),value);});
+ const rotationSettings=document.querySelector('#event-rotation-settings');rotationSettings.hidden=pattern!=='EVENT_ROTATION';if(pattern==='EVENT_ROTATION')rotationSettings.open=true;
+ document.querySelector('#rotation-occurrences').hidden=!['EVENT_ROTATION','FACTION_ROTATION'].includes(pattern)&&!Object.keys(selectedEvent().schedule.occurrenceExceptions||{}).length;
+ document.querySelectorAll('.message [data-field=variant]').forEach(field=>{const value=field.value;field.closest('label').hidden=pattern==='NONE';field.innerHTML=opts(variantChoices({...currentEventDraft(),specialPattern:pattern},value),value);});
 
  const weekday=['DAILY','WEEKLY','BIWEEKLY'].includes(recurrence);
  document.querySelector('#weekday-options').hidden=!weekday;
@@ -415,6 +418,65 @@ function refreshEventRelevance(){
  const date=panel.querySelector('[data-field=eventDate]').value;
  const weekdayName=/^\d{4}-\d{2}-\d{2}$/.test(date)?new Date(date+'T12:00:00Z').toLocaleDateString(undefined,{weekday:'long',timeZone:'UTC'}):'the event date';
  document.querySelector('#weekday-explanation').textContent='Leave this off for an event that always happens on the weekday in Event Date (for example, a Saturday raffle). Turn it on only if the event itself happens on other or multiple weekdays, such as Tuesday AND Thursday. This does not restrict reminder days. '+(enabled?(count===0?'No override days selected; the event date determines the weekday.':count===7?'All seven selected: an event occurs every day in each eligible period.':count+' event day(s) selected in each eligible period.'):(recurrence==='DAILY'?'Default: the daily recurrence determines event dates.':'Default: follow '+weekdayName+' from the event date.'));
+}
+function activityEditorRow(activity){
+ const row=document.createElement('div');row.className='rotation-activity';row.dataset.activityId=activity.id;
+ row.innerHTML=`<label>Activity name<input value="${esc(activity.name)}" maxlength="160" aria-label="Rotating activity name"></label><div class="actions"><button type="button" data-activity-action="up" aria-label="Move activity earlier">↑</button><button type="button" data-activity-action="down" aria-label="Move activity later">↓</button><button type="button" data-activity-action="remove" class="danger">Remove</button></div>`;
+ return row;
+}
+function bindRotationEditor(event){
+ const container=document.querySelector('#rotation-activities');
+ vals(event.schedule.rotationEvents).forEach(activity=>container.append(activityEditorRow(activity)));
+ const refresh=()=>{refreshEventRelevance();refreshNextOccurrence();};
+ document.querySelector('#add-activity').onclick=()=>{
+  if(container.children.length>=50){status('Choose at most 50 activities.',true);return;}
+  const row=activityEditorRow({id:crypto.randomUUID(),name:'Activity '+(container.children.length+1)});container.append(row);editRevision++;refresh();row.querySelector('input').focus();
+ };
+ container.addEventListener('input',ev=>{if(ev.target.matches('input'))ev.target.setCustomValidity([...ev.target.value.trim()].length>80?'Use at most 80 characters.':'');refresh();});
+ container.onclick=ev=>{
+  const button=ev.target.closest('[data-activity-action]');if(!button)return;
+  const row=button.closest('[data-activity-id]'),action=button.dataset.activityAction;
+  if(action==='up'&&row.previousElementSibling)container.insertBefore(row,row.previousElementSibling);
+  else if(action==='down'&&row.nextElementSibling)container.insertBefore(row.nextElementSibling,row);
+  else if(action==='remove'){
+   if(!confirm('Remove this activity? Messages assigned only to it will use All activities when you apply event settings.'))return;
+   row.remove();document.querySelectorAll('.message [data-field=variant]').forEach(field=>{if(field.value===row.dataset.activityId)field.value='ALL';});
+  }
+  editRevision++;refresh();
+ };
+ renderRotationOccurrences(event);
+}
+function serverOccurrenceDate(schedule,at){
+ const parts=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:zoneNames[schedule.timeZone||'ET'],year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(at*1000)).map(x=>[x.type,x.value]));
+ return `${parts.year}-${parts.month}-${parts.day}`;
+}
+function renderRotationOccurrences(event){
+ const panel=document.querySelector('#rotation-occurrences'),s=event.schedule;
+ const rotating=['EVENT_ROTATION','FACTION_ROTATION'].includes(s.specialPattern);
+ const hasExceptions=Object.keys(s.occurrenceExceptions||{}).length>0;panel.hidden=!rotating&&!hasExceptions;if(!rotating&&!hasExceptions){panel.innerHTML='<p class="help">Apply event settings to see upcoming rotation occurrences.</p>';return;}
+ const clock=at=>new Date(at*1000).toLocaleString('en-US',{timeZone:zoneNames[s.timeZone||'ET'],weekday:'short',month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});
+ try{
+  const now=Math.floor(Date.now()/1000),past=model.projectedOccurrences(s,now-399*86400,now,{includeCancelled:true}),future=model.projectedOccurrences(s,now,now+399*86400,{includeCancelled:true});
+  const upcoming=[...new Set([...past,...future])].filter(at=>at>=now||(s.eventDurationMinutes&&at+s.eventDurationMinutes*60>now)||model.reminderWindows(s,at,{includeCancelled:true}).some(w=>w.start<=now&&w.end>now)).slice(0,8);
+  const dates=new Set(upcoming.map(at=>serverOccurrenceDate(s,at)));
+  const rows=upcoming.map(at=>{
+   const date=serverOccurrenceDate(s,at),action=model.occurrenceCancellation(s,at),selection=s.specialPattern==='EVENT_ROTATION'?model.rotationActivityName(s,at):({AD:'Aldmeri Dominion',EP:'Ebonheart Pact',DC:'Daggerfall Covenant'}[model.eventVariant(s,at)]||'');
+   return `<div class="rotation-occurrence ${action?'cancelled':''}"><div><strong>${esc(clock(at))}</strong><span>${esc(selection||(rotating?'No activity selected':'Event'))}${action?' · Cancelled — '+(action==='KEEP'?'rotation keeps moving':'selection postponed'):''}</span></div>${action?`<button data-undo-occurrence="${date}">Undo cancellation</button>`:`<button data-cancel-occurrence="${date}" ${rotating?'':'disabled'}>Cancel occurrence…</button>`}</div>`;
+  }).join('');
+  const earlier=Object.entries(s.occurrenceExceptions||{}).filter(([date])=>!dates.has(date)).sort(([a],[b])=>a.localeCompare(b));
+  panel.innerHTML=`<h2>Upcoming rotation</h2><p class="help">Based on applied event settings. Cancel skips all reminders for that occurrence. Keep rotation moving consumes its place; Postpone selection holds its place. Undo removes the exception and recalculates future selections.</p><div class="rotation-upcoming">${rows||'<p class="help">No occurrences in the next 400 days.</p>'}</div>${earlier.length?`<details><summary>Other saved cancellations (${earlier.length})</summary>${earlier.map(([date,x])=>`<div class="rotation-occurrence"><span>${esc(date)} · ${x.action==='POSTPONE'?'Selection postponed':'Rotation keeps moving'}</span><button data-undo-occurrence="${esc(date)}">Undo cancellation</button></div>`).join('')}</details>`:''}`;
+  panel.querySelectorAll('[data-cancel-occurrence]').forEach(button=>button.onclick=()=>{
+   const date=button.dataset.cancelOccurrence;
+   $('#dialog-body').innerHTML=`<h2>Cancel ${esc(date)}</h2><p>Only this occurrence is cancelled. Messages and the recurring schedule stay saved.</p><label>Rotation after cancellation<select id="cancel-rotation-action"><option value="KEEP">Keep rotation moving</option><option value="POSTPONE">Postpone selection</option></select></label><p class="help">Keep rotation moving skips this selection. Postpone selection delays progression by one scheduled occurrence. For faction blocks, that postpones the rotation by the time between this date and the next scheduled occurrence.</p><button id="confirm-cancel-occurrence" class="danger">Cancel this occurrence</button>`;
+   $('#confirm-cancel-occurrence').onclick=()=>{updateOccurrence(date,$('#cancel-rotation-action').value);$('#dialog').close();};$('#dialog').showModal();
+  });
+  panel.querySelectorAll('[data-undo-occurrence]').forEach(button=>button.onclick=()=>{if(confirm('Undo cancellation for '+button.dataset.undoOccurrence+'? Future rotation selections will be recalculated.'))updateOccurrence(button.dataset.undoOccurrence,null);});
+  function updateOccurrence(date,action){
+   const candidate=clone(s);candidate.occurrenceExceptions??={};if(action)candidate.occurrenceExceptions[date]={action};else delete candidate.occurrenceExceptions[date];
+   try{requireValidTimeline(candidate);}catch(error){status(error.message,true);return;}
+   s.occurrenceExceptions=candidate.occurrenceExceptions;changed();renderRotationOccurrences(event);refreshNextOccurrence();status(action?'Cancelled '+date+'. Its reminders are skipped; the rotation has been recalculated.':'Cancellation removed for '+date+'. The rotation has been recalculated.');
+  }
+ }catch(error){panel.innerHTML='<h2>Upcoming rotation</h2><p class="help">'+esc(error.message)+'</p>';}
 }
 function reminderBadge(row){
   const label=row.once?'◆ ONE-TIME NOTICE':'↻ REPEATING REMINDER';
@@ -475,7 +537,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
         ["STARTUP", "Startup"],
         ["SCHEDULED", "Scheduled"],
       ],
-    )}${select("Recurrence", "recurrence", s.recurrence || "NONE", ["NONE", "DAILY", "WEEKLY", "BIWEEKLY", "MONTHLY_DATE", "MONTHLY_WEEKDAY"])}${select("Special pattern", "specialPattern", s.specialPattern || "NONE", ["NONE", "MONTH_FINAL", "FACTION_ROTATION"])}${input("Recurrence interval", "recurrenceInterval", s.recurrenceInterval || 1, "number")}${input("Rotation weeks per faction", "rotationWeeks", s.rotationWeeks || 4, "number")}${input("Faction order (comma separated)", "rotationFactions", vals(s.rotationFactions).join(", ") || "AD, EP, DC")}${select(
+    )}${select("Recurrence", "recurrence", s.recurrence || "NONE", ["NONE", "DAILY", "WEEKLY", "BIWEEKLY", "MONTHLY_DATE", "MONTHLY_WEEKDAY"])}${select("Special pattern", "specialPattern", s.specialPattern || "NONE", [["NONE","None"],["MONTH_FINAL","Last event of month"],["FACTION_ROTATION","Faction rotation"],["EVENT_ROTATION","Rotating event"]])}${input("Recurrence interval", "recurrenceInterval", s.recurrenceInterval || 1, "number")}${input("Rotation weeks per faction", "rotationWeeks", s.rotationWeeks || 4, "number")}${input("Faction order (comma separated)", "rotationFactions", vals(s.rotationFactions).join(", ") || "AD, EP, DC")}${select(
       "Ambiguous DST clock",
       "eventFold",
       s.eventFold || "FIRST",
@@ -483,7 +545,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
         ["FIRST", "First occurrence"],
         ["SECOND", "Second occurrence"],
       ],
-    )}</div><details id="weekday-options" ${vals(s.weekdays).some(Boolean)?'open':''}><summary>Event happens on multiple weekdays (advanced)</summary><label class="check"><input id="use-event-weekdays" type="checkbox" ${vals(s.weekdays).some(Boolean)?'checked':''}>Choose event weekdays instead of following Event Date</label><p class="help" id="weekday-explanation"></p><div class="actions weekdays" id="event-weekday-choices">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<label class="check"><input type="checkbox" data-weekday="${i + 1}" ${s.weekdays?.[i + 1] ? "checked" : ""}>${d.slice(0, 3)}</label>`).join("")}</div></details><div class="actions" style="margin-top:18px">${select("Event state", "eventState", stateOf(s), [["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}<button id="save-event" class="gold">Apply event settings</button></div><p class="help">Enter the real event date and time. Reminder offsets are measured from this moment; calendar-day anchors use the event timezone.</p></section><section class="panel"><div class="heading"><h2>Reminder timeline</h2><button id="add-row" class="gold">+ Add reminder</button></div>${s.timelineVersion !== 1 ? '<p class="help">This event still uses legacy scheduling. Convert this schedule to review its existing timing and message pools before adding reminders.</p>' : ""}<p class="help">Periods are automatically ordered by start time when applied. Windows cannot overlap within this event; one may finish exactly when the next starts.</p><div id="timeline-conflicts" class="timeline-conflicts" role="alert"></div><div id="rows">${rows.map((r, i) => `<article class="reminder ${r.once ? "milestone" : ""}" data-row="${esc(r.id)}"><div class="heading"><h3>${i + 1}. ${esc(r.label || "Reminder")}</h3>${reminderBadge(r)}</div><p class="effective-reminder-time" data-effective-times></p><div class="grid">${input("Reminder label", "label", r.label || "")}${select("Reminder state","rowState",stateOf(r),[["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}${input("Repeat every (minutes)", "intervalMinutes", r.intervalMinutes ?? 60, "number")}${input("Late allowance (minutes)", "lateMinutes", r.lateMinutes ?? 5, "number")}</div><h3>Starts</h3><div class="grid">${anchorMarkup(r.start, "start", s)}</div><div data-finish-window><h3>Finishes</h3><div class="grid">${anchorMarkup(r.finish || r.start, "finish", s)}</div></div><div class="actions">${check("Send once", "once", r.once)}${check("Time-sensitive", "timeSensitive", r.timeSensitive)}${check("Allow a brief notice after event end (advanced)","allowAfterEventEnd",r.allowAfterEventEnd)}${check("Allow this announcement anytime within its window", "onceUntilFinish", r.onceUntilFinish)}</div><details class="row-advanced"><summary>Advanced event-end exception</summary>${check("Allow a brief announcement after the event ends","allowAfterEventEnd",r.allowAfterEventEnd)}</details><p class="help">Choose a message pool. The addon selects a message from this pool when the reminder is due.</p><div class="pool">${messages.map((m, j) => `<label class="check" title="${esc(m.text)}"><input type="checkbox" data-message="${esc(m.id)}" ${vals(r.messageIds).includes(m.id) ? "checked" : ""}><span data-pool-message-label="${esc(m.id)}">${esc(model.messageDisplayName(m,j))}: ${esc(m.text)}</span></label>`).join("") || '<span class="help">Add a message below first.</span>'}</div><div class="actions"><button data-action="save">Apply reminder</button><button data-action="preview">Preview here</button><button data-action="remove" class="danger">Remove</button></div></article>`).join("") || '<div class="empty">No timeline reminders yet.</div>'}</div></section><section class="panel"><div class="heading"><h2>Important times</h2><button id="add-mark">+ Add time</button></div><p class="help">Name an important moment, such as doors opening or ticket sales closing, and reuse it in reminder anchors.</p><details class="important-time-guide" id="important-time-guide"><summary>How to use important times</summary><ol><li>Add a key such as <code>tickets</code>, with a label such as Ticket sales close.</li><li>Use <strong>-60</strong> minutes for one hour before the event (-30 means 30 minutes before). Positive values mean after. Click <strong>Apply</strong>.</li><li>For a reminder start or stop, choose <strong>Anchor → Important time</strong> and select it.</li><li>In messages, use <code>%eventwhen:tickets%</code>, <code>%eventtime:tickets%</code>, <code>%eventdate:tickets%</code> or <code>%eventcountdown:tickets%</code>. The key after the colon must match the key you created.</li></ol><p class="help">For an 8 PM event, tickets at -60 means 7 PM on that event day. It follows each recurring event automatically. The Pick date and time option calculates the same reusable offset, not a separate one-off date.</p></details>${Object.entries(
+    )}</div><details id="event-rotation-settings" open><summary>Rotating event</summary><p class="help">The Event Date anchors the first activity. Names follow this order and repeat automatically, including while you are offline. Use <code>%eventactivity%</code> in messages for the selected name.</p>${input("Occurrences per activity","rotationEvery",s.rotationEvery||1,"number")}<div id="rotation-activities"></div><button id="add-activity" type="button">+ Add activity</button><p class="help">Apply event settings to save the list and refresh upcoming selections.</p></details><details id="weekday-options" ${vals(s.weekdays).some(Boolean)?'open':''}><summary>Event happens on multiple weekdays (advanced)</summary><label class="check"><input id="use-event-weekdays" type="checkbox" ${vals(s.weekdays).some(Boolean)?'checked':''}>Choose event weekdays instead of following Event Date</label><p class="help" id="weekday-explanation"></p><div class="actions weekdays" id="event-weekday-choices">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<label class="check"><input type="checkbox" data-weekday="${i + 1}" ${s.weekdays?.[i + 1] ? "checked" : ""}>${d.slice(0, 3)}</label>`).join("")}</div></details><div class="actions" style="margin-top:18px">${select("Event state", "eventState", stateOf(s), [["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}<button id="save-event" class="gold">Apply event settings</button></div><p class="help">Enter the real event date and time. Reminder offsets are measured from this moment; calendar-day anchors use the event timezone.</p></section><section class="panel" id="rotation-occurrences"></section><section class="panel"><div class="heading"><h2>Reminder timeline</h2><button id="add-row" class="gold">+ Add reminder</button></div>${s.timelineVersion !== 1 ? '<p class="help">This event still uses legacy scheduling. Convert this schedule to review its existing timing and message pools before adding reminders.</p>' : ""}<p class="help">Periods are automatically ordered by start time when applied. Windows cannot overlap within this event; one may finish exactly when the next starts.</p><div id="timeline-conflicts" class="timeline-conflicts" role="alert"></div><div id="rows">${rows.map((r, i) => `<article class="reminder ${r.once ? "milestone" : ""}" data-row="${esc(r.id)}"><div class="heading"><h3>${i + 1}. ${esc(r.label || "Reminder")}</h3>${reminderBadge(r)}</div><p class="effective-reminder-time" data-effective-times></p><div class="grid">${input("Reminder label", "label", r.label || "")}${select("Reminder state","rowState",stateOf(r),[["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}${input("Repeat every (minutes)", "intervalMinutes", r.intervalMinutes ?? 60, "number")}${input("Late allowance (minutes)", "lateMinutes", r.lateMinutes ?? 5, "number")}</div><h3>Starts</h3><div class="grid">${anchorMarkup(r.start, "start", s)}</div><div data-finish-window><h3>Finishes</h3><div class="grid">${anchorMarkup(r.finish || r.start, "finish", s)}</div></div><div class="actions">${check("Send once", "once", r.once)}${check("Time-sensitive", "timeSensitive", r.timeSensitive)}${check("Allow a brief notice after event end (advanced)","allowAfterEventEnd",r.allowAfterEventEnd)}${check("Allow this announcement anytime within its window", "onceUntilFinish", r.onceUntilFinish)}</div><details class="row-advanced"><summary>Advanced event-end exception</summary>${check("Allow a brief announcement after the event ends","allowAfterEventEnd",r.allowAfterEventEnd)}</details><p class="help">Choose a message pool. The addon selects a message from this pool when the reminder is due.</p><div class="pool">${messages.map((m, j) => `<label class="check" title="${esc(m.text)}"><input type="checkbox" data-message="${esc(m.id)}" ${vals(r.messageIds).includes(m.id) ? "checked" : ""}><span data-pool-message-label="${esc(m.id)}">${esc(model.messageDisplayName(m,j))}: ${esc(m.text)}</span></label>`).join("") || '<span class="help">Add a message below first.</span>'}</div><div class="actions"><button data-action="save">Apply reminder</button><button data-action="preview">Preview here</button><button data-action="remove" class="danger">Remove</button></div></article>`).join("") || '<div class="empty">No timeline reminders yet.</div>'}</div></section><section class="panel"><div class="heading"><h2>Important times</h2><button id="add-mark">+ Add time</button></div><p class="help">Name an important moment, such as doors opening or ticket sales closing, and reuse it in reminder anchors.</p><details class="important-time-guide" id="important-time-guide"><summary>How to use important times</summary><ol><li>Add a key such as <code>tickets</code>, with a label such as Ticket sales close.</li><li>Use <strong>-60</strong> minutes for one hour before the event (-30 means 30 minutes before). Positive values mean after. Click <strong>Apply</strong>.</li><li>For a reminder start or stop, choose <strong>Anchor → Important time</strong> and select it.</li><li>In messages, use <code>%eventwhen:tickets%</code>, <code>%eventtime:tickets%</code>, <code>%eventdate:tickets%</code> or <code>%eventcountdown:tickets%</code>. The key after the colon must match the key you created.</li></ol><p class="help">For an 8 PM event, tickets at -60 means 7 PM on that event day. It follows each recurring event automatically. The Pick date and time option calculates the same reusable offset, not a separate one-off date.</p></details>${Object.entries(
       s.importantTimes || {},
     )
       .map(
@@ -549,6 +611,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
   };
   detail.onchange=()=>{editRevision++;refreshEffectiveTimes();};
   const eventPanel=document.querySelector('#detail>.panel.event-settings');
+  bindRotationEditor(e);
   const fold=eventPanel.querySelector('[data-field=eventFold]').closest('label');
   const advanced=document.createElement('details');advanced.id='event-clock-options';advanced.innerHTML='<summary>Advanced clock options</summary>';advanced.open=s.eventFold==='SECOND';fold.parentElement.append(advanced);advanced.append(fold);
   if(s.timelineVersion!==1)eventPanel.insertAdjacentHTML('afterend',legacyMigrationBanner(e));
@@ -559,6 +622,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
     const p = $("#detail>.panel");
     if([...p.querySelectorAll("input")].some(el=>!el.checkValidity())){p.querySelectorAll("input").forEach(el=>el.reportValidity());status("Use valid clocks and whole numbers within their allowed ranges.",true);return;}
     const v = fields(p);
+    const rotationDraft=currentEventDraft();v.rotationFactions=rotationDraft.rotationFactions;if(rotationDraft.rotationEvents)v.rotationEvents=rotationDraft.rotationEvents;
     if (
       v.settingsRunAt === "SCHEDULED" &&
       (!/^\d{4}-\d{2}-\d{2}$/.test(v.eventDate) ||
@@ -569,6 +633,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
     }
     const candidate = { ...clone(s), ...v, timeZone: guildZone() };
     candidate.weekdays=currentEventDraft().weekdays;
+    if(candidate.specialPattern==='EVENT_ROTATION'){const ids=new Set(vals(candidate.rotationEvents).map(a=>a.id));candidate.messageVariants=clone(s.messageVariants||{});for(const [id,variant] of Object.entries(candidate.messageVariants))if(variant!=='ALL'&&!ids.has(variant))candidate.messageVariants[id]='ALL';v.messageVariants=candidate.messageVariants;}
     delete candidate.commandName;
     delete candidate.outputChannel;
     delete candidate.settingsRunAt;
@@ -596,12 +661,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
       if($('#use-event-weekdays').checked)p.querySelectorAll('[data-weekday]:checked').forEach(x=>setLuaValue(v.weekdays,Number(x.dataset.weekday),true));
     }
     if(v.recurrence==='NONE')v.specialPattern='NONE';
-    v.rotationFactions = tableArray(
-      v.rotationFactions
-        .split(",")
-        .map((x) => x.trim())
-        .filter(Boolean),
-    );
+
     if(v.eventDurationMinutes===null){delete s.eventDurationMinutes;delete v.eventDurationMinutes;}
     if(v.eventDurationMinutes===null){delete s.eventDurationMinutes;delete v.eventDurationMinutes;}
     Object.assign(s, v);
@@ -1286,6 +1346,12 @@ function renderCalendar() {
   }
 }
 let dayTimelineUndo=null;
+function dayReminderLabel(eventName,label){
+ const text=String(label||''),name=String(eventName||'').trim();
+ if(!name||!text.toLowerCase().startsWith(name.toLowerCase()))return text;
+ const suffix=text.slice(name.length),short=suffix.replace(/^\s*[-–—:]\s*/,'');
+ return short!==suffix&&short.trim()?short:text;
+}
 function renderDayTimeline(items,from,until,zone){
   const root=document.querySelector('#calendar-grid');root.className='day-timeline-scroll';
   const nav=document.createElement('div');nav.className='day-navigation';nav.innerHTML='<div class="day-date-controls"><button data-day-step="-1">← Previous day</button><button data-day-today>Today</button><button data-day-step="1">Next day →</button></div><button data-day-undo>Undo last timeline edit</button>';
@@ -1314,8 +1380,9 @@ function renderDayTimeline(items,from,until,zone){
     group.sort((a,b)=>Number(b.event)-Number(a.event)||a.at-b.at);
     const hue=colors[colorIndex++%colors.length];
     for(const item of group){
+      const reminderLabel=dayReminderLabel(item.e.command.name,item.label);
       const row=document.createElement('div');row.className='day-timeline-row';
-      const label=document.createElement('div');label.className='day-row-label';label.innerHTML=`<strong>${esc(item.e.command.name)}</strong><small>${esc(item.label)}</small>`;
+      const label=document.createElement('div');label.className='day-row-label';label.innerHTML=`<strong>${esc(item.e.command.name)}</strong><small>${esc(reminderLabel)}</small>`;
       const track=document.createElement('div');track.className='day-track';addContext(track);
       ticks.forEach(t=>{const line=document.createElement('span');line.className='day-gridline';line.style.left=x(t)+'%';track.append(line);});
       const button=document.createElement('button');button.className='day-block'+(item.milestone?' day-milestone':'')+(item.event?' day-actual-event':'');
@@ -1323,7 +1390,7 @@ function renderDayTimeline(items,from,until,zone){
       // Each frequency gets a stable color, so a changed cadence is visible.
       const frequency=Number(item.interval||0);button.style.background=item.event?hue:(item.milestone||item.once)?'#b58a3b':`hsl(${(frequencies.indexOf(frequency)*137.508+205)%360} 45% 38%)`;
       const frequencyText=item.event?'Event in progress':item.milestone?'Once':item.once?'Once within window':`Every ${frequency} minutes`;
-      const detail=`${item.e.command.name} — ${item.label}: ${clock(item.at)}${item.end!==item.at?' – '+clock(item.end):''} · ${frequencyText}`;
+      const detail=`${reminderLabel}: ${clock(item.at)}${item.end!==item.at?' – '+clock(item.end):''} · ${frequencyText}`;
       button.textContent=item.milestone?'◆':frequencyText;button.title=detail;button.setAttribute('aria-label',detail);
       const clippedStart=item.at<from,clippedFinish=item.end>until;
       for(const [edge,clipped,arrow] of [['start',clippedStart,'◀'],['finish',clippedFinish,'▶']]){
@@ -1353,7 +1420,7 @@ function renderDayTimeline(items,from,until,zone){
           button.style.left=x(start)+'%';button.style.width=(item.milestone?0:Math.max(.3,x(end)-x(start)))+'%';button.classList.add('day-dragging');
           let feedback=document.querySelector('#day-drag-feedback');if(!feedback){feedback=document.createElement('div');feedback.id='day-drag-feedback';feedback.setAttribute('role','status');document.body.append(feedback);}
           const fullClock=t=>new Date(t*1000).toLocaleString('en-US',{timeZone:zoneNames[zone],month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});
-          feedback.textContent=item.label+': '+fullClock(start)+(item.milestone?'':' → '+fullClock(end));feedback.style.left=Math.max(8,Math.min(ev.clientX,innerWidth-360))+'px';feedback.style.top=Math.max(8,ev.clientY-66)+'px';
+          feedback.textContent=reminderLabel+': '+fullClock(start)+(item.milestone?'':' → '+fullClock(end));feedback.style.left=Math.max(8,Math.min(ev.clientX,innerWidth-360))+'px';feedback.style.top=Math.max(8,ev.clientY-66)+'px';
         };
         button.onpointerup=ev=>{if(!drag)return;const saved=drag;drag=null;document.querySelector('#day-drag-feedback')?.remove();if(!saved.moved)button.title=detail;if(saved.moved){suppressClick=true;ev.preventDefault();if(saved.delta)apply(saved.edge,saved.delta);else renderCalendar();}};
         button.onpointercancel=()=>{drag=null;document.querySelector('#day-drag-feedback')?.remove();renderCalendar();};
@@ -1628,6 +1695,7 @@ function renderTransfer() {
       )
         return;
       for (const m of staged.messages) append(account().messages, m);
+      for(const key of ['rotationEvents','rotationEvery','occurrenceExceptions'])if(staged.schedule[key]===undefined)delete e.schedule[key];
       Object.assign(e.schedule, staged.schedule);
       changed();
       renderTransfer();

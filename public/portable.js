@@ -11,6 +11,9 @@ const scheduleKeys = [
   "recurrenceInterval",
   "specialPattern",
   "rotationWeeks",
+  "rotationEvents",
+  "rotationEvery",
+  "occurrenceExceptions",
   "rotationFactions",
   "eventFold",
   "eventDurationMinutes",
@@ -164,13 +167,18 @@ export function validatePortable(p) {
   )
     throw Error("Unsupported recurrence.");
   if (
-    !["NONE", "MONTH_FINAL", "FACTION_ROTATION"].includes(
+    !["NONE", "MONTH_FINAL", "FACTION_ROTATION", "EVENT_ROTATION"].includes(
       s.specialPattern || "NONE",
     )
   )
     throw Error("Unsupported special pattern.");
   if (s.recurrenceInterval !== undefined)
     num(s.recurrenceInterval, "recurrence interval", 1, 999);
+  if(s.rotationEvents!==undefined){
+    object(s.rotationEvents,'rotating events');
+    if(Object.keys(s.rotationEvents).some((key,i)=>key!==String(i+1)))throw Error('Rotating events must use consecutive keys.');
+    for(const activity of values(s.rotationEvents))exact(activity,['id','name'],'rotating event');
+  }
   if (s.rotationWeeks !== undefined)
     num(s.rotationWeeks, "rotation weeks", 1, 999);
   if (
@@ -188,7 +196,7 @@ export function validatePortable(p) {
     text(m.text, "message text", 100000);
     if (ids.has(m.id)) throw Error("Duplicate message ID.");
     ids.add(m.id);
-    if (!["ALL", "REGULAR", "FINAL", "AD", "EP", "DC"].includes(m.variant))
+    if (!(s.specialPattern === "EVENT_ROTATION" ? ["ALL",...values(s.rotationEvents).map(a=>a.id)] : ["ALL", "REGULAR", "FINAL", "AD", "EP", "DC"]).includes(m.variant))
       throw Error("Invalid message variant.");
   }
   const marks = Object.create(null);
@@ -288,6 +296,7 @@ export function validatePortable(p) {
     setLuaValue(result.weekdays, Number(key), value);
   if (s.rotationFactions)
     result.rotationFactions = array(values(s.rotationFactions));
+  if(s.rotationEvents)result.rotationEvents=array(values(s.rotationEvents));
   result.importantTimes = marks;
   result.reminders = array(rows);
   const errors = validateTimelineForAddon(result);
@@ -299,6 +308,10 @@ export function validatePortable(p) {
 }
 export function stageImport(p, event, existingMessages, guild) {
   p = validatePortable(p);
+  p={...p,schedule:cloneSavedData(p.schedule),messages:p.messages.map(m=>({...m}))};
+  const prior=event.schedule||{},localMessages=event.messages||values(existingMessages).filter(m=>m.commandId===event.commandId&&normalized(m.guildName)===normalized(guild));
+  reconcileRotationActivities(p,prior,localMessages);
+  const locked=localMessages.filter(m=>m.locked),lockedIds=new Set(locked.map(m=>m.id));
   const ids = new Map(),
     newMessages = [],
     guildIndex = values(existingMessages).find(
@@ -325,12 +338,16 @@ export function stageImport(p, event, existingMessages, guild) {
   }
   const s = p.schedule;
   for (const r of values(s.reminders)) {
+    const matches=values(prior.reminders).filter(old=>old.id===r.id||(old.label===r.label&&JSON.stringify(old.start)===JSON.stringify(r.start)&&JSON.stringify(old.finish)===JSON.stringify(r.finish)&&old.once===r.once));
+    const privateIds=matches.length===1?values(matches[0].messageIds).filter(id=>lockedIds.has(id)):[];
     r.id = crypto.randomUUID();
-    r.messageIds = array(values(r.messageIds).map((id) => ids.get(id)));
+    r.messageIds = array([...new Set([...values(r.messageIds).map((id) => ids.get(id)),...privateIds])]);
   }
-  s.messageVariants = Object.fromEntries(
-    p.messages.map((m) => [ids.get(m.id), m.variant]),
-  );
+  s.messageVariants = Object.fromEntries([
+    ...locked.map(m=>[m.id,prior.messageVariants?.[m.id]||'ALL']),
+    ...p.messages.map((m) => [ids.get(m.id), m.variant]),
+  ]);
+  if(prior.occurrenceExceptions && s.occurrenceExceptions===undefined)s.occurrenceExceptions={};
   return {
     schedule: s,
     messages: newMessages,
@@ -408,6 +425,26 @@ export function reviewEventImport(document,account){
     return {index,entry,guild,commandId:matches[0]?.id,action:reason?'Skip':matches[0]&&account.commandGuildSettings?.[matches[0].id]?.[guild]?'Update':'Create',reason};
   });
 }
+function reconcileRotationActivities(entry, prior, oldMessages) {
+  const incoming=values(entry.schedule?.rotationEvents),local=values(prior.rotationEvents),mapping=new Map(),used=new Set();
+  if(entry.schedule?.specialPattern==='EVENT_ROTATION'){
+    for(const activity of incoming)if(local.some(a=>a.id===activity.id)){mapping.set(activity.id,activity.id);used.add(activity.id);}
+    for(const activity of incoming){
+      if(mapping.has(activity.id))continue;
+      const matches=local.filter(a=>a.name===activity.name);
+      const match=matches.length===1&&incoming.filter(a=>a.name===activity.name).length===1&&!used.has(matches[0].id)?matches[0]:null;
+      const id=match?.id||activity.id;mapping.set(activity.id,id);used.add(id);
+    }
+    entry.schedule.rotationEvents=array(incoming.map(a=>({...a,id:mapping.get(a.id)})));
+    for(const message of entry.messages)if(mapping.has(message.variant))message.variant=mapping.get(message.variant);
+    entry.schedule.messageVariants=Object.fromEntries(Object.entries(entry.schedule.messageVariants||{}).map(([id,variant])=>[id,mapping.get(variant)||variant]));
+  }
+  const available=new Set(entry.schedule?.specialPattern==='EVENT_ROTATION'?values(entry.schedule.rotationEvents).map(a=>a.id):[]);
+  if(prior.specialPattern==='EVENT_ROTATION')for(const message of oldMessages){
+    const variant=prior.messageVariants?.[message.id]||'ALL';
+    if(message.locked&&variant!=='ALL'&&!available.has(variant))throw Error(`Cannot import: locked message "${message.name||message.id}" belongs to a rotating activity absent from the imported event.`);
+  }
+}
 export function importEventBundle(account,document,selectedIndices){
   const result=cloneSavedData(account),selection=new Set(selectedIndices),review=reviewEventImport(document,result),applied=[],skipped=[];
   if([...selection].some(i=>!Number.isInteger(i)||i<0||i>=review.length))throw Error('Invalid import selection.');
@@ -416,10 +453,11 @@ export function importEventBundle(account,document,selectedIndices){
   for(const record of review){
     if(!selection.has(record.index))continue;
     if(record.reason){skipped.push(record.entry.eventName+': '+record.reason);continue;}
-    const {entry,guild}=record;let commandId=record.commandId||values(result.commands).find(c=>normalized(c.name)===normalized(entry.eventName))?.id;
+    const {guild}=record,entry={...record.entry,schedule:record.entry.schedule?cloneSavedData(record.entry.schedule):null,messages:record.entry.messages.map(m=>({...m}))};let commandId=record.commandId||values(result.commands).find(c=>normalized(c.name)===normalized(entry.eventName))?.id;
     if(!commandId){commandId=crypto.randomUUID();append(result.commands,{id:commandId,name:entry.eventName});}
     result.commandGuildSettings[commandId]??={};
     const settings=result.commandGuildSettings[commandId][guild]??={},prior=settings.schedule||{},destination=events(result).find(e=>e.commandId===commandId&&normalized(e.guild)===normalized(guild)),oldMessages=destination?.messages||[];
+    reconcileRotationActivities(entry,prior,oldMessages);
     const guildSlots=new Set(values(result.messages).filter(m=>normalized(m.guildName)===normalized(guild)&&Number.isInteger(m.guildIndex)).map(m=>m.guildIndex));
     const guildIndex=destination?.guildIndex??(guildSlots.size===1?[...guildSlots][0]:undefined);
     const messageIds=new Map(),variantsByMessage=new Map(oldMessages.map(m=>[m.id,prior.messageVariants?.[m.id]||'ALL']));
@@ -439,10 +477,12 @@ export function importEventBundle(account,document,selectedIndices){
         const privateIds=matches.length===1?values(matches[0].messageIds).filter(id=>oldMessages.some(m=>m.id===id&&m.locked)):[];
         row.messageIds=array([...new Set([...values(row.messageIds).map(id=>messageIds.get(id)),...privateIds])]);
       }
-      schedule.messageVariants={...(prior.messageVariants||{}),...Object.fromEntries(entry.messages.filter(m=>!oldMessages.find(local=>local.id===messageIds.get(m.id))?.locked).map(m=>[messageIds.get(m.id),m.variant]))};
+      const priorVariants=Object.fromEntries(Object.entries(prior.messageVariants||{}).map(([id,variant])=>[id,schedule.specialPattern==='EVENT_ROTATION'&&variant!=='ALL'&&!values(schedule.rotationEvents).some(a=>a.id===variant)?'ALL':variant]));
+      schedule.messageVariants={...priorVariants,...Object.fromEntries(entry.messages.filter(m=>!oldMessages.find(local=>local.id===messageIds.get(m.id))?.locked).map(m=>[messageIds.get(m.id),m.variant]))};
       schedule.reminders=array(orderedReminderRows(schedule));
       settings.schedule={...prior,...schedule};
       delete settings.schedule.mergedInto;
+      for(const key of ['rotationEvents','rotationEvery','occurrenceExceptions'])if(schedule[key]===undefined)delete settings.schedule[key];
       // An imported duration can explicitly clear the old optional cap.
       if(schedule.eventDurationMinutes===undefined)delete settings.schedule.eventDurationMinutes;
       const errors=validateTimelineForAddon(settings.schedule);if(errors.length)throw Error(errors.join(' '));
