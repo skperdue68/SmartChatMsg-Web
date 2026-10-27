@@ -173,7 +173,7 @@ function refreshCommandDelivery(){
  const panel=document.querySelector('.event-settings'),read=key=>panel?.querySelector(`[data-command-option="${key}"]`);if(!read('reminderMinutes'))return;
  document.querySelector('#ordinary-delivery').hidden=editorIsScheduled();
  read('autoPopulateOnZone').closest('label').hidden=editorIsScheduled();
- const frequency=Number(read('reminderMinutes').value),cooldown=Number(read('autoPopulateCooldownMinutes').value),retryCap=Number.isInteger(frequency)&&frequency>0&&Number.isInteger(cooldown)&&cooldown>0?cooldown:0;
+ const frequency=Number(read('reminderMinutes').value),cooldown=Number(read('autoPopulateCooldownMinutes').value),retryCap=Number.isInteger(frequency)&&frequency>0&&Number.isInteger(cooldown)&&cooldown>0?Math.min(frequency,cooldown):0;
  read('reminderRetryMinutes').max=String(retryCap);
  if(!editorIsScheduled()&&Number(read('reminderRetryMinutes').value)>retryCap)read('reminderRetryMinutes').value=String(retryCap);
  const retryDisabled=editorIsScheduled()||read('autoPopulateOnZone').checked||!(Number(read('reminderMinutes').value)>0);
@@ -203,7 +203,7 @@ function readCommandDelivery(panel){
  if(!zone&&repeat!==null&&(!Number.isInteger(repeat)||repeat<1||repeat>5256000))throw Error('Repeat Frequency must be a positive whole number, or blank/0 to turn it off.');
  if(!zone&&repeat&&(!Number.isInteger(retry)||retry<0||retry>5256000))throw Error('Retry Delay must be zero or a positive whole number.');
  if(!Number.isInteger(cooldown)||cooldown<1||cooldown>5256000)throw Error('Zone cooldown must be a positive whole number.');
- out.autoPopulateOnZone=zone;out.autoPopulateCooldownMinutes=cooldown;out.reminderMinutes=zone||repeat===null?undefined:repeat;out.reminderRetryMinutes=zone||!repeat?0:Math.min(retry,cooldown);
+ out.autoPopulateOnZone=zone;out.autoPopulateCooldownMinutes=cooldown;out.reminderMinutes=zone||repeat===null?undefined:repeat;out.reminderRetryMinutes=zone||!repeat?0:Math.min(retry,repeat,cooldown);
  return out;
 }
 function editorIsScheduled(){return (document.querySelector('#detail [data-field=settingsRunAt]')?.value||selectedEvent()?.settings.runAt)==='SCHEDULED';}
