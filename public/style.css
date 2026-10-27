@@ -692,3 +692,7 @@ label.check>.help-icon{flex:none;margin-left:4px}
 .availability-badge{display:block;color:#b9d6ed;font-size:11px;margin-top:3px;}.availability-reset{font-size:11px;padding:3px 7px;margin-top:3px;}
 .day-block.day-availability.date{border:2px dashed #e1b0f2;}.day-block.day-availability.weekday{border:2px dashed #80d7e0;}
 .availability-scopes{display:flex;flex-direction:column;gap:10px;margin:18px 0;}
+
+.message-preview-text{white-space:pre-wrap;overflow-wrap:anywhere;padding:14px;background:#0b1928;border:1px solid var(--line);border-radius:6px;font:inherit;line-height:1.6;}
+
+.command-delivery{margin:18px 0;padding:14px;border:1px solid var(--line);border-radius:6px;}.command-delivery[hidden],#ordinary-delivery[hidden]{display:none!important;}

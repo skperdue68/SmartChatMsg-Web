@@ -479,6 +479,9 @@ export function importEventBundle(account,document,selectedIndices){
       if(!message.locked){message.text=incoming.text;Object.assign(message,messageMetadata(incoming));}
       messageIds.set(incoming.id,message.id);variantsByMessage.set(message.id,incoming.variant);
     }
+    // A shared command configuration replaces these options completely:
+    // omitted keys mean native defaults/off, while recipient runtime and extra settings remain local.
+    for(const key of commandKeys)delete settings[key];
     Object.assign(settings,entry.settings);
     if(entry.schedule){
       const schedule=cloneSavedData(entry.schedule),oldRows=values(prior.reminders);
