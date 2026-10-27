@@ -946,6 +946,28 @@ async function rotatingEventControls(){
  }finally{await page.close();}
 }
 
+async function cachedGuildLegacyIdentity(){
+ const d=fixture(),a=d.Default['@fixture'].$AccountWide,cfg=a.commandGuildSettings['command-one'].alpha;
+ a.commandGuildSettings['command-one']={'New Guild':cfg};cfg.schedule.timeZone='PT';a.guildSchedulingTimeZones={'New Guild':'PT'};a.chatChannels={'command-one':{'New Guild':'Officer'}};
+ a.guildRoster=numeric([{guildId:999,guildIndex:4,guildName:'New Guild'}]);a.guildRosterUpdatedAt=123;
+ a.messages=numeric([{id:'old',commandId:'command-one',guildName:'Old Guild',guildIndex:4,text:'Old guild owner'},{id:'unknown',commandId:'command-one',guildIndex:4,text:'Unknown historical guild'}]);
+ const {page,errors}=await open(d);
+ try{await page.locator('#guild').selectOption('new guild');assert.equal(await page.locator('[data-field=commandName]').inputValue(),'Example');assert.equal(await page.locator('[data-field=outputChannel]').inputValue(),'Officer');assert.equal(await page.locator('#guild-timezone').inputValue(),'PT');assert.equal(await page.locator('.message').count(),0,'current delivery slot cannot claim historical unnamed messages');await page.locator('#add-message').click();assert.equal(await page.locator('.message').count(),1,'new messages can still use the known current slot');assert.deepEqual(errors,[]);}finally{await page.close();}
+}
+
+async function cachedGuildChoices(){
+ const d=fixture(),a=d.Default['@fixture'].$AccountWide;a.commands={};a.messages={};a.commandGuildSettings={};a.chatChannels={};a.guildRoster=numeric([{guildId:101,guildIndex:4,guildName:'Alpha Guild'},{guildId:202,guildIndex:2,guildName:'Beta Guild'}]);a.guildRosterUpdatedAt=1234;
+ d.Default={'@empty':d.Default['@other'],'@with-guilds':{$AccountWide:a}};
+ const {page,errors}=await open(d);
+ try{
+ assert.equal(await page.locator('#account').inputValue(),'@with-guilds');assert.deepEqual(await page.locator('#guild option').allTextContents(),['Alpha Guild','Beta Guild']);assert.equal(await page.locator('.event-item').count(),0);
+ await page.locator('#guild').selectOption('beta guild');page.removeAllListeners('dialog');page.on('dialog',dialog=>dialog.accept('First guild event'));
+ await page.locator('#new-event').click();assert.equal(await page.locator('[data-field=commandName]').inputValue(),'First guild event');assert.equal(await page.locator('#guild').inputValue(),'beta guild');
+ await page.locator('#add-message').click();await page.locator('#add-row').click();
+ const saved=(await downloadData(page)).Default['@with-guilds'].$AccountWide;assert.equal(saved.messages[1].guildIndex,2);assert.equal(saved.messages[1].guildName,'beta guild');assert.equal(saved.guildRoster[1].guildName,'Alpha Guild');assert.equal(saved.guildRosterUpdatedAt,1234);assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 async function liveRotationProjection(){
  const d=fixture(),a=d.Default['@fixture'].$AccountWide,cfg=a.commandGuildSettings['command-one'].alpha,s=cfg.schedule;
  cfg.runAt='SCHEDULED';s.recurrence='BIWEEKLY';s.eventDate=new Date(Date.now()+2*86400000).toISOString().slice(0,10);s.specialPattern='EVENT_ROTATION';s.rotationEvents=numeric([{id:'a',name:'First activity'},{id:'b',name:'Second activity'}]);s.rotationEvery=1;
@@ -1049,6 +1071,8 @@ async function libraryHttpIntegration(){
 try {
   await libraryHttpIntegration();
   await sharedServerLibrary();
+  await cachedGuildLegacyIdentity();
+  await cachedGuildChoices();
   await liveRotationProjection();
   await cancelActiveRotation();
   await rotatingEventControls();

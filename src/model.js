@@ -17,6 +17,22 @@ export function accounts(data) {
     .filter(([, a]) => object(a?.$AccountWide))
     .map(([name, a]) => ({ name, value: a.$AccountWide }));
 }
+export function guildKey(table,name){return Object.keys(table||{}).find(key=>norm(key)===norm(name))??norm(name);}
+function cachedGuilds(account){
+ account=account?.value||account||{};
+ return values(account.guildRoster).filter(entry=>object(entry)&&typeof entry.guildName==='string'&&entry.guildName.trim()&&Number.isInteger(entry.guildIndex)&&entry.guildIndex>=1&&entry.guildIndex<=5);
+}
+export function guildIndexFromRoster(account,name){
+ const indices=new Set(cachedGuilds(account).filter(entry=>norm(entry.guildName)===norm(name)).map(entry=>entry.guildIndex));
+ return indices.size===1?[...indices][0]:undefined;
+}
+export function guildNames(account,{currentOnly=false}={}){
+ account=account?.value||account||{};const names=new Map();
+ const add=name=>{if(typeof name==='string'&&name.trim()&&!names.has(norm(name)))names.set(norm(name),name.trim());};
+ cachedGuilds(account).forEach(entry=>add(entry.guildName));if(currentOnly&&object(account.guildRoster)&&Number.isFinite(account.guildRosterUpdatedAt))return names;values(account.messages).forEach(entry=>add(entry?.guildName));
+ events(account).forEach(event=>add(event.guild));Object.keys(account.guildSchedulingTimeZones||{}).forEach(add);values(account.chatChannels).forEach(channels=>Object.keys(channels||{}).forEach(add));
+ return names;
+}
 export function events(account) {
   account = account.value || account;
   const result = [];
@@ -126,6 +142,7 @@ export function mergeSavedVariables(base, edited, latest = base) {
   validate(latest);
   if (conflicts.length) return { data: cloneSavedData(latest), conflicts };
   function merge(b, e, l, path = []) {
+    if(['guildRoster','guildRosterUpdatedAt'].includes(path.at(-1)))return l===undefined?e:l;
     if (runtime(path.at(-1) || "")) {
       if (path.at(-1) === "timelineUsage" && object(e)) {
         const locate = (root) => {

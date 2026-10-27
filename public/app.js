@@ -32,15 +32,15 @@ let base,
   currentView = "editor",
   showCombined = false;
 const guildZone = () =>
-  account()?.guildSchedulingTimeZones?.[guild] ||
+  account()?.guildSchedulingTimeZones?.[model.guildKey(account()?.guildSchedulingTimeZones,guild)] ||
   account()?.schedulingTimeZone ||
   "ET";
 const clone = (x) => model.cloneSavedData(x),
   account = () => data?.Default?.[accountName]?.$AccountWide,
   all = () => model.events(account()),
   selectedEvent = () =>
-    all().find((e) => e.commandId === selected && e.guild === guild),
-  guildEvents = () => all().filter((e) => e.guild === guild),
+    all().find((e) => e.commandId === selected && e.guild.trim().toLowerCase() === guild.trim().toLowerCase()),
+  guildEvents = () => all().filter((e) => e.guild.trim().toLowerCase() === guild.trim().toLowerCase()),
   list = () =>
     guildEvents().filter((e) => showCombined || !e.schedule.mergedInto);
 const status = (s, error = false) => {
@@ -174,7 +174,7 @@ function installWorkspace(parsed,sourceName){
     $("#welcome").hidden = true;
     const availableAccounts=model.accounts(data);
     const hasContent=a=>Object.keys(a.value.commands||{}).length>0||Object.keys(a.value.messages||{}).length>0;
-    const preferred=availableAccounts.find(hasContent)||availableAccounts[0];
+    const preferred=availableAccounts.find(hasContent)||availableAccounts.find(a=>model.guildNames(a.value).size>0)||availableAccounts[0];
     $("#account").innerHTML = opts(availableAccounts.map(a=>[a.name,a.name+(hasContent(a)?'':' (no saved commands)')]),preferred.name);
     accountName = $("#account").value;
     refreshGuilds();
@@ -234,7 +234,7 @@ function renderGuildTimezone() {
       "MT",
       "PT",
     ],
-    a.guildSchedulingTimeZones?.[guild] || "",
+    a.guildSchedulingTimeZones?.[model.guildKey(a.guildSchedulingTimeZones,guild)] || "",
   );
   $("#guild-timezone").disabled = !guild;
 }
@@ -251,8 +251,8 @@ $("#guild-timezone").onchange = () => {
     return;
   }
   a.guildSchedulingTimeZones ??= {};
-  if (override) a.guildSchedulingTimeZones[guild] = override;
-  else delete a.guildSchedulingTimeZones[guild];
+  if (override) a.guildSchedulingTimeZones[model.guildKey(a.guildSchedulingTimeZones,guild)] = override;
+  else delete a.guildSchedulingTimeZones[model.guildKey(a.guildSchedulingTimeZones,guild)];
   for (const event of guildEvents())
     if (event.settings.schedule) event.settings.schedule.timeZone = zone;
   changed();
@@ -260,15 +260,8 @@ $("#guild-timezone").onchange = () => {
 };
 function refreshGuilds() {
   const a = account();
-  const guilds = [
-    ...new Set([
-      ...all().map((e) => e.guild),
-      ...vals(a.messages)
-        .map((m) => m.guildName?.trim().toLowerCase())
-        .filter(Boolean),
-    ]),
-  ].sort();
-  $("#guild").innerHTML = opts(guilds);
+  const names=model.guildNames(a),guilds=[...names.keys()].sort();
+  $('#guild').innerHTML=opts(guilds.map(key=>[key,names.get(key)]));
   guild = $("#guild").value;
   selected = null;
   render();
@@ -314,7 +307,7 @@ function guildSlot(e) {
   );
   const candidates = new Set(
     named
-      .filter((m) => m.guildName.trim().toLowerCase() === e.guild)
+      .filter((m) => m.guildName.trim().toLowerCase() === e.guild.trim().toLowerCase())
       .map((m) => m.guildIndex),
   );
   for (const field of ["guildIndex", "lastUsedGuildIndex"])
@@ -326,19 +319,20 @@ function guildSlot(e) {
     slot > 5 ||
     named.some(
       (m) =>
-        m.guildIndex === slot && m.guildName.trim().toLowerCase() !== e.guild,
+        m.guildIndex === slot && m.guildName.trim().toLowerCase() !== e.guild.trim().toLowerCase(),
     )
   )
     return null;
   return slot;
 }
+function deliveryGuildSlot(e){return model.guildIndexFromRoster(account(),e.guild)??guildSlot(e);}
 function eventMessages(e) {
   const slot = guildSlot(e);
   return model.orderedMessageEntries(vals(account().messages).filter(
     (m) =>
       m.commandId === e.commandId &&
       (typeof m.guildName === "string" && m.guildName.trim()
-        ? m.guildName.trim().toLowerCase() === e.guild
+        ? m.guildName.trim().toLowerCase() === e.guild.trim().toLowerCase()
         : slot !== null && m.guildIndex === slot),
   ));
 }
@@ -534,7 +528,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
     messages = eventMessages(e),
     rows = model.orderedReminderRows(s,projectedNext(s)??model.scheduleEventUtc(s));
   $("#detail").innerHTML =
-    `<section class="panel event-settings"><div class="heading"><div><p class="eyebrow">EVENT SETTINGS</p><h2>${esc(e.command?.name)}</h2></div><span class="badge">${s.timelineVersion === 1 ? "TIMELINE" : "LEGACY SCHEDULE"}</span></div><div class="grid">${input("Event name", "commandName", e.command.name)}${input("Event Date", "eventDate", s.eventDate || "", "date")}${input("Event Start Time", "eventTime", s.eventTime || "08:00 PM")}<label data-help="The next actual event occurrence, calculated live from the current unsaved date, clock, recurrence, interval and weekday controls.">Next occurrence <span class="readonly-tag">Read only</span><input id="next-occurrence" readonly aria-live="polite"></label>${input("Event duration (minutes, optional)","eventDurationMinutes",s.eventDurationMinutes??"","number")}<label title="Read only here. Change Guild timezone in the toolbar above; all event clocks use that timezone.">Scheduling timezone (guild) <span class="readonly-tag">Read only</span><input value="${esc(guildZone())}" readonly aria-description="Change Guild timezone in the toolbar above."><small class="help">Change using Guild timezone in the toolbar.</small></label>${select("Output channel", "outputChannel", account().chatChannels?.[e.commandId]?.[guild] || "Guild", ["Guild", "Officer", "Zone", "Group"])}${select(
+    `<section class="panel event-settings"><div class="heading"><div><p class="eyebrow">EVENT SETTINGS</p><h2>${esc(e.command?.name)}</h2></div><span class="badge">${s.timelineVersion === 1 ? "TIMELINE" : "LEGACY SCHEDULE"}</span></div><div class="grid">${input("Event name", "commandName", e.command.name)}${input("Event Date", "eventDate", s.eventDate || "", "date")}${input("Event Start Time", "eventTime", s.eventTime || "08:00 PM")}<label data-help="The next actual event occurrence, calculated live from the current unsaved date, clock, recurrence, interval and weekday controls.">Next occurrence <span class="readonly-tag">Read only</span><input id="next-occurrence" readonly aria-live="polite"></label>${input("Event duration (minutes, optional)","eventDurationMinutes",s.eventDurationMinutes??"","number")}<label title="Read only here. Change Guild timezone in the toolbar above; all event clocks use that timezone.">Scheduling timezone (guild) <span class="readonly-tag">Read only</span><input value="${esc(guildZone())}" readonly aria-description="Change Guild timezone in the toolbar above."><small class="help">Change using Guild timezone in the toolbar.</small></label>${select("Output channel", "outputChannel", account().chatChannels?.[e.commandId]?.[model.guildKey(account().chatChannels?.[e.commandId],guild)] || "Guild", ["Guild", "Officer", "Zone", "Group"])}${select(
       "Run at",
       "settingsRunAt",
       e.settings.runAt || "ON_DEMAND",
@@ -660,7 +654,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
     }
     account().chatChannels ??= {};
     account().chatChannels[e.commandId] ??= {};
-    account().chatChannels[e.commandId][guild] = v.outputChannel;
+    account().chatChannels[e.commandId][model.guildKey(account().chatChannels[e.commandId],guild)] = v.outputChannel;
     e.settings.runAt = v.settingsRunAt;
     delete v.outputChannel;
     delete v.settingsRunAt;
@@ -869,7 +863,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
       id: crypto.randomUUID(),
       commandId: e.commandId,
       guildName: guild,
-      ...(guildSlot(e) ? { guildIndex: guildSlot(e) } : {}),
+      ...(deliveryGuildSlot(e) ? { guildIndex: deliveryGuildSlot(e) } : {}),
       text: "New event announcement",
       useCount: 0,
     });
@@ -1239,7 +1233,7 @@ function renderCalendar() {
     if (e.settings.runAt !== "SCHEDULED" && calState !== "all") continue;
     if (
       calChannel !== "all" &&
-      (account().chatChannels?.[e.commandId]?.[guild] || "Guild") !== calChannel
+      (account().chatChannels?.[e.commandId]?.[model.guildKey(account().chatChannels?.[e.commandId],guild)] || "Guild") !== calChannel
     )
       continue;
     if (
@@ -1372,7 +1366,7 @@ function renderDayTimeline(items,from,until,zone){
   nav.querySelectorAll('[data-day-step]').forEach(b=>b.onclick=()=>{const d=new Date(calDate+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+Number(b.dataset.dayStep));calDate=d.toISOString().slice(0,10);renderCalendar();});
   nav.querySelector('[data-day-today]').onclick=()=>{calDate='';renderCalendar();};
   const undo=nav.querySelector('[data-day-undo]');undo.disabled=!dayTimelineUndo||dayTimelineUndo.account!==accountName||dayTimelineUndo.guild!==guild;
-  undo.onclick=()=>{try{const edit=dayTimelineUndo,event=all().find(e=>e.commandId===edit.commandId&&e.guild===guild);if(!event||JSON.stringify(event.schedule)!==edit.after)throw Error('This event changed since the drag; Undo cannot overwrite newer edits.');event.settings.schedule=clone(edit.before);selected=event.commandId;dayTimelineUndo=null;changed();renderCalendar();status('Timeline edit undone.');}catch(error){status(error.message,true);}};
+  undo.onclick=()=>{try{const edit=dayTimelineUndo,event=all().find(e=>e.commandId===edit.commandId&&e.guild.trim().toLowerCase()===guild.trim().toLowerCase());if(!event||JSON.stringify(event.schedule)!==edit.after)throw Error('This event changed since the drag; Undo cannot overwrite newer edits.');event.settings.schedule=clone(edit.before);selected=event.commandId;dayTimelineUndo=null;changed();renderCalendar();status('Timeline edit undone.');}catch(error){status(error.message,true);}};
   root.before(nav,instructions);
   const visible=items.filter(x=>x.at<until&&(x.milestone?x.at>=from:x.end>from));
   const clock=t=>new Date(t*1000).toLocaleTimeString('en-US',{timeZone:zoneNames[zone],hour:'numeric',minute:'2-digit',timeZoneName:'short'});
@@ -1491,7 +1485,7 @@ function combineEvents(events) {
       );
     if (!sources.length) throw Error("Select at least one helper command.");
     const channel = (event) =>
-      account().chatChannels?.[event.commandId]?.[guild] || "Guild";
+      account().chatChannels?.[event.commandId]?.[model.guildKey(account().chatChannels?.[event.commandId],guild)] || "Guild";
     const recurrence = (schedule) =>
       JSON.stringify([
         schedule.recurrence || "NONE",
@@ -1694,7 +1688,7 @@ function renderTransfer() {
         throw Error("Choose a timeline JSON smaller than 2 MB.");
       const e = selectedEvent(),
         p = JSON.parse(await f.text());
-      const staged = stageImport(p, e, account().messages, guild);
+      const staged = stageImport(p, {...e,deliveryGuildIndex:model.guildIndexFromRoster(account(),e.guild)}, account().messages, guild);
       requireValidTimeline(staged.schedule);
       if (staged.schedule.timeZone !== guildZone())
         throw Error(

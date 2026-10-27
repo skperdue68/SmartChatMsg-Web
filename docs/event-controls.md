@@ -128,3 +128,9 @@ The schedule saves `rotationEvents`, `rotationEvery` and `occurrenceExceptions` 
 Day-view reminder labels and their time/frequency detail lines omit redundant event-name prefixes; the separate event heading identifies the event and saved labels are unchanged.
 
 Overlapping reminder windows highlight both affected cards with a coral border and a warning naming the other reminder. Highlights update while editing timing, event settings or important-time anchors and clear when the overlap is resolved. A reminder overlapping its own next occurrence is identified on that card. Highlighting preserves editing focus and open sections.
+
+## Guild names before creating messages
+
+The updated addon saves an account-specific `guildRoster` containing each current guild's name, guild ID and slot, plus `guildRosterUpdatedAt`. It refreshes on startup/player activation and self join/leave notifications. Startup responses that are incomplete do not overwrite an existing valid list. Log in with the updated addon, then log out, exit ESO or reload the UI to flush SavedVariables before opening that file in the web editor.
+
+Guild choices include this saved roster even when the account has no messages or commands. Names retain their display capitalization; internal matching is case-insensitive. You can select a guild and create its first event, or import into that guild using the saved destination slot. When a timestamped roster is available, event import checks that current membership list and skips guilds no longer present; historical message/settings names remain available to view/edit. Older files retain name discovery from existing settings and messages. Full Lua/server saves preserve roster metadata; newer snapshot membership wins during merge. Portable event sharing never replaces another account's membership list.
