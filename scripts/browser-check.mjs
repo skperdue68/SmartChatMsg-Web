@@ -1139,6 +1139,30 @@ async function liveRotationProjection(){
  }finally{await page.close();}
 }
 
+async function ordinaryUpcomingEvents(){
+ const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;
+ cfg.runAt='SCHEDULED';cfg.schedule.eventDate=new Date(Date.now()+2*86400000).toISOString().slice(0,10);
+ const {page,errors}=await open(d);
+ const rows=()=>page.locator('.rotation-upcoming strong').allTextContents();
+ try{
+ assert.equal(await page.locator('#rotation-occurrences').isVisible(),true,'ordinary recurring schedules show upcoming events');
+ assert.equal(await page.locator('#rotation-occurrences h2').textContent(),'Upcoming events');
+ assert.equal((await rows()).length,8);assert.match((await rows())[0],/8:00 PM.*(?:EDT|EST)/);
+ assert.equal(await page.locator('[data-cancel-occurrence]').count(),0,'ordinary previews are read only');
+ for(const recurrence of ['DAILY','WEEKLY','BIWEEKLY','MONTHLY_DATE','MONTHLY_WEEKDAY']){
+  await page.locator('[data-field=recurrence]').selectOption(recurrence);assert.ok((await rows()).length>1,recurrence+' shows future dates');
+ }
+ await page.locator('[data-field=recurrence]').selectOption('WEEKLY');const weekly=await rows();
+ await page.locator('[data-field=recurrenceInterval]').fill('2');assert.notEqual((await rows())[1],weekly[1]);
+ await page.locator('[data-field=eventDate]').fill(new Date(Date.now()+4*86400000).toISOString().slice(0,10));assert.notEqual((await rows())[0],weekly[0]);
+ await page.locator('[data-field=eventTime]').fill('19:00');assert.match((await rows())[0],/7:00 PM/);
+ await page.locator('[data-field=recurrenceInterval]').fill('0');assert.equal((await rows()).length,0);
+ await page.locator('[data-field=recurrenceInterval]').fill('1');assert.equal((await rows()).length,8);
+ await page.locator('[data-field=recurrence]').selectOption('NONE');assert.equal(await page.locator('#rotation-occurrences').isVisible(),false);
+ assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 async function cancelActiveRotation(){
  const d=fixture(),s=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
  const now=Math.floor(Date.now()/1000),parts=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date((now-1800)*1000)).map(p=>[p.type,p.value]));
@@ -1452,6 +1476,7 @@ try {
   await monthlyWeekdayControls();
   await cachedGuildLegacyIdentity();
   await cachedGuildChoices();
+  await ordinaryUpcomingEvents();
   await liveRotationProjection();
   await cancelActiveRotation();
   await rotatingEventControls();
