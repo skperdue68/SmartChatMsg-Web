@@ -855,14 +855,15 @@ async function effectiveReminderDatesAndNumericBounds(){
 }
 
 async function dragDayTimeline(){
- const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;cfg.runAt='SCHEDULED';cfg.schedule.eventDurationMinutes=120;
+ const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;cfg.runAt='SCHEDULED';cfg.schedule.eventDurationMinutes=120;cfg.schedule.reminders[1].label='Example - Promotion';
  const {page,errors}=await open(d);
  try{
  await page.locator('[data-view=calendar]').click();await page.locator('#calendar [data-field=date]').fill('2026-10-27');await page.locator('#calendar [data-field=date]').dispatchEvent('change');await page.locator('#calendar [data-field=view]').selectOption('day');
+ assert.deepEqual((await page.locator('.day-row-label small').allTextContents()).sort(),['Actual event','Promotion']);assert.match(await page.locator('.day-row-detail').first().textContent(),/^Promotion:/);assert.doesNotMatch(await page.locator('.day-row-detail').first().textContent(),/Example/);
  let block=page.locator('.day-block:not(.day-actual-event)'),track=block.locator('..');const original=await block.getAttribute('title'),r=await block.boundingBox(),t=await track.boundingBox();
  await page.mouse.move(r.x+r.width/2,r.y+r.height/2);await page.mouse.down();await page.mouse.move(r.x+r.width/2+t.width/28,r.y+r.height/2,{steps:6});assert.equal(await page.locator('#day-drag-feedback').count(),1);await page.mouse.up();
  assert.equal(await page.locator('#calendar').isVisible(),true);assert.match(await page.locator('#status').textContent(),/Timeline updated/);assert.notEqual(await page.locator('.day-block:not(.day-actual-event)').getAttribute('title'),original);
- let saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(saved.reminders[1].start.minutes,-60);assert.equal(saved.reminders[1].finish.minutes,60);
+ let saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(saved.reminders[1].label,'Example - Promotion','day label cleanup does not rename stored reminders');assert.equal(saved.reminders[1].start.minutes,-60);assert.equal(saved.reminders[1].finish.minutes,60);
  await page.locator('[data-day-undo]').click();saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(saved.reminders[1].start.minutes,-120);
  await page.locator('.day-actual-event [data-edge=finish]').scrollIntoViewIfNeeded();const handle=await page.locator('.day-actual-event [data-edge=finish]').boundingBox(),eventTrack=await page.locator('.day-actual-event').locator('..').boundingBox();await page.mouse.move(handle.x+handle.width/2,handle.y+handle.height/2);await page.mouse.down();await page.mouse.move(handle.x+handle.width/2+eventTrack.width/56,handle.y+handle.height/2,{steps:4});await page.mouse.up();saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(saved.eventDurationMinutes,150);await page.locator('[data-day-undo]').click();
  await page.locator('.day-actual-event [data-edge=finish]').focus();await page.keyboard.press('ArrowRight');saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(saved.eventDurationMinutes,125);
@@ -886,6 +887,51 @@ async function overviewDefaultsAndPlainHelp(){
  const nav=await page.locator('.day-navigation').boundingBox(),dates=await page.locator('.day-date-controls').boundingBox(),instructions=await page.locator('.day-instructions').boundingBox();assert.ok(Math.abs(nav.x+nav.width/2-dates.x-dates.width/2)<2,'date controls are centered');assert.ok(instructions.y>=nav.y+nav.height,'drag instructions occupy their own line');
  await page.locator('#calendar [data-field=view]').selectOption('month');await page.locator('[data-view=editor]').click();await page.locator('[data-view=calendar]').click();assert.equal(await page.locator('#calendar [data-field=view]').inputValue(),'day');assert.equal(await page.locator('#calendar [data-field=date]').inputValue(),'2026-10-26');assert.deepEqual(errors,[]);
  }finally{await page.close();}
+}
+
+async function rotatingEventControls(){
+ const d=fixture(),a=d.Default['@fixture'].$AccountWide,s=a.commandGuildSettings['command-one'].alpha.schedule;
+ s.eventDate=new Date(Date.now()+2*86400000).toISOString().slice(0,10);a.commandGuildSettings['command-one'].alpha.runAt='SCHEDULED';
+ const {page,errors}=await open(d);
+ try{
+ await page.locator('[data-field=specialPattern]').selectOption('EVENT_ROTATION');
+ assert.equal(await page.locator('#event-rotation-settings').isVisible(),true);assert.equal(await page.locator('#event-rotation-settings').evaluate(el=>el.open),true);
+ await page.locator('#add-activity').click();await page.locator('#rotation-activities input').nth(0).fill('Aetherian Archive');
+ await page.locator('#add-activity').click();await page.locator('#rotation-activities input').nth(1).fill('Hel Ra Citadel');
+ await page.locator('#add-activity').click();await page.locator('#rotation-activities input').nth(2).fill('Sanctum Ophidia');
+ await page.locator('#rotation-activities input').nth(0).fill('🌈'.repeat(80));assert.equal(await page.locator('#rotation-activities input').nth(0).evaluate(el=>el.checkValidity()),true);await page.locator('#rotation-activities input').nth(0).fill('Aetherian Archive');
+ await page.locator('[data-field=rotationEvery]').fill('1');await page.locator('#save-event').click();
+ assert.equal(await page.locator('#rotation-activities input').count(),3,await page.locator('#status').textContent());
+ assert.match(await page.locator('.rotation-upcoming .rotation-occurrence').nth(0).textContent(),/Aetherian Archive/);assert.match(await page.locator('.rotation-upcoming .rotation-occurrence').nth(1).textContent(),/Hel Ra Citadel/);
+ const firstDate=await page.locator('[data-cancel-occurrence]').first().getAttribute('data-cancel-occurrence');
+ await page.locator('[data-cancel-occurrence]').first().click();await page.locator('#cancel-rotation-action').selectOption('POSTPONE');await page.locator('#confirm-cancel-occurrence').click();
+ assert.equal(await page.locator('[data-undo-occurrence="'+firstDate+'"]').count(),1);assert.match(await page.locator('.rotation-upcoming .rotation-occurrence').nth(1).textContent(),/Aetherian Archive/);
+ let saved=(await downloadData(page)).Default['@fixture'].$AccountWide;let out=saved.commandGuildSettings['command-one'].alpha.schedule;
+ assert.equal(out.occurrenceExceptions[firstDate].action,'POSTPONE');assert.equal(out.rotationEvents[1].name,'Aetherian Archive');assert.equal(saved.messages[1].useCount,5);assert.equal(saved.messages[1].lastUsedAt,123);
+ await page.locator('[data-undo-occurrence="'+firstDate+'"]').click();assert.match(await page.locator('.rotation-upcoming .rotation-occurrence').nth(1).textContent(),/Hel Ra Citadel/);
+ await page.locator('#rotation-activities [data-activity-action=up]').nth(1).click();await page.locator('#save-event').click();
+ assert.match(await page.locator('.rotation-upcoming .rotation-occurrence').nth(0).textContent(),/Hel Ra Citadel/);
+ const message=page.locator('.message').first();await message.locator('summary').click();
+ assert.equal(await message.locator('[data-insert-token] option[value="%eventactivity%"] ').count(),1);
+ const activityId=await page.locator('#rotation-activities [data-activity-id]').first().getAttribute('data-activity-id');
+ await message.locator('[data-field=variant]').selectOption(activityId);await message.locator('[data-action=save-message]').click();
+ await page.locator('[data-cancel-occurrence]').first().click();await page.locator('#confirm-cancel-occurrence').click();
+ saved=(await downloadData(page)).Default['@fixture'].$AccountWide;out=saved.commandGuildSettings['command-one'].alpha.schedule;
+ assert.equal(out.messageVariants['message-one'],activityId);assert.equal(out.occurrenceExceptions[firstDate].action,'KEEP');
+ assert.equal(out.rotationEvery,1);assert.equal(out.rotationEvents[1].name,'Hel Ra Citadel');assert.deepEqual(errors,[]);
+ // Existing faction schedules expose exactly the same per-occurrence controls.
+ await page.locator('[data-field=specialPattern]').selectOption('FACTION_ROTATION');await page.locator('#save-event').click();
+ assert.equal(await page.locator('#event-rotation-settings').isVisible(),false);assert.equal(await page.locator('[data-undo-occurrence="'+firstDate+'"]').count(),1);await page.locator('[data-undo-occurrence="'+firstDate+'"]').click();
+ assert.equal(await page.locator('[data-cancel-occurrence]').count()>0,true);
+ }finally{await page.close();}
+}
+
+async function cancelActiveRotation(){
+ const d=fixture(),s=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
+ const now=Math.floor(Date.now()/1000),parts=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date((now-1800)*1000)).map(p=>[p.type,p.value]));
+ s.eventDate=`${parts.year}-${parts.month}-${parts.day}`;s.eventTime=String(Number(parts.hour)%12||12).padStart(2,'0')+':'+parts.minute+(Number(parts.hour)>=12?' PM':' AM');s.specialPattern='EVENT_ROTATION';s.rotationEvents=numeric([{id:'activity-one',name:'Underway activity'}]);s.rotationEvery=1;s.reminders[1].start.minutes=-120;s.reminders[1].finish.minutes=120;
+ const {page,errors}=await open(d);
+ try{const date=s.eventDate;assert.equal(await page.locator('[data-cancel-occurrence="'+date+'"]').count(),1,'live promotion without event duration can be cancelled');await page.locator('[data-cancel-occurrence="'+date+'"]').click();await page.locator('#confirm-cancel-occurrence').click();assert.equal(await page.locator('[data-undo-occurrence="'+date+'"]').count(),1,await page.locator('#status').textContent());assert.deepEqual(errors,[]);}finally{await page.close();}
 }
 
 async function messageNamesAndDragOrder(){
@@ -962,6 +1008,8 @@ async function libraryHttpIntegration(){
 try {
   await libraryHttpIntegration();
   await sharedServerLibrary();
+  await cancelActiveRotation();
+  await rotatingEventControls();
   await messageNamesAndDragOrder();
   await overviewDefaultsAndPlainHelp();
   await dragDayTimeline();

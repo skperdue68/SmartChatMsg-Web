@@ -109,3 +109,20 @@ Compatibility audit: previews retain unsupported tokens literally, and monthly w
 Server library lists complete configurations saved by visitors. Loading one opens a browser editing copy; downloading includes that copy plus applied edits. Saving an edited revision to the server requires a new unique name. The original is never overwritten. Full files retain their stored account context, locked messages and cooldowns; use event import/export for selected cross-account transfers.
 
 All scheduling clocks are labeled server time and use the configured guild/event timezone, not the computer or Node host timezone. Preview simulation follows that same timezone. Native time-picker buttons sit beside the clock text.
+
+## Rotating event and cancellations
+
+Choose **Scheduled**, a repeating cadence, and **Special pattern → Rotating event**. Open the automatically expanded Rotating event section, add activity names in order, and set **Occurrences per activity**. For example, a weekly trial with three names and a value of 1 cycles through those names every three scheduled events. A value of 2 uses each name twice before advancing. The original Event Date anchors the first selection; you do not need to run ESO every week to keep the rotation aligned.
+
+Use `%eventactivity%` in a shared message, such as “Trial night tackles %eventactivity% %eventwhen% at %eventtime%.” Messages default to All activities; use Variant to restrict a message to one activity if needed. Names are 1–80 characters, with at most 50 entries. Move rows up/down to change their order; stable IDs keep message assignments attached when names/order change. Apply event settings to save the list and refresh the upcoming projection. Removing an activity changes its assigned messages to All activities when applied.
+
+**Upcoming rotation** shows the date, server time and selected activity/faction. For either Rotating event or Faction rotation, click **Cancel occurrence…** and choose:
+
+- **Keep rotation moving:** suppress this occurrence and its reminders, but consume its normal place.
+- **Postpone selection:** suppress it and hold progression for that scheduled slot. Event rotation advances by occurrences. Faction rotation retains weeks per faction; postponing holds the calendar span from the cancelled occurrence to the following nominal occurrence (one week for weekly events, two for biweekly events).
+
+Cancellation and Undo apply to the working configuration immediately. Unsaved edits in the event settings form still require Apply. Saved cancellation dates remain visible/undoable even if you change the special pattern. Cancelling does not send a cancellation announcement automatically. Undo recalculates subsequent selections; offline weeks do not change the result. Changes to the anchor, recurrence or ordered list also recalculate future selections. Cancelled dates that are no longer on the recurrence do not hold progression.
+
+The schedule saves `rotationEvents`, `rotationEvery` and `occurrenceExceptions` in Lua. Full download/server saves and event import/export retain them; cooldowns and usage remain runtime history. Import matches activity IDs first, then unique identical names, preserving private locked message groups. If a locked activity is absent, import stops for review rather than assigning it to another activity. Install the matching addon update before using rotating-event files. The addon calculates from SavedVariables without database or network access.
+
+Day-view reminder labels and their time/frequency detail lines omit redundant event-name prefixes; the separate event heading identifies the event and saved labels are unchanged.
