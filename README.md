@@ -162,3 +162,8 @@ Create named moments with **+ Add important time** in **Important times**. Pick 
 ### Current Period Timeline format only
 
 Scheduling uses only the Period Timeline format (`timelineVersion = 1`, `mode = EVENT`). Opening a file, loading a server configuration, reading a latest snapshot or importing a scheduled event rejects older schedule formats; no automatic conversion is performed. Other accounts or events are not partially installed when a file is rejected. Old phase conversion, helper-command combination and older single-event transfer controls have been removed. Use the current Import / Export selection tools for one or many events. On Demand and Startup configurations do not require a schedule.
+
+
+### Delivery-control availability
+
+On Demand and Startup match the ESO addon: enabling Auto Populate Chat on Zone disables both Repeat Frequency and Retry Delay (slider and exact-minute input); Cooldown remains editable. Turning zone population off restores Repeat Frequency. Retry Delay also requires a positive repeat frequency and is capped by the smaller repeat/cooldown value. Scheduled hides and disables these ordinary controls because its periods provide the timing.

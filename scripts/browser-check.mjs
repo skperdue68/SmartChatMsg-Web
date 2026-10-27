@@ -1119,11 +1119,19 @@ async function zoneCommandOption(){
  const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;cfg.runAt='ON_DEMAND';cfg.reminderMinutes=15;cfg.lastUsedAt=123;cfg.lastAutoPopulateSentAtByZone={Stonefalls:456};
  const {page,errors}=await open(d);
  try{
- await page.locator('[data-command-option=autoPopulateOnZone]').check();await page.locator('[data-command-option=autoPopulateCooldownMinutes]').fill('90');await page.locator('#save-event').click();
+ await page.locator('[data-command-option=autoPopulateOnZone]').check();
+ for(const key of ['reminderMinutes','reminderRetryMinutes']){assert.equal(await page.locator(`[data-command-option="${key}"]`).isDisabled(),true);assert.equal(await page.locator(`[data-command-slider="${key}"]`).isDisabled(),true);}
+ assert.equal(await page.locator('[data-command-option=autoPopulateCooldownMinutes]').isDisabled(),false);assert.equal(await page.locator('[data-command-slider=autoPopulateCooldownMinutes]').isDisabled(),false);
+ await page.locator('[data-field=settingsRunAt]').selectOption('STARTUP');assert.equal(await page.locator('[data-command-slider=reminderMinutes]').isDisabled(),true);await page.locator('[data-field=settingsRunAt]').selectOption('ON_DEMAND');
+ await page.locator('[data-command-option=autoPopulateCooldownMinutes]').fill('90');await page.locator('#save-event').click();
  let saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;assert.equal(saved.autoPopulateOnZone,true);assert.equal(saved.autoPopulateCooldownMinutes,90);assert.equal(saved.reminderMinutes,undefined);assert.equal(saved.lastUsedAt,123);assert.equal(saved.lastAutoPopulateSentAtByZone.Stonefalls,456);
  await page.locator('[data-command-option=autoPopulateCooldownMinutes]').fill('0');await page.locator('#save-event').click();assert.match(await page.locator('#status').textContent(),/Zone cooldown.*positive/i);
  await page.locator('[data-command-option=autoPopulateCooldownMinutes]').fill('90');await page.locator('[data-command-option=autoPopulateOnZone]').uncheck();await page.locator('#save-event').click();saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;assert.equal(saved.autoPopulateOnZone,false);assert.equal(saved.autoPopulateCooldownMinutes,90);
- await page.locator('[data-field=settingsRunAt]').selectOption('SCHEDULED');assert.equal(await page.locator('[data-command-option=autoPopulateOnZone]').isVisible(),false);assert.deepEqual(errors,[]);
+ assert.equal(await page.locator('[data-command-option=reminderMinutes]').isDisabled(),false);assert.equal(await page.locator('[data-command-slider=reminderMinutes]').isDisabled(),false);
+ await page.locator('[data-command-option=reminderMinutes]').fill('15');assert.equal(await page.locator('[data-command-slider=reminderRetryMinutes]').isDisabled(),false);
+ await page.locator('[data-field=settingsRunAt]').selectOption('SCHEDULED');assert.equal(await page.locator('[data-command-option=autoPopulateOnZone]').isVisible(),false);
+ for(const key of ['reminderMinutes','reminderRetryMinutes','autoPopulateCooldownMinutes'])assert.equal(await page.locator(`[data-command-slider="${key}"]`).isDisabled(),true);
+ assert.deepEqual(errors,[]);
  }finally{await page.close();}
 }
 
