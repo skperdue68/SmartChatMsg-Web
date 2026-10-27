@@ -203,6 +203,7 @@ async function preservationAndEditing() {
   await page.locator("#add-message").click();
     assert.equal(await page.locator("details.message").count(), 2);
     const message = page.locator("details.message").last();
+    await message.locator("textarea").waitFor({state:"visible"});
     assert.equal(await message.evaluate(el=>el.open),true);
     await message.locator("textarea").fill("Tickets: ");
     await message
@@ -1140,7 +1141,7 @@ async function sharedServerLibrary(){
 
 async function newMessageOpens(){
  const {page,errors}=await open(fixture());
- try{await page.locator('#add-message').click();const card=page.locator('.message').last();assert.equal(await card.evaluate(el=>el.open),true);await card.locator('textarea').waitFor({state:'visible'});assert.equal(await card.locator('textarea').evaluate(el=>el===document.activeElement),true);assert.equal(await page.locator('.message').first().evaluate(el=>el.open),false);await card.locator('[data-field=messageName]').fill('A useful name');assert.match(await card.locator('.message-summary-title').textContent(),/A useful name/);assert.equal(await card.locator('.message-full-name').count(),0);assert.deepEqual(errors,[]);}finally{await page.close();}
+ try{await page.locator('#add-message').click();const card=page.locator('.message').last();await card.locator('textarea').waitFor({state:'visible'});assert.equal(await card.evaluate(el=>el.open),true);assert.equal(await card.locator('textarea').evaluate(el=>el===document.activeElement),true);assert.equal(await page.locator('.message').first().evaluate(el=>el.open),false);await card.locator('[data-field=messageName]').fill('A useful name');assert.match(await card.locator('.message-summary-title').textContent(),/A useful name/);assert.equal(await card.locator('.message-full-name').count(),0);assert.deepEqual(errors,[]);}finally{await page.close();}
 }
 
 async function deliverySliderClarity(){
@@ -1241,7 +1242,8 @@ async function plainCommandMessagePool(){
  assert.equal(await page.locator('#reminder-timeline').isVisible(),false);assert.match(await page.locator('#message-library-title').textContent(),/Message pool/);assert.equal(await page.locator('.message').count(),2);
  const card=page.locator('.message').first();await card.locator('summary').click();assert.equal(await card.locator('[data-field=variant]').isVisible(),false);
  assert.equal(await card.locator('[data-insert-token] option').evaluateAll(els=>els.some(el=>el.value.startsWith('%event'))),false);
- for(const token of ['%time%','%timeofday%','%morning%','%greeting%','%guild%','%zone%'])assert.equal(await card.locator('[data-insert-token] option').evaluateAll((els,t)=>els.some(el=>el.value===t),token),true);
+ for(const token of ['%timeofday%','%guild%','%zone%'])assert.equal(await card.locator('[data-insert-token] option').evaluateAll((els,t)=>els.some(el=>el.value===t),token),true);
+ for(const token of ['%time%','%morning%','%greeting%'])assert.equal(await card.locator('[data-insert-token] option').evaluateAll((els,t)=>els.some(el=>el.value===t),token),false);
  const template='Good %greeting%, %guild%! Meet tomorrow at 8PM ET in %zone%. %eventwhen%';await card.locator('textarea').fill(template);await card.locator('[data-action=preview-message]').click();
  assert.equal(await page.locator('#message-preview-template').textContent(),template);assert.match(await page.locator('#message-preview-output').textContent(),/Good morning, alpha!/);assert.match(await page.locator('#message-preview-output').textContent(),/%eventwhen%/);
  await page.locator('#message-preview-zone').fill('My house');assert.match(await page.locator('#message-preview-output').textContent(),/My house/);await page.locator('#close-dialog').click();
