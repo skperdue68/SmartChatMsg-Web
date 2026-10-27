@@ -496,6 +496,25 @@ function refreshReminderRelevance(card){
  showField(card,'onceUntilFinish',once);
  card.querySelector('[data-finish-window]').hidden=once&&!whole;
 }
+// Inactive controls must not block once-only or repeating reminders. Keep the
+// unused metadata valid for SavedVariables/import without changing delivery mode.
+function reminderFields(card){
+ const value=fields(card),integer=(n,min,max)=>Number.isInteger(n)&&n>=min&&n<=max;
+ if(value.once&&!integer(value.intervalMinutes,1,5256000))value.intervalMinutes=60;
+ if((!value.once||value.onceUntilFinish)&&!integer(value.lateMinutes,1,1440))value.lateMinutes=5;
+ if(value.once&&!value.onceUntilFinish){
+  const a=value.finish,valid=a&&(a.kind==='OFFSET'&&integer(a.minutes,-5256000,5256000)||a.kind==='DAY'&&integer(a.days,-3650,3650)&&/^\d{1,2}:\d{2} [AP]M$/.test(a.time)||a.kind==='MARK'&&typeof a.name==='string'&&a.name.trim());
+  if(!valid)value.finish=value.start?{...value.start}:undefined;
+ }
+ return value;
+}
+function reminderFieldError(card,value=reminderFields(card)){
+ if(!value.once&&(!Number.isInteger(value.intervalMinutes)||value.intervalMinutes<1||value.intervalMinutes>5256000))return 'Repeat every: enter a positive whole number of minutes.';
+ if(value.once&&!value.onceUntilFinish&&(!Number.isInteger(value.lateMinutes)||value.lateMinutes<1||value.lateMinutes>1440))return 'Late allowance: enter a whole number from 1 to 1440 minutes.';
+ const invalid=[...card.querySelectorAll('input[data-field]')].find(input=>{for(let node=input;node&&node!==card;node=node.parentElement)if(node.hidden)return false;return !input.checkValidity();});
+ if(invalid){const label=({intervalMinutes:'Repeat every',lateMinutes:'Late allowance'})[invalid.dataset.field]||invalid.dataset.field.replace('.',' ');return label+': '+invalid.validationMessage;}
+ return null;
+}
 function decorateFieldLabels(root=document.querySelector('#detail')){
   root.querySelectorAll('.readonly-tag').forEach(el=>el.remove());
   root.querySelectorAll('input[readonly],textarea[readonly]').forEach(el=>{
@@ -566,7 +585,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
     cards.forEach(card=>{card.classList.remove('has-overlap');card.querySelector('[data-overlap-warning]').hidden=true;card.removeAttribute('aria-describedby');});
     try{
       const candidate=clone(currentEventDraft());candidate.reminders=tableArray(rows.map(r=>{
-        const card=byId.get(r.id);return card?{...clone(r),...fields(card)}:r;
+        const card=byId.get(r.id);return card?{...clone(r),...reminderFields(card)}:r;
       }));
       document.querySelectorAll('#detail .mark').forEach(el=>{if(candidate.importantTimes?.[el.dataset.id])Object.assign(candidate.importantTimes[el.dataset.id],fields(el));});
       const conflicts=candidate.timelineVersion===1?model.timelineConflicts(candidate):[],notes=overlapNotes(candidate,conflicts),affected=new Map();
@@ -591,8 +610,8 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
       for(const card of cards){
         const summary=card.querySelector('[data-effective-times]');
         try{
-          const row={...clone(rows.find(r=>r.id===card.dataset.row)),...fields(card)};
-          if([...card.querySelectorAll('input[data-field]')].some(el=>!el.checkValidity()))throw Error('Enter valid reminder values to calculate its times.');
+          const row={...clone(rows.find(r=>r.id===card.dataset.row)),...reminderFields(card)};
+          const fieldError=reminderFieldError(card,row);if(fieldError)throw Error(fieldError);
           for(const anchor of [row.start,...(row.once&&!row.onceUntilFinish?[]:[row.finish])]){
             if(anchor?.kind==='OFFSET'&&!Number.isFinite(anchor.minutes))throw Error('Enter a valid minute offset.');
             if(anchor?.kind==='DAY'&&(!Number.isFinite(anchor.days)||!anchor.time))throw Error('Choose a valid day offset and clock.');
@@ -748,7 +767,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
           (b.onclick = () => {
             const action = b.dataset.action;
             if (action === "save" || action === "preview") {
-              const update = fields(card);
+              const update = reminderFields(card);const fieldError=reminderFieldError(card,update);if(fieldError){status(fieldError,true);return;}
               if (update.intervalMinutes < 1 || update.lateMinutes < 0) {
                 status(
                   "Repeat interval must be positive and late allowance cannot be negative.",
@@ -1041,7 +1060,7 @@ function attachPoolPreviews(card,event,row){
     const message=eventMessages(event).find(m=>m.id===id);if(!message)return;
     let output=message.text,caption='Full message template';
     try{
-      const schedule=event.schedule,at=projectedNext(schedule)??model.scheduleEventUtc(schedule),draft={...clone(row),...fields(card)};
+      const schedule=event.schedule,at=projectedNext(schedule)??model.scheduleEventUtc(schedule),draft={...clone(row),...reminderFields(card)};
       const window=model.reminderWindows({...schedule,reminders:tableArray([draft])},at).find(w=>w.row.id===draft.id);
       if(window){const now=draft.once?window.start:Math.floor((window.start+window.end)/2);output=model.previewMessage(message.text,schedule,at,now,{guild,zone:'Guild Hall'});caption='Preview inside this announcement period · '+new Date(now*1000).toLocaleString('en-US',{timeZone:zoneNames[schedule.timeZone||'ET'],timeZoneName:'short'});}
     }catch{}
