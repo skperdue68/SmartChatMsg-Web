@@ -680,3 +680,5 @@ label.check>.help-icon{flex:none;margin-left:4px}
 
 .reminder.has-overlap{border-color:#ef9a80;border-left-color:#ef9a80;box-shadow:0 0 0 1px rgba(239,154,128,.4);}
 .reminder-overlap-warning{color:#ffd1c4;background:#462b2b;border:1px solid #da826d;border-radius:5px;padding:9px 11px;font-size:13px;line-height:1.5;}
+
+.monthly-weekday-rule{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-content:start;}.monthly-weekday-rule>.help{grid-column:1 / -1;margin:0;}

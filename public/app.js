@@ -95,9 +95,11 @@ const opts = (options, value) =>
     .join("");
 const fieldHelp = {
  messageName:'Optional short editor label, up to 60 characters. It is saved with the message but is never included in outgoing chat.',
- eventDate:'The real event date. Recurrence starts from this date; reminder days do not change the actual event.',
+ eventDate:'The event date and recurrence starting point. For Monthly on weekday, the Monthly on and Weekday choices determine actual dates from this starting point. Reminder days do not change the actual event.',
  eventTime:'The real event clock in the displayed scheduling timezone. Native clock controls use your browser clock format; the Lua file keeps an AM/PM clock.',
- recurrence:'How actual event dates repeat. Reminder windows repeat around each actual event occurrence.',
+ recurrence:'How actual event dates repeat. Monthly on weekday lets you choose First through Fifth or Last, plus a weekday. Reminder windows repeat around each actual event occurrence.',
+ monthlyWeek:'First through Fifth selects the numbered weekday. Last always selects the final matching weekday, whether the month has four or five. Fifth skips months without a fifth occurrence.',
+ monthlyWeekday:'The weekday of the actual monthly event, not the days on which reminders may run.',
  recurrenceInterval:'A whole number of recurrence periods between occurrences. For example, 2 with Weekly means every other week.',
  specialPattern:'Use month-final pools, faction rotation, or Rotating event for an ordered list of trials or other activities.',
  rotationEvery:'Scheduled occurrences per activity before moving to the next name. The Event Date anchors the first entry. Cancelled occurrences can keep or postpone this progression.',
@@ -135,8 +137,8 @@ const check=(label,key,value)=>`<label class="check"${helpAttributes(key)}><inpu
 const stateOf=value=>value.paused?'PAUSED':value.enabled===false?'DISABLED':'ENABLED';
 function applyState(value,key){if(!value[key])return value;value.enabled=value[key]!=='DISABLED';value.paused=value[key]==='PAUSED';delete value[key];return value;}
 function currentEventDraft(){const e=selectedEvent(),panel=document.querySelector('#detail>.panel.event-settings');const v=panel?fields(panel):{};const d={...e.schedule,...v,timeZone:guildZone()};if(d.eventDurationMinutes===null)delete d.eventDurationMinutes;d.rotationFactions=typeof d.rotationFactions==='string'?tableArray(d.rotationFactions.split(',').map(x=>x.trim()).filter(Boolean)):d.rotationFactions;const activities=panel?.querySelectorAll('[data-activity-id]');if(activities?.length)d.rotationEvents=tableArray([...activities].map(row=>({id:row.dataset.activityId,name:row.querySelector('input').value.trim()})));else if(d.specialPattern==='EVENT_ROTATION')d.rotationEvents={};d.weekdays={};if(document.querySelector('#use-event-weekdays')?.checked)panel.querySelectorAll('[data-weekday]:checked').forEach(x=>setLuaValue(d.weekdays,Number(x.dataset.weekday),true));return d;}
-function projectedNext(draft){const now=Math.floor(Date.now()/1000),anchor=model.scheduleEventUtc(draft);if(anchor===null)return null;return model.projectedOccurrences(draft,now,now+400*86400)[0]??(anchor>=now&&!model.occurrenceCancellation(draft,anchor)?anchor:null);}
-function refreshNextOccurrence(){const field=document.querySelector('#next-occurrence');if(!field)return;try{const d=currentEventDraft(),next=projectedNext(d);field.value=next===null?'No upcoming occurrence in the preview range':new Date(next*1000).toLocaleString('en-US',{timeZone:zoneNames[d.timeZone],weekday:'short',year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});renderRotationOccurrences(selectedEvent(),d);}catch{field.value='Choose a valid event date, clock and recurrence';const panel=document.querySelector('#rotation-occurrences');if(panel&&!panel.hidden)panel.innerHTML='<h2>Upcoming rotation</h2><p class="help">Choose valid event settings to preview upcoming rotations.</p>';}}
+function projectedNext(draft){return model.nextScheduleOccurrence(draft,Math.floor(Date.now()/1000));}
+function refreshNextOccurrence(){const field=document.querySelector('#next-occurrence');if(!field)return;try{const d=currentEventDraft(),next=projectedNext(d);field.value=next===null?'No upcoming occurrence within the supported date range':new Date(next*1000).toLocaleString('en-US',{timeZone:zoneNames[d.timeZone],weekday:'short',year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});renderRotationOccurrences(selectedEvent(),d);}catch{field.value='Choose a valid event date, clock and recurrence';const panel=document.querySelector('#rotation-occurrences');if(panel&&!panel.hidden)panel.innerHTML='<h2>Upcoming rotation</h2><p class="help">Choose valid event settings to preview upcoming rotations.</p>';}}
 function insertableTokens(schedule){const scheduled=selectedEvent()?.settings.runAt==='SCHEDULED';return ['%guild%','%greeting%','%zone%',...(scheduled?['%eventwhen%','%eventtime%','%eventdate%','%eventcountdown%','%eventtime-1h%','%eventcountdown-1h%',...(schedule.specialPattern==='FACTION_ROTATION'?['%eventfaction%']:schedule.specialPattern==='EVENT_ROTATION'?['%eventactivity%']:[]),...Object.keys(schedule.importantTimes||{}).flatMap(key=>['eventwhen','eventtime','eventdate','eventcountdown'].map(token=>'%'+token+':'+key+'%'))]:[])];}
 function tableArray(items) {
   const t = {};
@@ -396,6 +398,9 @@ function refreshEventRelevance(){
  const panel=document.querySelector('#detail>.panel.event-settings');if(!panel)return;
  const recurrence=panel.querySelector('[data-field=recurrence]').value;
  const repeating=recurrence!=='NONE';
+ document.querySelector('#monthly-weekday-rule').hidden=recurrence!=='MONTHLY_WEEKDAY';
+ const monthlyWeek=panel.querySelector('[data-field=monthlyWeek]'),monthlyDay=panel.querySelector('[data-field=monthlyWeekday]');
+ document.querySelector('#monthly-weekday-help').textContent=monthlyWeek.value==='LAST'?'Last '+monthlyDay.selectedOptions[0].textContent+' of each selected month, including months with four or five occurrences.':monthlyWeek.value==='5'?'Fifth '+monthlyDay.selectedOptions[0].textContent+' only; months without a fifth occurrence are skipped.':'The '+monthlyWeek.selectedOptions[0].textContent.toLowerCase()+' '+monthlyDay.selectedOptions[0].textContent+' of each selected month. Event Date anchors the first eligible month.';
  const faction=repeating&&panel.querySelector('[data-field=specialPattern]').value==='FACTION_ROTATION';
  showField(panel,'recurrenceInterval',repeating);showField(panel,'specialPattern',repeating);
  showField(panel,'rotationWeeks',faction);showField(panel,'rotationFactions',faction);
@@ -446,7 +451,7 @@ function serverOccurrenceDate(schedule,at){
 }
 function rotationProjectionKey(s){
  const pattern=s.specialPattern||'NONE';
- return JSON.stringify([s.eventDate,clockNative(s.eventTime),s.timeZone||guildZone(),s.eventFold||'FIRST',s.recurrence||'NONE',Number(s.recurrenceInterval??1),Array.from({length:7},(_,i)=>!!s.weekdays?.[i+1]),pattern,s.eventDurationMinutes??null,pattern==='EVENT_ROTATION'?[Number(s.rotationEvery??1),vals(s.rotationEvents).map(a=>[a.id,a.name])]:pattern==='FACTION_ROTATION'?[Number(s.rotationWeeks??4),vals(s.rotationFactions||{1:'AD',2:'EP',3:'DC'})]:null]);
+ return JSON.stringify([s.eventDate,clockNative(s.eventTime),s.timeZone||guildZone(),s.eventFold||'FIRST',s.recurrence||'NONE',s.recurrence==='MONTHLY_WEEKDAY'?model.monthlyWeekdayRule(s):null,Number(s.recurrenceInterval??1),Array.from({length:7},(_,i)=>!!s.weekdays?.[i+1]),pattern,s.eventDurationMinutes??null,pattern==='EVENT_ROTATION'?[Number(s.rotationEvery??1),vals(s.rotationEvents).map(a=>[a.id,a.name])]:pattern==='FACTION_ROTATION'?[Number(s.rotationWeeks??4),vals(s.rotationFactions||{1:'AD',2:'EP',3:'DC'})]:null]);
 }
 function renderRotationOccurrences(event,s=currentEventDraft()){
  const panel=document.querySelector('#rotation-occurrences');if(!panel)return;
@@ -527,6 +532,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
   const s = (e.settings.schedule ??= {}),
     messages = eventMessages(e),
     rows = model.orderedReminderRows(s,projectedNext(s)??model.scheduleEventUtc(s));
+  const monthlyRule=model.monthlyWeekdayRule(s);let monthlyRulePinned=s.monthlyWeek!==undefined||s.monthlyWeekday!==undefined;
   $("#detail").innerHTML =
     `<section class="panel event-settings"><div class="heading"><div><p class="eyebrow">EVENT SETTINGS</p><h2>${esc(e.command?.name)}</h2></div><span class="badge">${s.timelineVersion === 1 ? "TIMELINE" : "LEGACY SCHEDULE"}</span></div><div class="grid">${input("Event name", "commandName", e.command.name)}${input("Event Date", "eventDate", s.eventDate || "", "date")}${input("Event Start Time", "eventTime", s.eventTime || "08:00 PM")}<label data-help="The next actual event occurrence, calculated live from the current unsaved date, clock, recurrence, interval and weekday controls.">Next occurrence <span class="readonly-tag">Read only</span><input id="next-occurrence" readonly aria-live="polite"></label>${input("Event duration (minutes, optional)","eventDurationMinutes",s.eventDurationMinutes??"","number")}<label title="Read only here. Change Guild timezone in the toolbar above; all event clocks use that timezone.">Scheduling timezone (guild) <span class="readonly-tag">Read only</span><input value="${esc(guildZone())}" readonly aria-description="Change Guild timezone in the toolbar above."><small class="help">Change using Guild timezone in the toolbar.</small></label>${select("Output channel", "outputChannel", account().chatChannels?.[e.commandId]?.[model.guildKey(account().chatChannels?.[e.commandId],guild)] || "Guild", ["Guild", "Officer", "Zone", "Group"])}${select(
       "Run at",
@@ -537,7 +543,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
         ["STARTUP", "Startup"],
         ["SCHEDULED", "Scheduled"],
       ],
-    )}${select("Recurrence", "recurrence", s.recurrence || "NONE", ["NONE", "DAILY", "WEEKLY", "BIWEEKLY", "MONTHLY_DATE", "MONTHLY_WEEKDAY"])}${select("Special pattern", "specialPattern", s.specialPattern || "NONE", [["NONE","None"],["MONTH_FINAL","Last event of month"],["FACTION_ROTATION","Faction rotation"],["EVENT_ROTATION","Rotating event"]])}${input("Recurrence interval", "recurrenceInterval", s.recurrenceInterval || 1, "number")}${input("Rotation weeks per faction", "rotationWeeks", s.rotationWeeks || 4, "number")}${input("Faction order (comma separated)", "rotationFactions", vals(s.rotationFactions).join(", ") || "AD, EP, DC")}${select(
+    )}${select("Recurrence", "recurrence", s.recurrence || "NONE", [["NONE","Does not repeat"],["DAILY","Daily"],["WEEKLY","Weekly"],["BIWEEKLY","Every other week"],["MONTHLY_DATE","Monthly on the same date"],["MONTHLY_WEEKDAY","Monthly on weekday"]])}<div id="monthly-weekday-rule" class="monthly-weekday-rule">${select("Monthly on","monthlyWeek",monthlyRule.monthlyWeek??1,[[1,"First"],[2,"Second"],[3,"Third"],[4,"Fourth"],[5,"Fifth"],["LAST","Last"]])}${select("Weekday","monthlyWeekday",monthlyRule.monthlyWeekday??1,[[1,"Sunday"],[2,"Monday"],[3,"Tuesday"],[4,"Wednesday"],[5,"Thursday"],[6,"Friday"],[7,"Saturday"]])}<p id="monthly-weekday-help" class="help"></p></div>${select("Special pattern", "specialPattern", s.specialPattern || "NONE", [["NONE","None"],["MONTH_FINAL","Last event of month"],["FACTION_ROTATION","Faction rotation"],["EVENT_ROTATION","Rotating event"]])}${input("Recurrence interval", "recurrenceInterval", s.recurrenceInterval || 1, "number")}${input("Rotation weeks per faction", "rotationWeeks", s.rotationWeeks || 4, "number")}${input("Faction order (comma separated)", "rotationFactions", vals(s.rotationFactions).join(", ") || "AD, EP, DC")}${select(
       "Ambiguous DST clock",
       "eventFold",
       s.eventFold || "FIRST",
@@ -621,7 +627,10 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
   const fold=eventPanel.querySelector('[data-field=eventFold]').closest('label');
   const advanced=document.createElement('details');advanced.id='event-clock-options';advanced.innerHTML='<summary>Advanced clock options</summary>';advanced.open=s.eventFold==='SECOND';fold.parentElement.append(advanced);advanced.append(fold);
   if(s.timelineVersion!==1)eventPanel.insertAdjacentHTML('afterend',legacyMigrationBanner(e));
-  eventPanel.querySelectorAll('[data-field=recurrence],[data-field=specialPattern],[data-field=eventDate],[data-weekday],#use-event-weekdays').forEach(control=>control.addEventListener('change',refreshEventRelevance));
+  eventPanel.querySelectorAll('[data-field=recurrence],[data-field=specialPattern],[data-field=eventDate],[data-field=monthlyWeek],[data-field=monthlyWeekday],[data-weekday],#use-event-weekdays').forEach(control=>control.addEventListener('change',refreshEventRelevance));
+  eventPanel.querySelectorAll('[data-field=monthlyWeek],[data-field=monthlyWeekday]').forEach(control=>control.addEventListener('change',()=>{monthlyRulePinned=true;}));
+  const inferMonthlyRule=()=>{if(!monthlyRulePinned){const rule=model.monthlyWeekdayRule({eventDate:eventPanel.querySelector('[data-field=eventDate]').value});eventPanel.querySelector('[data-field=monthlyWeek]').value=String(rule.monthlyWeek??1);eventPanel.querySelector('[data-field=monthlyWeekday]').value=String(rule.monthlyWeekday??1);}refreshEventRelevance();};
+  eventPanel.querySelector('[data-field=eventDate]').addEventListener('input',inferMonthlyRule);eventPanel.querySelector('[data-field=eventDate]').addEventListener('change',inferMonthlyRule);
   refreshEventRelevance();
   eventPanel.querySelectorAll('input,select').forEach(el=>{el.addEventListener('input',refreshNextOccurrence);el.addEventListener('change',refreshNextOccurrence);});refreshNextOccurrence();
   $("#save-event").onclick = () => {
@@ -976,6 +985,8 @@ function fields(root) {
           ? (el.dataset.field==="eventDurationMinutes"&&el.value===""?null:el.value===""?NaN:Number(el.value))
           : el.type === "time" ? clockStored(el.value) : el.value;
   });
+  if(out.monthlyWeek!==undefined&&out.monthlyWeek!=="LAST")out.monthlyWeek=Number(out.monthlyWeek);if(out.monthlyWeekday!==undefined)out.monthlyWeekday=Number(out.monthlyWeekday);
+  if(out.recurrence!==undefined&&out.recurrence!=="MONTHLY_WEEKDAY"){delete out.monthlyWeek;delete out.monthlyWeekday;}
   applyState(out,"eventState");applyState(out,"rowState");
   if(out.markMode){if(out.markMode==='DATE'){try{const d=currentEventDraft(),at=projectedNext(d)??model.scheduleEventUtc(d),target=model.scheduleEventUtc({eventDate:out.markDate,eventTime:out.markTime,timeZone:d.timeZone,eventFold:d.eventFold});out.offsetMinutes=target===null?NaN:(target-at)/60;}catch{out.offsetMinutes=NaN;}}delete out.markMode;delete out.markDate;delete out.markTime;}
   return out;

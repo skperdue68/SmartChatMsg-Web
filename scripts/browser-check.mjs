@@ -946,6 +946,23 @@ async function rotatingEventControls(){
  }finally{await page.close();}
 }
 
+async function monthlyWeekdayControls(){
+ const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha,s=cfg.schedule;cfg.runAt='SCHEDULED';s.recurrence='MONTHLY_WEEKDAY';s.eventDate='2026-10-28';
+ const {page,errors}=await open(d);
+ try{
+ assert.equal(await page.locator('[data-field=recurrence] option:checked').textContent(),'Monthly on weekday');assert.equal(await page.locator('#monthly-weekday-rule').isVisible(),true);assert.equal(await page.locator('[data-field=monthlyWeek]').inputValue(),'4');assert.equal(await page.locator('[data-field=monthlyWeekday]').inputValue(),'4');
+ await page.locator('[data-field=eventDate]').fill('2026-11-08');assert.equal(await page.locator('[data-field=monthlyWeek]').inputValue(),'2','legacy inferred ordinal follows anchor edits');assert.equal(await page.locator('[data-field=monthlyWeekday]').inputValue(),'1');
+ await page.locator('[data-field=eventDate]').fill('2026-10-28');await page.locator('[data-field=monthlyWeek]').selectOption('LAST');await page.locator('[data-field=monthlyWeekday]').selectOption('1');assert.match(await page.locator('#monthly-weekday-help').textContent(),/Last Sunday/);
+ const expectedNext=config=>{const now=Math.floor(Date.now()/1000),at=model.projectedOccurrences(config,now,now+400*86400)[0];return new Date(at*1000).toLocaleString('en-US',{timeZone:'America/New_York',weekday:'short',year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});};
+ assert.equal(await page.locator('#next-occurrence').inputValue(),expectedNext({...s,monthlyWeek:'LAST',monthlyWeekday:1}));
+ await page.locator('[data-field=recurrenceInterval]').fill('2');assert.equal(await page.locator('#next-occurrence').inputValue(),expectedNext({...s,monthlyWeek:'LAST',monthlyWeekday:1,recurrenceInterval:2}));
+ await page.locator('[data-field=eventDate]').fill('2026-11-01');assert.equal(await page.locator('[data-field=monthlyWeek]').inputValue(),'LAST','explicit Last selection survives anchor edits');assert.equal(await page.locator('[data-field=monthlyWeekday]').inputValue(),'1');
+ await page.locator('#save-event').click();let saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(saved.monthlyWeek,'LAST');assert.equal(saved.monthlyWeekday,1);assert.equal(saved.recurrenceInterval,2);
+ await page.locator('[data-field=monthlyWeek]').selectOption('5');assert.match(await page.locator('#monthly-weekday-help').textContent(),/skipped/);await page.locator('[data-field=eventDate]').fill('2027-02-01');await page.locator('[data-field=recurrenceInterval]').fill('12');const sparse=model.nextScheduleOccurrence({...s,eventDate:'2027-02-01',monthlyWeek:5,monthlyWeekday:1,recurrenceInterval:12},Math.floor(Date.now()/1000));assert.equal(await page.locator('#next-occurrence').inputValue(),new Date(sparse*1000).toLocaleString('en-US',{timeZone:'America/New_York',weekday:'short',year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}),'next occurrence cannot fall back to an off-rule anchor');await page.locator('[data-field=recurrence]').selectOption('WEEKLY');assert.equal(await page.locator('#monthly-weekday-rule').isVisible(),false);await page.locator('#save-event').click();
+ saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(saved.monthlyWeek,'LAST','hidden unsaved monthly controls do not overwrite the saved rule');assert.equal(saved.recurrence,'WEEKLY');assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 async function cachedGuildLegacyIdentity(){
  const d=fixture(),a=d.Default['@fixture'].$AccountWide,cfg=a.commandGuildSettings['command-one'].alpha;
  a.commandGuildSettings['command-one']={'New Guild':cfg};cfg.schedule.timeZone='PT';a.guildSchedulingTimeZones={'New Guild':'PT'};a.chatChannels={'command-one':{'New Guild':'Officer'}};
@@ -1071,6 +1088,7 @@ async function libraryHttpIntegration(){
 try {
   await libraryHttpIntegration();
   await sharedServerLibrary();
+  await monthlyWeekdayControls();
   await cachedGuildLegacyIdentity();
   await cachedGuildChoices();
   await liveRotationProjection();
