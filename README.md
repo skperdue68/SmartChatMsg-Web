@@ -90,3 +90,5 @@ Uploads accept Lua files up to 20 MiB. If Nginx Proxy Manager rejects larger upl
 ## Rotating activities
 
 Special pattern **Rotating event** cycles an ordered list of activity names by scheduled occurrence. `%eventactivity%` inserts the selected name. Both activity and faction rotations support cancelling individual dates with Keep rotation moving or Postpone selection, plus Undo. All settings and exceptions are retained in SavedVariables and sharing. See [rotation and cancellation controls](docs/event-controls.md#rotating-event-and-cancellations). This feature requires the matching SmartChatMsg addon update; earlier addon releases do not understand EVENT_ROTATION.
+
+Guild choices also read the addon’s saved guild roster, so an empty account can create or import its first event without an existing message. Run the matching addon update and let ESO save the file first. Guild names/IDs/slots are account-specific runtime metadata and are not replaced by portable event imports.

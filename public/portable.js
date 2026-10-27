@@ -1,4 +1,4 @@
-import { validateTimelineForAddon, cloneSavedData, events, timelineConflicts, orderedReminderRows, orderedMessageEntries } from "/model.js";
+import { validateTimelineForAddon, cloneSavedData, events, timelineConflicts, orderedReminderRows, orderedMessageEntries, guildNames, guildIndexFromRoster, guildKey } from "/model.js";
 import { setLuaValue } from "/lua-data.js";
 const values = (x) => Object.values(x || {});
 const scheduleKeys = [
@@ -314,11 +314,11 @@ export function stageImport(p, event, existingMessages, guild) {
   const locked=localMessages.filter(m=>m.locked),lockedIds=new Set(locked.map(m=>m.id));
   const ids = new Map(),
     newMessages = [],
-    guildIndex = values(existingMessages).find(
+    guildIndex = event.deliveryGuildIndex??values(existingMessages).find(
       (m) =>
         m.guildName?.trim().toLowerCase() === guild &&
         Number.isInteger(m.guildIndex),
-    )?.guildIndex;
+    )?.guildIndex??event.guildIndex;
   for (const [index,m] of p.messages.entries()) {
     const id = crypto.randomUUID();
     ids.set(m.id, id);
@@ -407,10 +407,11 @@ export function readEventBundle(document){
   })};
 }
 function knownGuilds(account){
+  if(account.guildRoster&&typeof account.guildRoster==='object'&&Number.isFinite(account.guildRosterUpdatedAt))return new Map([...guildNames(account,{currentOnly:true}).keys()].filter(key=>!/^\d+$/.test(key)).map(key=>[key,key]));
   const result=new Map();
   const add=name=>{if(name&&!/^\d+$/.test(name)&&!result.has(normalized(name)))result.set(normalized(name),name);};
   events(account).forEach(e=>add(e.guild));values(account.messages).forEach(m=>add(m.guildName));
-  Object.keys(account.guildSchedulingTimeZones||{}).forEach(add);
+  Object.keys(account.guildSchedulingTimeZones||{}).forEach(add);guildNames(account).forEach((_,key)=>add(key));
   return result;
 }
 export function reviewEventImport(document,account){
@@ -419,10 +420,10 @@ export function reviewEventImport(document,account){
     const guild=guilds.get(normalized(entry.guild));
     const matches=values(account.commands).filter(c=>normalized(c.name)===normalized(entry.eventName));
     let reason=!guild?'No such guild: '+entry.guild:matches.length>1?'Ambiguous command name':matches[0]?.locked?'Local command is locked':null;
-    const zone=account.guildSchedulingTimeZones?.[guild]||account.schedulingTimeZone||'ET';
+    const zone=account.guildSchedulingTimeZones?.[guildKey(account.guildSchedulingTimeZones,guild)]||account.schedulingTimeZone||'ET';
     if(!reason&&entry.schedule?.timeZone!==undefined&&entry.schedule.timeZone!==zone)reason='Timezone differs: import '+entry.schedule.timeZone+', destination '+zone;
     if(!reason&&entry.schedule&&timelineConflicts(entry.schedule).length)reason='Announcement periods overlap; correct the source event first.';
-    return {index,entry,guild,commandId:matches[0]?.id,action:reason?'Skip':matches[0]&&account.commandGuildSettings?.[matches[0].id]?.[guild]?'Update':'Create',reason};
+    return {index,entry,guild,commandId:matches[0]?.id,action:reason?'Skip':matches[0]&&account.commandGuildSettings?.[matches[0].id]?.[guildKey(account.commandGuildSettings?.[matches[0].id],guild)]?'Update':'Create',reason};
   });
 }
 function reconcileRotationActivities(entry, prior, oldMessages) {
@@ -456,10 +457,10 @@ export function importEventBundle(account,document,selectedIndices){
     const {guild}=record,entry={...record.entry,schedule:record.entry.schedule?cloneSavedData(record.entry.schedule):null,messages:record.entry.messages.map(m=>({...m}))};let commandId=record.commandId||values(result.commands).find(c=>normalized(c.name)===normalized(entry.eventName))?.id;
     if(!commandId){commandId=crypto.randomUUID();append(result.commands,{id:commandId,name:entry.eventName});}
     result.commandGuildSettings[commandId]??={};
-    const settings=result.commandGuildSettings[commandId][guild]??={},prior=settings.schedule||{},destination=events(result).find(e=>e.commandId===commandId&&normalized(e.guild)===normalized(guild)),oldMessages=destination?.messages||[];
+    const settings=result.commandGuildSettings[commandId][guildKey(result.commandGuildSettings[commandId],guild)]??={},prior=settings.schedule||{},destination=events(result).find(e=>e.commandId===commandId&&normalized(e.guild)===normalized(guild)),oldMessages=destination?.messages||[];
     reconcileRotationActivities(entry,prior,oldMessages);
     const guildSlots=new Set(values(result.messages).filter(m=>normalized(m.guildName)===normalized(guild)&&Number.isInteger(m.guildIndex)).map(m=>m.guildIndex));
-    const guildIndex=destination?.guildIndex??(guildSlots.size===1?[...guildSlots][0]:undefined);
+    const guildIndex=guildIndexFromRoster(result,guild)??destination?.guildIndex??(guildSlots.size===1?[...guildSlots][0]:undefined);
     const messageIds=new Map(),variantsByMessage=new Map(oldMessages.map(m=>[m.id,prior.messageVariants?.[m.id]||'ALL']));
     for(const [importIndex,incoming] of entry.messages.entries()){
       let message=oldMessages.find(m=>m.id===incoming.id&&!m.locked)||oldMessages.find(m=>m.text===incoming.text&&variantsByMessage.get(m.id)===incoming.variant);
@@ -487,7 +488,7 @@ export function importEventBundle(account,document,selectedIndices){
       if(schedule.eventDurationMinutes===undefined)delete settings.schedule.eventDurationMinutes;
       const errors=validateTimelineForAddon(settings.schedule);if(errors.length)throw Error(errors.join(' '));
     }
-    if(entry.outputChannel){result.chatChannels[commandId]??={};result.chatChannels[commandId][guild]=entry.outputChannel;}
+    if(entry.outputChannel){result.chatChannels[commandId]??={};result.chatChannels[commandId][guildKey(result.chatChannels[commandId],guild)]=entry.outputChannel;}
     applied.push(entry.eventName+' / '+guild);
   }
   return {account:result,applied,skipped};
