@@ -1536,3 +1536,101 @@ export function formatRepeatInterval(minutes) {
   }
   return parts.join(" ");
 }
+// Ordinary command previews mirror ApplyMessageSubstitutions/AnalyzeEmbeddedTime:
+// keep literal date/time wording and decorate only the highest-ranked time core.
+// Relative dates use UTC today, as the addon passes os.date("!*t") to its parser.
+export function previewCommandMessage(text, nowUtc, context = {}) {
+  const localHour=context.localHour??new Date(nowUtc*1000).getHours(),greeting=localHour<12?'morning':localHour<18?'afternoon':'evening';
+  const basic={time:greeting,timeofday:greeting,greeting,morning:greeting,guild:String(context.guild??'').trim(),zone:context.zone||''};
+  let source=String(text??'').replace(/%([a-z]+)%/gi,(whole,key)=>basic[key.toLowerCase()]||whole);
+  if(!Number.isFinite(nowUtc)||/%eventcountdown(?::[a-z][a-z0-9_]*|[+-]\d+[mhd])?%/i.test(source))return source;
+  const links=[];
+  source=source.replace(/\|H[^]*?\|h[^]*?\|h/g,link=>{const key=`SCMPROTECTEDLINK${String.fromCharCode(65+links.length)}`;links.push({key,link});return key;});
+  const result=decorateCommandTime(source,nowUtc);
+  return links.reduce((text,{key,link})=>text.replace(key,link),result);
+}
+function decorateCommandTime(source,nowUtc){
+  const digit=ch=>!!ch&&/[0-9]/.test(ch);
+  const separator=ch=>!!ch&&(/[\s]/.test(ch)||(ch.charCodeAt(0)<128&&!/[a-z0-9]/i.test(ch)));
+  const advance=(pos,max=Infinity)=>{let n=0;while(pos<source.length&&n<max&&separator(source[pos])){pos++;n++;}return pos;};
+  const suffix=end=>{
+    let pos=advance(end,8),ampm=null,ampmEnd=end;
+    const dotted=/^(A\.M\.|P\.M\.)/i.exec(source.slice(pos)),plain=/^(AM|PM)/i.exec(source.slice(pos));
+    if(dotted||plain){const m=dotted||plain;ampm=m[0][0].toUpperCase()+'M';ampmEnd=pos+m[0].length;}
+    pos=advance(ampmEnd,12);const tz=/^[a-z]{1,4}/i.exec(source.slice(pos));
+    return {ampm,ampmEnd,timezone:tz?.[0].toUpperCase(),end:tz?pos+tz[0].length:ampmEnd};
+  };
+  const families={ET:'ET',EST:'ET',EDT:'ET',CT:'CT',CST:'CT',CDT:'CT',MT:'MT',MST:'MT',MDT:'MT',PT:'PT',PST:'PT',PDT:'PT'},supported=tz=>tz==='UTC'||tz==='GMT'||Object.hasOwn(families,tz||'');
+  const candidates=[];
+  const add=(start,end,hour,minute,kind)=>{
+    if(digit(source[start-1])||digit(source[end])||minute>59)return;
+    const before=source[start-1]||'',after=source[end]||'';
+    if(/[/-]/.test(before)||/[/-]/.test(after)||before==='.'&&digit(source[start-2])||after==='.'&&digit(source[end+1]))return;
+    const tail=suffix(end);
+    if(kind!=='colon'&&!tail.ampm&&!supported(tail.timezone))return;
+    candidates.push({start,end,hour,minute,kind,tail});
+  };
+  for(let i=0;i<source.length;i++){
+    if(!digit(source[i]))continue;
+    let hourEnd=i+1;if(digit(source[hourEnd]))hourEnd++;
+    let pos=hourEnd;
+    while(pos<source.length&&separator(source[pos])&&source[pos]!==':')pos++;
+    if(source[pos]===':'){
+      pos=advance(pos+1);if(digit(source[pos])&&digit(source[pos+1]))add(i,pos+2,+source.slice(i,hourEnd),+source.slice(pos,pos+2),'colon');
+    }
+    for(const count of [4,3])if(source.slice(i,i+count).length===count&&/^\d+$/.test(source.slice(i,i+count)))add(i,i+count,+source.slice(i,i+count-2),+source.slice(i+count-2,i+count),count===4?'compact4':'compact3');
+    add(i,hourEnd,+source.slice(i,hourEnd),0,'hour');
+  }
+  const score={colon:100,compact4:60,compact3:40,hour:10};
+  candidates.sort((a,b)=>score[b.kind]-score[a.kind]||(b.end-b.start)-(a.end-a.start)||a.start-b.start);
+  const core=candidates[0];if(!core||core.hour<(core.tail.ampm?1:0)||core.hour>(core.tail.ampm?12:23)||!supported(core.tail.timezone))return source;
+  const now=civil(nowUtc,'UTC'),today=stamp(now.slice(0,3));
+  let explicitDate=null;
+  for(const m of source.matchAll(/(\d{1,2})\s*[/.\-]\s*(\d{1,2})(?:\s*[/.\-]\s*(\d{4}|\d{2}))?/g)){
+    const month=+m[1],day=+m[2],hasYear=m[3]!==undefined;
+    let year=hasYear?(m[3].length===2?(+m[3]<=69?2000:1900)+ +m[3]:+m[3]):now[0];
+    if(!date(`${String(year).padStart(4,'0')}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`))continue;
+    const past=stamp([year,month,day])<today;
+    if(!hasYear&&past)year++;
+    explicitDate={year,month,day,hasYear,past:hasYear&&past};break;
+  }
+  const weekdays=[['sunday','sun'],['monday','mon'],['tuesday','tues','tue'],['wednesday','wed'],['thursday','thurs','thur','thu'],['friday','fri'],['saturday','sat']];
+  let weekday=null;
+  for(const [index,names]of weekdays.entries())for(const name of names){const pattern=new RegExp(`(^|[^a-z])(${name})(?=$|[^a-z])`,'gi');for(const match of source.matchAll(pattern)){const start=match.index+match[1].length;if(!weekday||start<weekday.start||start===weekday.start&&name.length>weekday.length)weekday={index,start,length:name.length};}}
+  const tomorrowMatch=/\btomorrow\b/i.exec(source),tomorrow=!!tomorrowMatch;
+  const zone=families[core.tail.timezone];
+  const build=(d,hour)=>{
+    const provisional=stamp([...d,hour,core.minute,0]);
+    // Native resolves the family offset at the provisional UTC time, then
+    // applies fixed 24h/7d rollover. Keep that behavior at DST boundaries.
+    const offset=zone?stamp(civil(provisional,zone))-provisional:0;
+    return provisional-offset;
+  };
+  const timing=hour=>{
+    if(explicitDate&&!explicitDate.past)return build([explicitDate.year,explicitDate.month,explicitDate.day],hour);
+    if(tomorrow)return build(civil(today+86400,'UTC').slice(0,3),hour);
+    if(weekday){const offset=(weekday.index-new Date(today*1000).getUTCDay()+7)%7;let at=build(civil(today+offset*86400,'UTC').slice(0,3),hour);if(offset===0&&at<=nowUtc)at+=7*86400;return at;}
+    let at=build(now.slice(0,3),hour);if(at<nowUtc)at+=86400;return at;
+  };
+  const ampm=core.tail.ampm,ambiguous=!ampm&&core.hour<=12;
+  const hour12=(hour,meridiem)=>hour%12+(meridiem==='PM'?12:0);
+  const hours=ampm?[hour12(core.hour,ampm)]:ambiguous?[hour12(core.hour,'AM'),hour12(core.hour,'PM')]:[core.hour];
+  const choose=()=>hours.map((hour,index)=>({hour,index,at:timing(hour)})).sort((a,b)=>Math.floor((a.at-nowUtc)/60)-Math.floor((b.at-nowUtc)/60)||a.index-b.index)[0];
+  let resolved=choose();
+  if(explicitDate&&!explicitDate.hasYear&&!explicitDate.past&&stamp([explicitDate.year,explicitDate.month,explicitDate.day])===today&&resolved.at<nowUtc){explicitDate.year++;resolved=choose();}
+  if(explicitDate?.past||explicitDate?.hasYear&&resolved.at<nowUtc)return source;
+  let end=core.tail.end;
+  // InsertCountdownPreservingTemplate optionally consumes one additional
+  // literal AM/PM or supported timezone immediately following the parser span.
+  const extraMeridiem=/^\s*[AP]\.?\s*M\.?/i.exec(source.slice(end));if(extraMeridiem)end+=extraMeridiem[0].length;
+  const extraZone=/^\s*(UTC|GMT|EST|EDT|CST|CDT|MST|MDT|PST|PDT|ET|CT|MT|PT)(?![a-z])/i.exec(source.slice(end));if(extraZone)end+=extraZone[0].length;
+  const literal=source.slice(core.start,end),assumed=ambiguous&&!/[AP]\.?\s*M\.?/i.test(literal)?' '+(resolved.hour>=12?'PM':'AM'):'';
+  // The native preserving-template helper detects an already-displayed zone
+  // case-sensitively and requires whitespace before it. Preserve that detail.
+  const displayed=/\s+(UTC|GMT|EST|EDT|CST|CDT|MST|MDT|PST|PDT|ET|CT|MT|PT)\s*$/.exec(literal);
+  const canonical=zone?new Intl.DateTimeFormat('en-US',{timeZone:zones[zone],timeZoneName:'short'}).formatToParts(new Date(resolved.at*1000)).find(p=>p.type==='timeZoneName').value:core.tail.timezone;
+  const zoneSuffix=displayed?.[1]||extraZone?.[0].trim()||canonical;
+  let remainder=source.slice(end);
+  const duplicate=new RegExp(`^(\\s*)${zoneSuffix}(?![a-z])`,'i').exec(remainder);if(duplicate)remainder=duplicate[1]+remainder.slice(duplicate[0].length);
+  return source.slice(0,core.start)+literal+assumed+(!displayed&&!extraZone?' '+canonical:'')+' ('+formatDurationMinutes(Math.floor((resolved.at-nowUtc)/60))+')'+remainder;
+}

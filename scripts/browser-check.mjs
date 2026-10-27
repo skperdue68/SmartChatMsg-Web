@@ -1138,6 +1138,65 @@ async function sharedServerLibrary(){
  }finally{await page.close();}
 }
 
+async function commandNumericInputRules(){
+ const d=fixture();d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.runAt='ON_DEMAND';const {page,errors}=await open(d);
+ try{
+ const repeat=page.locator('[data-command-option=reminderMinutes]');await repeat.fill('12');await repeat.focus();await page.keyboard.press('End');await page.keyboard.type('e-+.');assert.equal(await repeat.inputValue(),'12');
+ const rejected=await repeat.evaluate(el=>{const transfer=new DataTransfer();transfer.setData('text/plain','-3');return !el.dispatchEvent(new ClipboardEvent('paste',{clipboardData:transfer,bubbles:true,cancelable:true}));});assert.equal(rejected,true);
+ await repeat.fill('0');await page.locator('#save-event').click();const saved=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(saved.commandGuildSettings['command-one'].alpha.reminderMinutes,undefined);
+ await page.locator('#account-settings').click();const timeout=page.locator('#account-revert-seconds');await timeout.fill('90');await timeout.focus();await page.keyboard.press('End');await page.keyboard.type('e-.+');assert.equal(await timeout.inputValue(),'90');assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
+async function commandSettingAttributeEscaping(){
+ const d=fixture(),a=d.Default['@fixture'].$AccountWide;a.commandGuildSettings['command-one'].alpha.runAt='ON_DEMAND';a.commandGuildSettings['command-one'].alpha.reminderMinutes='"><img data-injected="true">';a.revertChatSeconds='"><img data-injected="true">';a.commandGuildSettings['command-one'].alpha.schedule.reminders[1].availability={enabled:false,maxPerDay:'"><img data-injected="true">'};
+ const {page,errors}=await open(d);
+ try{assert.equal(await page.locator('[data-injected]').count(),0);await page.locator('#account-settings').click();assert.equal(await page.locator('#dialog [data-injected]').count(),0);assert.deepEqual(errors,[]);}finally{await page.close();}
+}
+
+async function accountAndCommandDefaults(){
+ const d=fixture(),a=d.Default['@fixture'].$AccountWide;a.guildRoster=numeric([{guildIndex:4,guildId:101,guildName:'Alpha'},{guildIndex:2,guildId:102,guildName:'Beta'}]);a.guildSchedulingTimeZones.beta='PT';a.commandGuildSettings['command-one'].beta.schedule.timeZone='PT';a.commandGuildSettings['command-one'].alpha.runAt='ON_DEMAND';
+ const {page,errors}=await open(d);
+ try{
+ await page.locator('[data-command-option=reminderMinutes]').fill('30');await page.locator('[data-command-option=reminderRetryMinutes]').fill('45');await page.locator('[data-command-option=populateSound]').fill('NONE');await page.locator('[data-command-option=openStatusPanelOnRun]').check();await page.locator('#save-event').click();
+ let saved=(await downloadData(page)).Default['@fixture'].$AccountWide,cfg=saved.commandGuildSettings['command-one'].alpha;assert.equal(cfg.reminderMinutes,30);assert.equal(cfg.reminderRetryMinutes,30);assert.equal(cfg.populateSound,'NONE');assert.equal(cfg.openStatusPanelOnRun,true);
+ await page.locator('#account-settings').click();await page.locator('#account-default-guild').selectOption('4');await page.locator('#account-revert-seconds').fill('90');await page.locator('#account-default-zone').selectOption('CT');await page.locator('#apply-account-settings').click();
+ saved=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(saved.defaultGuildIndex,4);assert.equal(saved.revertChatSeconds,90);assert.equal(saved.schedulingTimeZone,'CT');assert.equal(saved.commandGuildSettings['command-one'].alpha.schedule.timeZone,'CT');assert.equal(saved.commandGuildSettings['command-one'].beta.schedule.timeZone,'PT');assert.equal(saved.messages[1].useCount,5);
+ await page.locator('[data-field=settingsRunAt]').selectOption('SCHEDULED');for(const key of ['reminderMinutes','reminderRetryMinutes','autoPopulateCooldownMinutes'])assert.equal(await page.locator(`[data-command-option="${key}"]`).isVisible(),false);assert.equal(await page.locator('[data-command-option=populateSound]').isVisible(),true);assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
+async function zoneCommandOption(){
+ const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;cfg.runAt='ON_DEMAND';cfg.reminderMinutes=15;cfg.lastUsedAt=123;cfg.lastAutoPopulateSentAtByZone={Stonefalls:456};
+ const {page,errors}=await open(d);
+ try{
+ await page.locator('[data-command-option=autoPopulateOnZone]').check();await page.locator('[data-command-option=autoPopulateCooldownMinutes]').fill('90');await page.locator('#save-event').click();
+ let saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;assert.equal(saved.autoPopulateOnZone,true);assert.equal(saved.autoPopulateCooldownMinutes,90);assert.equal(saved.reminderMinutes,undefined);assert.equal(saved.lastUsedAt,123);assert.equal(saved.lastAutoPopulateSentAtByZone.Stonefalls,456);
+ await page.locator('[data-command-option=autoPopulateCooldownMinutes]').fill('0');await page.locator('#save-event').click();assert.match(await page.locator('#status').textContent(),/Zone cooldown.*positive/i);
+ await page.locator('[data-command-option=autoPopulateCooldownMinutes]').fill('90');await page.locator('[data-command-option=autoPopulateOnZone]').uncheck();await page.locator('#save-event').click();saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;assert.equal(saved.autoPopulateOnZone,false);assert.equal(saved.autoPopulateCooldownMinutes,90);
+ await page.locator('[data-field=settingsRunAt]').selectOption('SCHEDULED');assert.equal(await page.locator('[data-command-option=autoPopulateOnZone]').isVisible(),false);assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
+async function plainCommandMessagePool(){
+ const d=fixture(),a=d.Default['@fixture'].$AccountWide;a.commandGuildSettings['command-one'].alpha.runAt='ON_DEMAND';
+ setLuaValue(a.messages,2,{id:'message-two',commandId:'command-one',guildName:'alpha',text:'Not assigned to any reminder',useCount:7});
+ const {page,errors}=await open(d);
+ try{
+ await page.clock.setFixedTime(new Date('2026-10-26T12:00:00Z'));
+ assert.equal(await page.locator('#reminder-timeline').isVisible(),false);assert.match(await page.locator('#message-library-title').textContent(),/Message pool/);assert.equal(await page.locator('.message').count(),2);
+ const card=page.locator('.message').first();await card.locator('summary').click();assert.equal(await card.locator('[data-field=variant]').isVisible(),false);
+ assert.equal(await card.locator('[data-insert-token] option').evaluateAll(els=>els.some(el=>el.value.startsWith('%event'))),false);
+ for(const token of ['%time%','%timeofday%','%morning%','%greeting%','%guild%','%zone%'])assert.equal(await card.locator('[data-insert-token] option').evaluateAll((els,t)=>els.some(el=>el.value===t),token),true);
+ const template='Good %greeting%, %guild%! Meet tomorrow at 8PM ET in %zone%. %eventwhen%';await card.locator('textarea').fill(template);await card.locator('[data-action=preview-message]').click();
+ assert.equal(await page.locator('#message-preview-template').textContent(),template);assert.match(await page.locator('#message-preview-output').textContent(),/Good morning, alpha!/);assert.match(await page.locator('#message-preview-output').textContent(),/%eventwhen%/);
+ await page.locator('#message-preview-zone').fill('My house');assert.match(await page.locator('#message-preview-output').textContent(),/My house/);await page.locator('#close-dialog').click();
+ await page.locator('[data-field=settingsRunAt]').selectOption('SCHEDULED');assert.equal(await card.locator('[data-insert-token] option[value="%eventwhen%"]').count(),1);
+ await page.locator('[data-field=settingsRunAt]').selectOption('STARTUP');assert.equal(await page.locator('#reminder-timeline').isVisible(),false);assert.equal(await card.locator('[data-insert-token] option[value="%eventwhen%"]').count(),0);
+ assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 async function runModeRelevantFields(){
  const d=fixture();d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule.reminders={};
  const {page,errors}=await open(d);
@@ -1193,6 +1252,11 @@ async function libraryHttpIntegration(){
 }
 
 try {
+  await commandNumericInputRules();
+  await commandSettingAttributeEscaping();
+  await accountAndCommandDefaults();
+  await zoneCommandOption();
+  await plainCommandMessagePool();
   await runModeRelevantFields();
   await libraryIncompleteDraft();
   await libraryHttpIntegration();

@@ -113,3 +113,16 @@ The server library can also preserve an empty reminder timeline as an unfinished
 
 
 New entries default to **On demand**. **On demand** and **Startup** hide scheduling-only fields and do not require event dates, durations or reminder timelines. Switching to **Scheduled** reveals those controls. Switching away preserves the stored schedule for later reuse; inactive scheduling data does not block a full-file save or download.
+
+
+### Ordinary command message pools and delivery settings
+
+On demand and Startup use every saved message for the selected command and guild as one pool. Reminder periods, scheduled variants and event tokens do not apply. The editor labels this **Message pool** and hides scheduling controls. Its insertion menu offers the native basic aliases `%time%`, `%timeofday%`, `%greeting%`, `%morning%`, `%guild%` and `%zone%` only. Switching Run at updates these controls immediately and preserves any stored schedule for later reuse.
+
+**Preview announcement** shows the current template (including unapplied text) alongside the expanded result, with a simulated server clock, sample player zone and resulting character count. It does not save, send or consume cooldowns. Ordinary previews use literal date/time countdown detection rather than an event schedule; explicit timezone text is needed for an automatic literal countdown, matching the addon. Common weekday/tomorrow/numeric-date/time formats are tested against native Lua output. Unusual or malformed date/link spellings may differ from ESO's full parser. Unknown or schedule-only tokens remain visible without a schedule.
+
+**Command delivery** restores Repeat Every (blank disables), Retry Delay (0 disables; capped at Repeat Every), Auto Populate Chat on Zone and its Cooldown for On demand/Startup. Timed repetition and zone population are alternatives. Notification sound and Open Status Panel on Run also apply to scheduled entries; status-panel opening requires an active automation behavior. Sounds are ESO keys, with `DUEL_START` the default and `NONE` silent. The web editor can select keys; sound playback is in ESO.
+
+The toolbar's **Account settings** edits the default slash-command guild, unsent-chat timeout/revert delay (at least 30 seconds) and default scheduling timezone. Default-timezone changes retain entered event dates/clocks for guilds following that default, leaving explicit guild overrides and runtime history unchanged. Full Lua saves include account defaults; portable command/event sharing transfers command delivery choices, while recipient account defaults and runtime history stay local.
+
+New numeric command/account inputs accept whole, nonnegative input only, including pasted data. Repeat Every accepts 0 or blank as off. Native minimums still apply on save: zone cooldown is positive, and chat timeout is at least 30 seconds. Relative scheduled offsets retain their intentional negative values.
