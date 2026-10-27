@@ -10,6 +10,7 @@ const paths = {
   "/": ["index.html", "text/html"],
   "/style.css": ["style.css", "text/css"],
   "/app.js": ["app.js", "text/javascript"],
+  "/scheduling-sliders.js": ["scheduling-sliders.js", "text/javascript"],
   "/logo.svg": ["logo.svg", "image/svg+xml"],
   "/portable.js": ["portable.js", "text/javascript"],
   "/model.js": ["../src/model.js", "text/javascript"],
