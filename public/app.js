@@ -149,6 +149,16 @@ function wireWholeNumberInputs(root,selector='input[type=number]'){
   input.addEventListener('input',()=>{if(/^\d*$/.test(input.value))previous=input.value;else {input.value=previous;reject();}});
  });
 }
+function showInputModal({title,intro,fields,submitLabel,onSubmit}){
+ const modal=document.querySelector('#dialog'),close=document.querySelector('#close-dialog');
+ $('#dialog-body').innerHTML=`<form id="site-input-form" novalidate><h2>${esc(title)}</h2><p class="help">${esc(intro||'')}</p>${fields.map(field=>`<label>${esc(field.label)}<input id="form-${esc(field.key)}" data-modal-field="${esc(field.key)}" value="${esc(field.value||'')}" maxlength="${field.maxLength||160}" ${field.readonly?'readonly aria-readonly="true"':''} autocomplete="off"></label>`).join('')}<p id="modal-error" role="alert" class="modal-error"></p><div class="actions"><button id="modal-submit" type="submit" class="gold">${esc(submitLabel||'Create')}</button><button id="modal-cancel" type="button">Cancel</button></div></form>`;
+ close.hidden=true;modal.addEventListener('close',()=>{close.hidden=false;},{once:true});
+ $('#modal-cancel').onclick=()=>modal.close();
+ $('#site-input-form').onsubmit=ev=>{ev.preventDefault();const values={};for(const field of fields){const input=document.getElementById('form-'+field.key);values[field.key]=input.value.trim();if(!values[field.key]){$('#modal-error').textContent=field.label+' is required.';input.setAttribute('aria-invalid','true');input.focus();return;}input.removeAttribute('aria-invalid');}
+  try{onSubmit(values);modal.close();}catch(error){$('#modal-error').textContent=error.message;}
+ };
+ modal.showModal();requestAnimationFrame(()=>$('#site-input-form input:not([readonly])')?.focus());
+}
 function commandDeliveryMarkup(event){
  const c=event.settings,sounds=['NONE','DUEL_START','DEFAULT_CLICK','POSITIVE_CLICK','NEGATIVE_CLICK','DIALOG_ACCEPT','DIALOG_DECLINE','NEW_NOTIFICATION','QUEST_SHARE_ACCEPTED','BOOK_ACQUIRED','ACHIEVEMENT_AWARDED','GROUP_INVITE','LFG_ACCEPTED','TRADE_INVITE','TELVAR_GAINED','TELVAR_LOST'];
  const number=(label,key,value,min)=>`<label>${label}<input type="number" min="${min}" max="5256000" step="1" data-command-option="${key}" value="${esc(value??'')}"></label>`;
@@ -943,25 +953,10 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
       );
     });
   $("#add-mark").onclick = () => {
-    s.importantTimes ??= {};
-    const name = prompt(
-      "Important time key (letters, digits, underscore; e.g. tickets):",
-      "tickets",
-    );
-    if (!name) return;
-    if (
-      !/^[a-z][a-z0-9_]*$/.test(name) ||
-      Object.hasOwn(s.importantTimes, name)
-    ) {
-      status("Choose a unique lowercase key beginning with a letter.", true);
-      return;
-    }
-    s.importantTimes[name] = {
-      label: name,
-      offsetMinutes: -30,
-    };
-    changed();
-    renderDetail();
+    showInputModal({title:'Add important time',intro:'Use a short lowercase key, such as tickets or gathering, in reminder anchors and message substitutions.',fields:[{key:'key',label:'Important time key',value:'tickets',maxLength:64}],submitLabel:'Add time',onSubmit:values=>{
+      const name=values.key;if(!/^[a-z][a-z0-9_]*$/.test(name)||Object.hasOwn(s.importantTimes||{},name))throw Error('Choose a unique lowercase key beginning with a letter.');
+      s.importantTimes??={};s.importantTimes[name]={label:name,offsetMinutes:-30};changed();renderDetail();
+    }});
   };
   document.querySelectorAll('.mark').forEach(el=>{const d=currentEventDraft(),at=projectedNext(d)??model.scheduleEventUtc(d),mark=s.importantTimes[el.dataset.id],target=at+mark.offsetMinutes*60,parts=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:zoneNames[d.timeZone],year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(target*1000)).map(x=>[x.type,x.value]));el.insertAdjacentHTML('afterbegin','<p class="help mark-key">Message key: <code>'+esc(el.dataset.id)+'</code> · Example: <code>%eventtime:'+esc(el.dataset.id)+'%</code></p>');el.insertAdjacentHTML('beforeend','<div class="grid">'+select('Define important time','markMode','OFFSET',[["OFFSET","Minutes before / after event"],["DATE","Pick date and time"]])+input('Important date','markDate',parts.year+'-'+parts.month+'-'+parts.day,'date')+input('Important clock','markTime',parts.hour+':'+parts.minute,'time')+'</div><p class="help">Date/time choices use '+esc(d.timeZone)+' and become an offset from the selected next occurrence, so they follow recurring events.</p>');const update=()=>{const dateMode=el.querySelector('[data-field=markMode]').value==='DATE';showField(el,'markDate',dateMode);showField(el,'markTime',dateMode);showField(el,'offsetMinutes',!dateMode);};el.querySelector('[data-field=markMode]').onchange=update;update();});
   $("#detail")
@@ -1133,13 +1128,10 @@ function fields(root) {
   return out;
 }
 $("#new-event").onclick = () => {
-  const a = account();
-  let g = guild;
-  if (!g)
-    g = prompt("Guild name (exact game guild name):")?.trim().toLowerCase();
-  if (!g) return;
-  const name = prompt("Event name:");
-  if (!name?.trim()) return;
+  const a=account(),target=accountName,currentGuild=guild;
+  showInputModal({title:'New guild entry',intro:'Create a command and message pool. New entries start as On Demand; choose Scheduled later if you need event reminders.',fields:[{key:'guild',label:'Guild name',value:currentGuild?(model.guildNames(a).get(currentGuild)||currentGuild):'',readonly:!!currentGuild},{key:'name',label:'Command / event name'}],submitLabel:'Create entry',onSubmit:values=>{
+  if(accountName!==target)throw Error('The selected account changed. Reopen this form.');
+  const g=values.guild.toLowerCase(),name=values.name;
   const id = crypto.randomUUID();
   a.commands ??= {};
   append(a.commands, {
@@ -1173,6 +1165,7 @@ $("#new-event").onclick = () => {
   guild = g;
   selected = id;
   render();
+  }});
 };
 function attachPoolPreviews(card,event,row){
   let bubble;

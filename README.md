@@ -126,3 +126,5 @@ On demand and Startup use every saved message for the selected command and guild
 The toolbar's **Account settings** edits the default slash-command guild, unsent-chat timeout/revert delay (at least 30 seconds) and default scheduling timezone. Default-timezone changes retain entered event dates/clocks for guilds following that default, leaving explicit guild overrides and runtime history unchanged. Full Lua saves include account defaults; portable command/event sharing transfers command delivery choices, while recipient account defaults and runtime history stay local.
 
 New numeric command/account inputs accept whole, nonnegative input only, including pasted data. Repeat Every accepts 0 or blank as off. Native minimums still apply on save: zone cooldown is positive, and chat timeout is at least 30 seconds. Relative scheduled offsets retain their intentional negative values.
+
+New guild entries and important-time keys use in-page forms instead of browser text prompts. Missing guild names are collected alongside the entry name, validation is inline, Enter submits, and Cancel/Escape leave the file unchanged.

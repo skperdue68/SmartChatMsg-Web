@@ -696,3 +696,5 @@ label.check>.help-icon{flex:none;margin-left:4px}
 .message-preview-text{white-space:pre-wrap;overflow-wrap:anywhere;padding:14px;background:#0b1928;border:1px solid var(--line);border-radius:6px;font:inherit;line-height:1.6;}
 
 .command-delivery{margin:18px 0;padding:14px;border:1px solid var(--line);border-radius:6px;}.command-delivery[hidden],#ordinary-delivery[hidden]{display:none!important;}
+
+#site-input-form{display:grid;gap:14px;}#site-input-form h2,#site-input-form p{margin:0;}#site-input-form .modal-error{color:#ffb6a1;min-height:1.4em;}#site-input-form .actions{justify-content:flex-end;}dialog{box-shadow:0 18px 60px #0009;}
