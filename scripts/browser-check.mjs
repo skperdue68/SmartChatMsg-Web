@@ -1049,7 +1049,7 @@ async function cachedGuildChoices(){
  try{
  assert.equal(await page.locator('#account').inputValue(),'@with-guilds');assert.deepEqual(await page.locator('#guild option').allTextContents(),['Alpha Guild','Beta Guild']);assert.equal(await page.locator('.event-item').count(),0);
  await page.locator('#guild').selectOption('beta guild');page.removeAllListeners('dialog');page.on('dialog',dialog=>dialog.accept('First guild event'));
- await page.locator('#new-event').click();assert.equal(await page.locator('[data-field=commandName]').inputValue(),'First guild event');assert.equal(await page.locator('#guild').inputValue(),'beta guild');
+ await page.locator('#new-event').click();await page.locator('#form-name').fill('First guild event');await page.locator('#modal-submit').click();assert.equal(await page.locator('[data-field=commandName]').inputValue(),'First guild event');assert.equal(await page.locator('#guild').inputValue(),'beta guild');
  await page.locator('[data-field=settingsRunAt]').selectOption('SCHEDULED');await page.locator('#save-event').click();await page.locator('#add-message').click();await page.locator('#add-row').click();
  const saved=(await downloadData(page)).Default['@with-guilds'].$AccountWide;assert.equal(saved.messages[1].guildIndex,2);assert.equal(saved.messages[1].guildName,'beta guild');assert.equal(saved.guildRoster[1].guildName,'Alpha Guild');assert.equal(saved.guildRosterUpdatedAt,1234);assert.deepEqual(errors,[]);
  }finally{await page.close();}
@@ -1138,6 +1138,23 @@ async function sharedServerLibrary(){
  }finally{await page.close();}
 }
 
+async function importantTimeCreationModal(){
+ const {page,errors}=await open(fixture());let prompts=0;page.removeAllListeners('dialog');page.on('dialog',dialog=>{if(dialog.type()==='prompt')prompts++;dialog.dismiss();});
+ try{await page.locator('#add-mark').click();await page.locator('#modal-submit').click();assert.match(await page.locator('#modal-error').textContent(),/unique lowercase key/);await page.locator('#form-key').fill('gathering');await page.locator('#form-key').press('Enter');assert.equal(await page.locator('.mark[data-id=gathering]').count(),1);assert.equal(prompts,0);assert.deepEqual(errors,[]);}finally{await page.close();}
+}
+
+async function creationModals(){
+ const d=fixture();d.Default={'@empty':{ $AccountWide:{commands:{},messages:{},commandGuildSettings:{}}}};
+ const {page,errors}=await open(d);let prompts=0;page.removeAllListeners('dialog');page.on('dialog',dialog=>{if(dialog.type()==='prompt')prompts++;dialog.dismiss();});
+ try{
+ await page.locator('#new-event').click();assert.equal(await page.locator('#form-guild').isVisible(),true);assert.equal(await page.locator('#form-name').isVisible(),true);
+ await page.locator('#form-name').fill('   ');await page.locator('#modal-submit').click();assert.match(await page.locator('#modal-error').textContent(),/required/);assert.equal(await page.locator('.event-item').count(),0);
+ await page.locator('#form-guild').fill('Alphabet Mafia');await page.locator('#form-name').fill('Recruit');await page.locator('#modal-cancel').click();assert.equal(await page.locator('.event-item').count(),0);
+ await page.locator('#new-event').click();await page.locator('#form-guild').fill('Alphabet Mafia');await page.locator('#form-name').fill('Recruit');await page.locator('#form-name').press('Enter');assert.equal(await page.locator('#dialog').isVisible(),false);assert.equal(await page.locator('[data-field=commandName]').inputValue(),'Recruit');assert.equal(await page.locator('[data-field=settingsRunAt]').inputValue(),'ON_DEMAND');
+ await page.locator('#new-event').click();assert.equal(await page.locator('#form-guild').getAttribute('readonly'),'');await page.keyboard.press('Escape');assert.equal(await page.locator('.event-item').count(),1);assert.equal(prompts,0);assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 async function commandNumericInputRules(){
  const d=fixture();d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.runAt='ON_DEMAND';const {page,errors}=await open(d);
  try{
@@ -1208,7 +1225,7 @@ async function runModeRelevantFields(){
  await page.locator('[data-field=settingsRunAt]').selectOption('STARTUP');await page.locator('#save-event').click();assert.equal(await page.locator('[data-field=eventDate]').isVisible(),false);
  a=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(a.commandGuildSettings['command-one'].alpha.runAt,'STARTUP');
  await page.locator('[data-field=settingsRunAt]').selectOption('SCHEDULED');assert.equal(await page.locator('[data-field=eventDate]').isVisible(),true);assert.equal(await page.locator('#rows').isVisible(),true);
- page.removeAllListeners('dialog');page.on('dialog',dialog=>dialog.type()==='prompt'?dialog.accept('New on-demand entry'):dialog.accept());await page.locator('#new-event').click();
+ page.removeAllListeners('dialog');page.on('dialog',dialog=>dialog.type()==='prompt'?dialog.accept('New on-demand entry'):dialog.accept());await page.locator('#new-event').click();await page.locator('#form-name').fill('New on-demand entry');await page.locator('#modal-submit').click();
  assert.equal(await page.locator('[data-field=settingsRunAt]').inputValue(),'ON_DEMAND');assert.equal(await page.locator('[data-field=eventTime]').isVisible(),false);
  await page.locator('[data-field=settingsRunAt]').selectOption('SCHEDULED');await page.locator('#save-event').click();assert.equal(await page.locator('[data-field=settingsRunAt]').inputValue(),'SCHEDULED');assert.equal(await page.locator('#rows').isVisible(),true);
  await page.locator('#add-row').click();assert.equal(await page.locator('[data-field=settingsRunAt]').inputValue(),'SCHEDULED');assert.equal(await page.locator('.reminder').count(),1);
@@ -1252,6 +1269,8 @@ async function libraryHttpIntegration(){
 }
 
 try {
+  await importantTimeCreationModal();
+  await creationModals();
   await commandNumericInputRules();
   await commandSettingAttributeEscaping();
   await accountAndCommandDefaults();
