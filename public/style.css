@@ -709,3 +709,5 @@ label.check>.help-icon{flex:none;margin-left:4px}
 
 
 .message.has-unapplied-changes{outline:2px solid #e3bb65;outline-offset:2px;border-radius:6px;}
+
+.event-settings.has-unapplied-changes{outline:2px solid #e3bb65;outline-offset:2px;}

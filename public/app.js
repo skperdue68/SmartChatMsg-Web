@@ -204,7 +204,7 @@ function readCommandDelivery(panel){
  if(!zone&&repeat!==null&&(!Number.isInteger(repeat)||repeat<1||repeat>5256000))throw Error('Repeat Frequency must be a positive whole number, or blank/0 to turn it off.');
  if(!zone&&repeat&&(!Number.isInteger(retry)||retry<0||retry>5256000))throw Error('Retry Delay must be zero or a positive whole number.');
  if(!Number.isInteger(cooldown)||cooldown<1||cooldown>5256000)throw Error('Zone cooldown must be a positive whole number.');
- out.autoPopulateOnZone=zone;out.autoPopulateCooldownMinutes=cooldown;out.reminderMinutes=zone||repeat===null?undefined:repeat;out.reminderRetryMinutes=zone||!repeat?0:Math.min(retry,repeat,cooldown);
+ out.autoPopulateOnZone=zone;out.autoPopulateCooldownMinutes=cooldown;out.reminderMinutes=zone||repeat===null?null:repeat;out.reminderRetryMinutes=zone||!repeat?0:Math.min(retry,repeat,cooldown);
  return out;
 }
 function editorIsScheduled(){return (document.querySelector('#detail [data-field=settingsRunAt]')?.value||selectedEvent()?.settings.runAt)==='SCHEDULED';}
@@ -808,13 +808,17 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
   eventPanel.querySelector('[data-command-option=reminderMinutes]').addEventListener('input',ev=>{if(Number(ev.target.value)>0)eventPanel.querySelector('[data-command-option=autoPopulateOnZone]').checked=false;refreshCommandDelivery();});
   refreshEventRelevance();
   eventPanel.querySelectorAll('input,select').forEach(el=>{el.addEventListener('input',refreshNextOccurrence);el.addEventListener('change',refreshNextOccurrence);});refreshNextOccurrence();
+  const settingsSnapshot=()=>JSON.stringify([...eventPanel.querySelectorAll('input:not([readonly]),select')].map(el=>[el.dataset.field||el.dataset.commandOption||el.id,el.type==='checkbox'?el.checked:el.value]));
+  const appliedSettingsSnapshot=settingsSnapshot();
+  const refreshSettingsBorder=()=>eventPanel.classList.toggle('has-unapplied-changes',settingsSnapshot()!==appliedSettingsSnapshot);
+  eventPanel.addEventListener('input',refreshSettingsBorder);eventPanel.addEventListener('change',refreshSettingsBorder);
   $("#save-event").onclick = () => {
     const p = $("#detail>.panel");
     let delivery;try{delivery=readCommandDelivery(p);}catch(error){status(error.message,true);return;}
     if(p.querySelector('[data-field=settingsRunAt]').value!=='SCHEDULED'){
       const name=p.querySelector('[data-field=commandName]').value.trim();if(name)e.command.name=name;
       account().chatChannels??={};account().chatChannels[e.commandId]??={};account().chatChannels[e.commandId][model.guildKey(account().chatChannels[e.commandId],guild)]=p.querySelector('[data-field=outputChannel]').value;
-      e.settings.runAt=p.querySelector('[data-field=settingsRunAt]').value;Object.assign(e.settings,delivery);
+      e.settings.runAt=p.querySelector('[data-field=settingsRunAt]').value;Object.assign(e.settings,delivery);if(delivery.reminderMinutes===null)delete e.settings.reminderMinutes;
       changed();renderList();return;
     }
     if([...p.querySelectorAll("input[data-field]")].some(el=>!el.checkValidity())){p.querySelectorAll("input[data-field]").forEach(el=>el.reportValidity());status("Use valid clocks and whole numbers within their allowed ranges.",true);return;}
@@ -846,7 +850,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
     account().chatChannels ??= {};
     account().chatChannels[e.commandId] ??= {};
     account().chatChannels[e.commandId][model.guildKey(account().chatChannels[e.commandId],guild)] = v.outputChannel;
-    e.settings.runAt = v.settingsRunAt;Object.assign(e.settings,delivery);
+    e.settings.runAt = v.settingsRunAt;Object.assign(e.settings,delivery);if(delivery.reminderMinutes===null)delete e.settings.reminderMinutes;
     delete v.outputChannel;
     delete v.settingsRunAt;
     v.timeZone = guildZone();
