@@ -926,6 +926,27 @@ async function rotatingEventControls(){
  }finally{await page.close();}
 }
 
+async function liveRotationProjection(){
+ const d=fixture(),a=d.Default['@fixture'].$AccountWide,cfg=a.commandGuildSettings['command-one'].alpha,s=cfg.schedule;
+ cfg.runAt='SCHEDULED';s.recurrence='BIWEEKLY';s.eventDate=new Date(Date.now()+2*86400000).toISOString().slice(0,10);s.specialPattern='EVENT_ROTATION';s.rotationEvents=numeric([{id:'a',name:'First activity'},{id:'b',name:'Second activity'}]);s.rotationEvery=1;
+ const {page,errors}=await open(d);
+ const dates=()=>page.locator('[data-cancel-occurrence]').evaluateAll(xs=>xs.map(x=>x.dataset.cancelOccurrence));
+ try{
+ const before=await dates();assert.equal((Date.parse(before[1])-Date.parse(before[0]))/86400000,14);
+ await page.locator('[data-field=recurrence]').selectOption('WEEKLY');
+ const weekly=await dates();assert.equal((Date.parse(weekly[1])-Date.parse(weekly[0]))/86400000,7,'upcoming rotation follows unsaved recurrence edits');
+ assert.match(await page.locator('#rotation-occurrences').textContent(),/Preview.*Apply event settings/i);assert.equal(await page.locator('[data-cancel-occurrence]').first().isDisabled(),true);
+ await page.locator('[data-field=recurrenceInterval]').fill('2');let intervalDates=await dates();assert.equal((Date.parse(intervalDates[1])-Date.parse(intervalDates[0]))/86400000,14);await page.locator('[data-field=recurrenceInterval]').fill('1');
+ await page.locator('[data-field=rotationEvery]').fill('0');assert.equal(await page.locator('.rotation-upcoming').count(),0,'invalid frequency cannot leave stale projection rows visible');await page.locator('[data-field=rotationEvery]').fill('1');
+ const changedDate=new Date(Date.now()+3*86400000).toISOString().slice(0,10);await page.locator('[data-field=eventDate]').fill(changedDate);assert.equal((await dates())[0],changedDate,'upcoming rotation follows unsaved anchor edits');
+ await page.locator('[data-field=eventTime]').fill('19:00');assert.match(await page.locator('.rotation-upcoming strong').first().textContent(),/7:00 PM/);
+ await page.locator('[data-field=rotationEvery]').fill('2');assert.match(await page.locator('.rotation-upcoming .rotation-occurrence').nth(1).textContent(),/First activity/);
+ await page.locator('#rotation-activities input').first().fill('Renamed activity');assert.match(await page.locator('.rotation-upcoming .rotation-occurrence').nth(1).textContent(),/Renamed activity/);
+ await page.locator('#save-event').click();assert.equal(await page.locator('[data-cancel-occurrence]').first().isDisabled(),false,await page.locator('#status').textContent());
+ const saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(saved.recurrence,'WEEKLY');assert.equal(saved.eventDate,changedDate);assert.equal(saved.eventTime,'07:00 PM');assert.equal(saved.rotationEvery,2);assert.equal(saved.rotationEvents[1].name,'Renamed activity');assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 async function cancelActiveRotation(){
  const d=fixture(),s=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
  const now=Math.floor(Date.now()/1000),parts=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date((now-1800)*1000)).map(p=>[p.type,p.value]));
@@ -1008,6 +1029,7 @@ async function libraryHttpIntegration(){
 try {
   await libraryHttpIntegration();
   await sharedServerLibrary();
+  await liveRotationProjection();
   await cancelActiveRotation();
   await rotatingEventControls();
   await messageNamesAndDragOrder();
