@@ -112,6 +112,36 @@ function fixture() {
   };
 }
 
+async function dailyLimitScope(){
+ const d=fixture(),schedule=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
+ schedule.reminders[1].availability={enabled:false,maxPerDay:2};
+ const second=model.cloneSavedData(schedule.reminders[1]);second.id='row-two';second.start.minutes=-240;second.finish.minutes=-120;second.availability.maxPerDay=7;setLuaValue(schedule.reminders,2,second);
+ schedule.availabilityUsage={'_command:2026-10-27':{count:4,lastAt:123}};
+ const {page,errors}=await open(d);
+ const card=id=>page.locator('.reminder[data-row="'+id+'"]'),one=card('row-one'),two=card('row-two');
+ const quota=c=>c.locator('[data-availability=maxPerDay]'),scope=c=>c.locator('[data-daily-limit-shared]');
+ const saved=async()=>(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
+ try{
+ assert.equal(await quota(one).isVisible(),true,'quota stays visible when allowed hours are off');
+ assert.equal(await quota(one).locator('..').locator('..').getAttribute('class'),'daily-limit-controls');
+ assert.match(await quota(one).locator('..').textContent(),/Daily announcement limit/);
+ assert.equal(await scope(one).isChecked(),false);assert.equal(await scope(two).isChecked(),false);
+ assert.match(await quota(one).locator('..').locator('.help-icon').getAttribute('aria-label'),/period.*calendar.*Confirmed.*Preparing/i);
+ await two.locator('[data-field=label]').fill('Keep this draft');
+ await page.locator('[data-field=commandName]').fill('Unapplied event name');
+ await scope(one).check();assert.equal(await scope(two).isChecked(),true);assert.equal(await quota(two).locator('..').locator('output').textContent(),'Unlimited');
+ await setRange(quota(one),5);assert.equal(await quota(two).locator('..').locator('output').textContent(),'5 per day');
+ assert.equal((await saved()).dailyLimitShared,undefined,'scope is not saved by editing');
+ await one.locator('[data-action=save]').click();let out=await saved();assert.equal(out.dailyLimitShared,true);assert.equal(out.sharedDailyLimit,5);assert.equal(Object.values(out.reminders).find(r=>r.id==='row-one').availability.maxPerDay,2);assert.equal(Object.values(out.reminders).find(r=>r.id==='row-two').availability.maxPerDay,7);assert.equal(out.availabilityUsage['_command:2026-10-27'].count,4);
+ assert.equal(await two.locator('[data-field=label]').inputValue(),'Keep this draft');assert.equal(await page.locator('[data-field=commandName]').inputValue(),'Unapplied event name');
+ await scope(two).uncheck();assert.equal(await quota(one).locator('..').locator('output').textContent(),'2 per day');assert.equal(await quota(two).locator('..').locator('output').textContent(),'7 per day');
+ await two.locator('[data-action=save]').click();out=await saved();assert.equal(out.dailyLimitShared,false);assert.equal(out.sharedDailyLimit,5);assert.equal(Object.values(out.reminders).find(r=>r.id==='row-two').label,'Keep this draft');
+ await scope(two).check();await setRange(quota(two),0);await two.locator('[data-action=save]').click();out=await saved();assert.equal(out.dailyLimitShared,true);assert.equal(out.sharedDailyLimit,undefined);
+ assert.equal(await page.locator('.availability-settings [data-availability=maxPerDay]').count(),0);assert.equal(await page.locator('[data-availability-summary]').count(),0);
+ assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 async function compactSchedulingSliders(){
  const d=fixture(),schedule=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;
  schedule.eventDurationMinutes=480;schedule.recurrenceInterval=12;schedule.reminders[1].intervalMinutes=2880;schedule.reminders[1].availability={enabled:true,maxPerDay:50};
@@ -1172,6 +1202,7 @@ async function libraryHttpIntegration(){
 }
 
 try {
+  await dailyLimitScope();
   await compactSchedulingSliders();
   await messageApplyBorderAndDisabledLabels();
   await legacyPausedEventCheckbox();

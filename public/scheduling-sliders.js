@@ -2,7 +2,7 @@ const definitions = {
   eventDurationMinutes: { label: 'Event duration', min: 0, max: 240, initial: 0, low: 'Not set', high: '4 hours' },
   recurrenceInterval: { label: 'Recurrence interval', min: 1, max: 10, initial: 1, low: 'Every 1', high: 'Every 10' },
   intervalMinutes: { label: 'Repeat Frequency', min: 1, max: 1440, initial: 60, low: '1 minute', high: '24 hours' },
-  maxPerDay: { label: 'Maximum per server day', min: 0, max: 20, initial: 0, low: 'Unlimited', high: '20 per day' },
+  maxPerDay: { label: 'Daily announcement limit', min: 0, max: 20, initial: 0, low: 'Unlimited', high: '20 per day' },
 };
 
 function duration(minutes) {
@@ -37,7 +37,14 @@ export function schedulingSlider(key, saved, recurrence = 'WEEKLY') {
 
 export function bindSchedulingSliders(root) {
   const sliders = [...root.querySelectorAll('[data-scheduling-slider]')];
-  const refresh = input => {
+  for (const input of sliders) {
+    input.addEventListener('input', () => { delete input.dataset.sliderOriginal; refresh(input, root); });
+    refresh(input, root);
+  }
+  root.querySelector('[data-field=recurrence]')?.addEventListener('change', () => sliders.forEach(input=>refresh(input, root)));
+}
+
+function refresh(input, root) {
     const key = input.dataset.schedulingSlider, value = schedulingValue(input) ?? 0;
     const text = schedulingLabel(key, value, root.querySelector('[data-field=recurrence]')?.value);
     const label = input.closest('.scheduling-slider');
@@ -45,10 +52,11 @@ export function bindSchedulingSliders(root) {
     label.querySelector('.scheduling-slider-preserved').hidden = input.dataset.sliderOriginal === undefined;
     input.setAttribute('aria-valuetext', text + (input.dataset.sliderOriginal !== undefined ? '; saved value kept until slider is moved' : ''));
     input.style.setProperty('--slider-progress', `${(Number(input.value) - Number(input.min)) / (Number(input.max) - Number(input.min)) * 100}%`);
-  };
-  for (const input of sliders) {
-    input.addEventListener('input', () => { delete input.dataset.sliderOriginal; refresh(input); });
-    refresh(input);
-  }
-  root.querySelector('[data-field=recurrence]')?.addEventListener('change', () => sliders.forEach(refresh));
+}
+
+export function setSchedulingSliderValue(input, value, root) {
+  const n=Number(value??0),min=Number(input.min),max=Number(input.max);
+  input.value=String(Math.max(min,Math.min(max,n)));
+  if(n<min||n>max)input.dataset.sliderOriginal=String(n);else delete input.dataset.sliderOriginal;
+  refresh(input,root);
 }

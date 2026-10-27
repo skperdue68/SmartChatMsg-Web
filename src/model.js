@@ -567,13 +567,18 @@ export function effectiveReminderWindows(schedule,eventAtUtc,fromUtc,toUtc,optio
   return result.sort((a,b)=>a.start-b.start);
 }
 function availabilityCount(schedule,row,dateKey) {
+  if(schedule.dailyLimitShared===true){
+    const stored=schedule.availabilityUsage?.[`_command:${dateKey}`];
+    if(stored!==undefined)return Math.max(0,+stored.count||0);
+    return values(schedule.reminders).reduce((count,r)=>count+availabilityCount({...schedule,dailyLimitShared:false},r,dateKey),0);
+  }
   const stored=schedule.availabilityUsage?.[`${row.id}:${dateKey}`];
   if(stored!==undefined)return Math.max(0,+stored.count||0);
   const candidates=[row,...Object.entries(schedule.timelineUsage||{}).filter(([key])=>key.endsWith(':'+row.id)).map(([,usage])=>usage)];
   return candidates.some(usage=>['lastSentAt','peerAt'].some(key=>Number.isFinite(usage[key])&&civilDateKey(schedule,usage[key])===dateKey))?1:0;
 }
 export function availabilityStatus(schedule,row,eventAtUtc,nowUtc) {
-  const single={...schedule,reminders:{1:row}},base=reminderWindows(single,eventAtUtc)[0],dateKey=civilDateKey(schedule,nowUtc),enabled=row.availability?.enabled===true,maxPerDay=enabled?row.availability.maxPerDay:undefined,count=availabilityCount(schedule,row,dateKey);
+  const single={...schedule,reminders:{1:row}},base=reminderWindows(single,eventAtUtc)[0],dateKey=civilDateKey(schedule,nowUtc),maxPerDay=schedule.dailyLimitShared===true?schedule.sharedDailyLimit:row.availability?.maxPerDay,count=availabilityCount(schedule,row,dateKey);
   const slices=base?effectiveReminderWindows(single,eventAtUtc,nowUtc,Math.min(base.end,nowUtc+400*86400)):[],window=slices.find(w=>w.start<=nowUtc&&w.end>nowUtc),nextWindow=slices.find(w=>w.end>nowUtc);
   let nextEligibleAt=null;
   for(const slice of slices){let candidate=Math.max(nowUtc,slice.start);for(let days=0;candidate<slice.end&&days<=401;days++){
@@ -1153,6 +1158,8 @@ export function validateTimelineForAddon(schedule) {
   if (!schedule?.timelineVersion) return errors;
   const integer = (x, min, max) =>
     typeof x === "number" && Number.isInteger(x) && x >= min && x <= max;
+  if(schedule.dailyLimitShared!==undefined&&typeof schedule.dailyLimitShared!=="boolean")errors.push("Daily limit scope must be a boolean value.");
+  if(schedule.sharedDailyLimit!==undefined&&!integer(schedule.sharedDailyLimit,1,1000))errors.push("Shared daily limit must be a whole number from 1 to 1000, or omitted for unlimited.");
   const sequence = (table, label) => {
     if (!object(table) || Array.isArray(table)) {
       errors.push(`${label} must be a Lua sequence table.`);

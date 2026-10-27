@@ -17,7 +17,9 @@
 .scheduling-slider input[type="range"]::-moz-range-thumb { height: 12px; width: 12px; border-radius: 50%; background: #e6c17b; border: 2px solid var(--panel); box-shadow: 0 0 0 1px var(--gold); }
 .scheduling-slider-ends { display: flex; justify-content: space-between; color: var(--muted); font-size: 9px; }
 .scheduling-slider-preserved { color: #e7c780; margin-top: 6px; font-size: 10px; }
-.availability-settings .scheduling-slider { max-width: 340px; margin-top: 14px; }
+.daily-limit-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 16px 24px; margin: 18px 0; }
+.daily-limit-controls .scheduling-slider { flex: 0 1 340px; min-width: 230px; }
+.daily-limit-controls > .check { flex: 1 1 260px; }
 * {
   box-sizing: border-box;
 }

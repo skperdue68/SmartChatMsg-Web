@@ -1,4 +1,4 @@
-import { schedulingSlider, schedulingValue, bindSchedulingSliders } from "/scheduling-sliders.js";
+import { schedulingSlider, schedulingValue, bindSchedulingSliders, setSchedulingSliderValue } from "/scheduling-sliders.js";
 import { exportEventBundle, readEventBundle, reviewEventImport, importEventBundle } from "/portable.js";
 import {
   parseSavedVariables,
@@ -566,29 +566,32 @@ function reminderBadge(row){
   const text=row.once?(row.onceUntilFinish?'Sends one message per event occurrence, anytime within this period. It does not repeat when the interval passes.':'Sends one message per event occurrence at its trigger time, with the configured late allowance. It does not repeat within this period.'):'Selects a message from this pool repeatedly while the period is open, using Repeat every. Cooldowns and other activity can delay preparation.';
   return `<span class="badge reminder-type" tabindex="0" role="note" aria-label="${esc(label+'. '+text)}">${label}<span class="help-bubble">${esc(text)} Messages are prepared in ESO chat; you still press Enter to send.</span></span>`;
 }
+function dailyLimitMarkup(row,schedule){
+ const help='Unchecked: each period has its own daily announcement limit. Checked: one shared limit covers all periods of this command and guild. Resets at midnight on the guild timezone calendar day. Confirmed sends and matching announcements from other players count. Preparing a message does not count. Send once still means once per event occurrence. Apply period saves the limit and scope.';
+ const slider=schedulingSlider('maxPerDay',schedule.dailyLimitShared?schedule.sharedDailyLimit:row.availability?.maxPerDay).replace('class="scheduling-slider"','class="scheduling-slider" data-help="'+esc(help)+'"');
+ return `<div class="daily-limit-controls">${slider}<label class="check"><input type="checkbox" data-daily-limit-shared ${schedule.dailyLimitShared?'checked':''}>Share daily limit across this command and guild</label></div>`;
+}
 function availabilityMarkup(row,zone){
  const a=row.availability||{},clock=m=>`${String(Math.floor(m/60)%24).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
  const full=(a.startMinute??0)===0&&(a.endMinute??1440)===1440;
- return `<details class="availability-settings" ${a.enabled?'open':''}><summary>Availability — allowed days, hours and daily limit</summary><label class="check"><input type="checkbox" data-availability="enabled" ${a.enabled?'checked':''}>Limit when this reminder may run</label><div data-availability-options ${a.enabled?'':'hidden'}><p class="help">These are announcement days, not event recurrence days. The reminder must also be inside its overall promotion period. All clocks use server time (${esc(zone)}).</p><div class="actions weekdays">${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map((d,i)=>`<label class="check"><input type="checkbox" data-availability-day="${i+1}" ${!a.weekdays||a.weekdays[i+1]?'checked':''}>${d.slice(0,3)}</label>`).join('')}</div><label class="check"><input type="checkbox" data-availability="allDay" ${full?'checked':''}>All day</label><div class="grid" data-availability-hours ${full?'hidden':''}><label>From<div class="clock-control"><input type="time" data-availability="start" value="${clock(a.startMinute??420)}"><span>${esc(zone)}</span></div></label><label>Until<div class="clock-control"><input type="time" data-availability="end" value="${clock(a.endMinute??1320)}"><span>${esc(zone)}</span></div></label></div>${schedulingSlider("maxPerDay",a.maxPerDay)}<p class="help" data-availability-summary></p><p class="help">Confirmed sends and matching announcements from other players count toward the daily limit. Preparing a message does not count. Send once still means once per event occurrence.</p><div data-availability-overrides></div></div></details>`;
+ return `<details class="availability-settings" ${a.enabled?'open':''}><summary>Availability — allowed days and hours</summary><label class="check"><input type="checkbox" data-availability="enabled" ${a.enabled?'checked':''}>Limit when this reminder may run</label><div data-availability-options ${a.enabled?'':'hidden'}><p class="help">These are announcement days, not event recurrence days. The reminder must also be inside its overall promotion period. All clocks use server time (${esc(zone)}).</p><div class="actions weekdays">${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map((d,i)=>`<label class="check"><input type="checkbox" data-availability-day="${i+1}" ${!a.weekdays||a.weekdays[i+1]?'checked':''}>${d.slice(0,3)}</label>`).join('')}</div><label class="check"><input type="checkbox" data-availability="allDay" ${full?'checked':''}>All day</label><div class="grid" data-availability-hours ${full?'hidden':''}><label>From<div class="clock-control"><input type="time" data-availability="start" value="${clock(a.startMinute??420)}"><span>${esc(zone)}</span></div></label><label>Until<div class="clock-control"><input type="time" data-availability="end" value="${clock(a.endMinute??1320)}"><span>${esc(zone)}</span></div></label></div><div data-availability-overrides></div></div></details>`;
 }
 function availabilityFields(card){
  const read=k=>card.querySelector(`[data-availability="${k}"]`),previous=card._availability||{};
  const a={...clone(previous),enabled:read('enabled').checked};
+ const maximum=card._localDailyLimit;if(maximum===undefined)delete a.maxPerDay;else a.maxPerDay=maximum;
  if(!a.enabled)return a;
  a.weekdays={};card.querySelectorAll('[data-availability-day]:checked').forEach(el=>setLuaValue(a.weekdays,Number(el.dataset.availabilityDay),true));
  const minute=value=>/^\d{2}:\d{2}$/.test(value)?Number(value.slice(0,2))*60+Number(value.slice(3)):NaN;
  a.startMinute=read('allDay').checked?0:minute(read('start').value);
  const end=minute(read('end').value);
  a.endMinute=read('allDay').checked?1440:end===0?1440:end;
- const maximum=schedulingValue(read('maxPerDay'));if(maximum===undefined)delete a.maxPerDay;else a.maxPerDay=maximum;
  return a;
 }
 function refreshAvailability(card){
  const a=availabilityFields(card),read=k=>card.querySelector(`[data-availability="${k}"]`);
  card.querySelector('[data-availability-options]').hidden=!a.enabled;
  card.querySelector('[data-availability-hours]').hidden=read('allDay').checked;
- const summary=card.querySelector('[data-availability-summary]');
- summary.textContent=(a.maxPerDay?`Up to ${a.maxPerDay} announcement${a.maxPerDay===1?'':'s'} per server calendar day. `:'No daily limit. ')+(read('allDay').checked?'Eligible all day.':'Eligible during the selected hours; an earlier finish clock continues into the next day.');
  const overrides=card.querySelector('[data-availability-overrides]');overrides.replaceChildren();
  for(const [key,title] of [['dateOverrides','Date'],['weekdayOverrides','Weekday']])for(const [id,hours] of Object.entries(a[key]||{})){
   const line=document.createElement('div');line.className='availability-override';
@@ -640,8 +643,8 @@ function reminderFieldError(card,value=reminderFields(card)){
  const a=value.availability;
  if(a?.enabled){
   if(!Number.isInteger(a.startMinute)||a.startMinute<0||a.startMinute>1439||!Number.isInteger(a.endMinute)||a.endMinute<1||a.endMinute>1440||a.startMinute===a.endMinute)return 'Availability: choose valid, different start and finish clocks (or All day).';
-  if(a.maxPerDay!==undefined&&(!Number.isInteger(a.maxPerDay)||a.maxPerDay<1||a.maxPerDay>1000))return 'Maximum announcements per day must be a whole number from 1 to 1000, or blank.';
  }
+ if(a?.maxPerDay!==undefined&&(!Number.isInteger(a.maxPerDay)||a.maxPerDay<1||a.maxPerDay>1000))return 'Daily announcement limit must be a whole number from 1 to 1000, or unlimited.';
  const invalid=[...card.querySelectorAll('input[data-field]')].find(input=>{for(let node=input;node&&node!==card;node=node.parentElement)if(node.hidden)return false;return !input.checkValidity();});
  if(invalid){const label=({intervalMinutes:'Repeat Frequency',lateMinutes:'Late allowance'})[invalid.dataset.field]||invalid.dataset.field.replace('.',' ');return label+': '+invalid.validationMessage;}
  return null;
@@ -654,7 +657,8 @@ function decorateFieldLabels(root=document.querySelector('#detail')){
   });
   root.querySelectorAll('label:not(.button)').forEach(label=>{
     let caption=label;
-    if(!label.classList.contains('check')){caption=document.createElement('span');caption.className='field-caption';
+    if(label.classList.contains('scheduling-slider'))caption=label.querySelector('.scheduling-slider-heading>span');
+    else if(!label.classList.contains('check')){caption=document.createElement('span');caption.className='field-caption';
       [...label.childNodes].filter(node=>node.nodeType===Node.TEXT_NODE).forEach(node=>caption.append(node));label.prepend(caption);}
     if(label.dataset.help){
       const hint=document.createElement('span');hint.className='help-icon';hint.tabIndex=0;hint.setAttribute('role','note');hint.setAttribute('aria-label',label.dataset.help);
@@ -702,7 +706,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
         ["FIRST", "First occurrence"],
         ["SECOND", "Second occurrence"],
       ],
-    )}</div>${commandDeliveryMarkup(e)}<details id="event-rotation-settings" open><summary>Rotating event</summary><p class="help">The Event Date anchors the first activity. Names follow this order and repeat automatically, including while you are offline. Use <code>%eventactivity%</code> in messages for the selected name.</p>${input("Occurrences per activity","rotationEvery",s.rotationEvery||1,"number")}<div id="rotation-activities"></div><button id="add-activity" type="button">+ Add activity</button><p class="help">Upcoming selections update as you edit. Apply event settings to save these changes.</p></details><details id="weekday-options" ${vals(s.weekdays).some(Boolean)?'open':''}><summary>Event happens on multiple weekdays (advanced)</summary><label class="check"><input id="use-event-weekdays" type="checkbox" ${vals(s.weekdays).some(Boolean)?'checked':''}>Choose event weekdays instead of following Event Date</label><p class="help" id="weekday-explanation"></p><div class="actions weekdays" id="event-weekday-choices">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<label class="check"><input type="checkbox" data-weekday="${i + 1}" ${s.weekdays?.[i + 1] ? "checked" : ""}>${d.slice(0, 3)}</label>`).join("")}</div></details><div class="actions" style="margin-top:18px">${check("Enabled", "eventEnabled", s.enabled!==false&&!s.paused)}<button id="save-event" class="gold">Apply event settings</button></div></section><section class="panel" id="rotation-occurrences"></section><section class="panel" id="reminder-timeline"><div class="heading"><h2>Period Timeline</h2><button id="add-row" class="gold">+ Add period</button></div><p class="help">Periods are automatically ordered by start time when applied. Windows cannot overlap within this event; one may finish exactly when the next starts.</p><div id="timeline-conflicts" class="timeline-conflicts" role="alert"></div><div id="rows">${rows.map((r, i) => `<article class="reminder ${r.once ? "milestone" : ""}" data-row="${esc(r.id)}"><div class="heading"><h3>${i + 1}. ${esc(r.label || "Period")}</h3>${reminderBadge(r)}</div><p class="effective-reminder-time" data-effective-times></p><p class="reminder-overlap-warning" data-overlap-warning hidden></p><div class="grid">${input("Period Label", "label", r.label || "")}${select("Period Status","rowState",stateOf(r),[["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}${schedulingSlider("intervalMinutes",r.intervalMinutes ?? 60)}${input("Late allowance (minutes)", "lateMinutes", r.lateMinutes ?? 5, "number")}</div><div class="period-calendar-row"><section class="period-calendar"><h3>Period Starts</h3><div class="period-calendar-fields">${anchorMarkup(r.start, "start", s)}</div></section><section class="period-calendar" data-finish-window><h3>Period Stops</h3><div class="period-calendar-fields">${anchorMarkup(r.finish || r.start, "finish", s)}</div></section></div><div class="actions">${check("Send once", "once", r.once)}${check("Time-sensitive", "timeSensitive", r.timeSensitive)}<label class="check" data-help="Allow this period to begin after the event starts, for underway reminders. The event duration still limits delivery."><input type="checkbox" data-period-after-start ${model.resolveReminderAnchor(s,projectedNext(s)??model.scheduleEventUtc(s),r.start)>(projectedNext(s)??model.scheduleEventUtc(s))?'checked':''}>Allow promotion after event starts</label>${check("Allow a brief notice after event end (advanced)","allowAfterEventEnd",r.allowAfterEventEnd)}${check("Allow this announcement anytime within its window", "onceUntilFinish", r.onceUntilFinish)}</div>${availabilityMarkup(r,s.timeZone)}<details class="row-advanced"><summary>Advanced event-end exception</summary>${check("Allow a brief announcement after the event ends","allowAfterEventEnd",r.allowAfterEventEnd)}</details><p class="help">Choose a message pool. The addon selects a message from this pool when the reminder is due.</p><div class="pool">${messages.map((m, j) => `<label class="check" title="${esc(m.text)}"><input type="checkbox" data-message="${esc(m.id)}" ${vals(r.messageIds).includes(m.id) ? "checked" : ""}><span data-pool-message-label="${esc(m.id)}">${esc(model.messageDisplayName(m,j))}: ${esc(m.text)}</span></label>`).join("") || '<span class="help">Add a message below first.</span>'}</div><div class="actions"><button data-action="save">Apply period</button><button data-action="preview">Preview here</button><button data-action="remove" class="danger">Remove</button></div></article>`).join("") || '<div class="empty">No periods yet.</div>'}</div></section><section class="panel" id="important-times"><div class="heading"><h2>Important times</h2><button id="add-mark">+ Add important time</button></div><p class="help">Name an important moment, such as doors opening or ticket sales closing, and reference it in message substitutions.</p><details class="important-time-guide" id="important-time-guide"><summary>How to use important times</summary><ol><li>Add a key such as <code>tickets</code>, with a label such as Ticket sales close.</li><li>Choose the date and server time for that moment, then click <strong>Apply</strong>.</li><li>Set period boundaries with their calendars and server-time pickers.</li><li>In messages, use <code>%eventwhen:tickets%</code>, <code>%eventtime:tickets%</code>, <code>%eventdate:tickets%</code> or <code>%eventcountdown:tickets%</code>. The key after the colon must match the key you created.</li></ol><p class="help">For an 8 PM event, choose 7 PM on that event day for tickets closing an hour earlier. The saved relationship follows each recurring event automatically.</p></details>${Object.entries(
+    )}</div>${commandDeliveryMarkup(e)}<details id="event-rotation-settings" open><summary>Rotating event</summary><p class="help">The Event Date anchors the first activity. Names follow this order and repeat automatically, including while you are offline. Use <code>%eventactivity%</code> in messages for the selected name.</p>${input("Occurrences per activity","rotationEvery",s.rotationEvery||1,"number")}<div id="rotation-activities"></div><button id="add-activity" type="button">+ Add activity</button><p class="help">Upcoming selections update as you edit. Apply event settings to save these changes.</p></details><details id="weekday-options" ${vals(s.weekdays).some(Boolean)?'open':''}><summary>Event happens on multiple weekdays (advanced)</summary><label class="check"><input id="use-event-weekdays" type="checkbox" ${vals(s.weekdays).some(Boolean)?'checked':''}>Choose event weekdays instead of following Event Date</label><p class="help" id="weekday-explanation"></p><div class="actions weekdays" id="event-weekday-choices">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<label class="check"><input type="checkbox" data-weekday="${i + 1}" ${s.weekdays?.[i + 1] ? "checked" : ""}>${d.slice(0, 3)}</label>`).join("")}</div></details><div class="actions" style="margin-top:18px">${check("Enabled", "eventEnabled", s.enabled!==false&&!s.paused)}<button id="save-event" class="gold">Apply event settings</button></div></section><section class="panel" id="rotation-occurrences"></section><section class="panel" id="reminder-timeline"><div class="heading"><h2>Period Timeline</h2><button id="add-row" class="gold">+ Add period</button></div><p class="help">Periods are automatically ordered by start time when applied. Windows cannot overlap within this event; one may finish exactly when the next starts.</p><div id="timeline-conflicts" class="timeline-conflicts" role="alert"></div><div id="rows">${rows.map((r, i) => `<article class="reminder ${r.once ? "milestone" : ""}" data-row="${esc(r.id)}"><div class="heading"><h3>${i + 1}. ${esc(r.label || "Period")}</h3>${reminderBadge(r)}</div><p class="effective-reminder-time" data-effective-times></p><p class="reminder-overlap-warning" data-overlap-warning hidden></p><div class="grid">${input("Period Label", "label", r.label || "")}${select("Period Status","rowState",stateOf(r),[["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}${schedulingSlider("intervalMinutes",r.intervalMinutes ?? 60)}${input("Late allowance (minutes)", "lateMinutes", r.lateMinutes ?? 5, "number")}</div><div class="period-calendar-row"><section class="period-calendar"><h3>Period Starts</h3><div class="period-calendar-fields">${anchorMarkup(r.start, "start", s)}</div></section><section class="period-calendar" data-finish-window><h3>Period Stops</h3><div class="period-calendar-fields">${anchorMarkup(r.finish || r.start, "finish", s)}</div></section></div><div class="actions">${check("Send once", "once", r.once)}${check("Time-sensitive", "timeSensitive", r.timeSensitive)}<label class="check" data-help="Allow this period to begin after the event starts, for underway reminders. The event duration still limits delivery."><input type="checkbox" data-period-after-start ${model.resolveReminderAnchor(s,projectedNext(s)??model.scheduleEventUtc(s),r.start)>(projectedNext(s)??model.scheduleEventUtc(s))?'checked':''}>Allow promotion after event starts</label>${check("Allow a brief notice after event end (advanced)","allowAfterEventEnd",r.allowAfterEventEnd)}${check("Allow this announcement anytime within its window", "onceUntilFinish", r.onceUntilFinish)}</div>${dailyLimitMarkup(r,s)}${availabilityMarkup(r,s.timeZone)}<details class="row-advanced"><summary>Advanced event-end exception</summary>${check("Allow a brief announcement after the event ends","allowAfterEventEnd",r.allowAfterEventEnd)}</details><p class="help">Choose a message pool. The addon selects a message from this pool when the reminder is due.</p><div class="pool">${messages.map((m, j) => `<label class="check" title="${esc(m.text)}"><input type="checkbox" data-message="${esc(m.id)}" ${vals(r.messageIds).includes(m.id) ? "checked" : ""}><span data-pool-message-label="${esc(m.id)}">${esc(model.messageDisplayName(m,j))}: ${esc(m.text)}</span></label>`).join("") || '<span class="help">Add a message below first.</span>'}</div><div class="actions"><button data-action="save">Apply period</button><button data-action="preview">Preview here</button><button data-action="remove" class="danger">Remove</button></div></article>`).join("") || '<div class="empty">No periods yet.</div>'}</div></section><section class="panel" id="important-times"><div class="heading"><h2>Important times</h2><button id="add-mark">+ Add important time</button></div><p class="help">Name an important moment, such as doors opening or ticket sales closing, and reference it in message substitutions.</p><details class="important-time-guide" id="important-time-guide"><summary>How to use important times</summary><ol><li>Add a key such as <code>tickets</code>, with a label such as Ticket sales close.</li><li>Choose the date and server time for that moment, then click <strong>Apply</strong>.</li><li>Set period boundaries with their calendars and server-time pickers.</li><li>In messages, use <code>%eventwhen:tickets%</code>, <code>%eventtime:tickets%</code>, <code>%eventdate:tickets%</code> or <code>%eventcountdown:tickets%</code>. The key after the colon must match the key you created.</li></ol><p class="help">For an 8 PM event, choose 7 PM on that event day for tickets closing an hour earlier. The saved relationship follows each recurring event automatically.</p></details>${Object.entries(
       s.importantTimes || {},
     )
       .map(
@@ -880,13 +884,25 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
     changed();
     renderDetail();
   };
+  const dailyLimitDraft={shared:s.dailyLimitShared===true,limit:s.sharedDailyLimit};
+  const syncDailyLimits=()=>document.querySelectorAll('#rows .reminder').forEach(card=>{
+    card.querySelector('[data-daily-limit-shared]').checked=dailyLimitDraft.shared;
+    setSchedulingSliderValue(card.querySelector('[data-availability=maxPerDay]'),dailyLimitDraft.shared?dailyLimitDraft.limit:card._localDailyLimit,detail);
+  });
   $("#rows")
     .querySelectorAll(".reminder")
     .forEach((card) => {
       const r = rows.find((r) => r.id === card.dataset.row);
       card._originalAnchors={start:clone(r.start||{kind:"OFFSET",minutes:0}),finish:clone(r.finish||r.start||{kind:"OFFSET",minutes:0})};
       for(const key of ['start','finish'])for(const field of ['date','time']){const el=card.querySelector(`[data-field="${key}.${field}"]`);if(el)el.dataset.boundValue=el.value;}
+      card._localDailyLimit=r.availability?.maxPerDay;
       card._availability=clone(r.availability||{});refreshAvailability(card);
+      card.querySelector('[data-daily-limit-shared]').addEventListener('change',ev=>{dailyLimitDraft.shared=ev.target.checked;syncDailyLimits();});
+      card.querySelector('[data-availability=maxPerDay]').addEventListener('input',ev=>{
+        const value=schedulingValue(ev.target);
+        if(dailyLimitDraft.shared)dailyLimitDraft.limit=value;else card._localDailyLimit=value;
+        syncDailyLimits();
+      });
       card.querySelectorAll('[data-availability],[data-availability-day]').forEach(el=>el.addEventListener('change',()=>refreshAvailability(card)));
       const labelInput=card.querySelector('[data-field=label]'),heading=card.querySelector('.heading h3');
       heading.setAttribute('aria-live','polite');
@@ -922,6 +938,8 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
                 (k) => candidate.reminders[k].id === r.id,
               );
               candidate.reminders[key] = candidateRow;
+              candidate.dailyLimitShared=dailyLimitDraft.shared;
+              if(dailyLimitDraft.limit===undefined)delete candidate.sharedDailyLimit;else candidate.sharedDailyLimit=dailyLimitDraft.limit;
               try {
                 requireValidTimeline(candidate);
               } catch (error) {
@@ -929,6 +947,8 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
                 return;
               }
               Object.assign(r, candidateRow);
+              s.dailyLimitShared=candidate.dailyLimitShared;
+              if(candidate.sharedDailyLimit===undefined)delete s.sharedDailyLimit;else s.sharedDailyLimit=candidate.sharedDailyLimit;
               if (r.intervalMinutes < 1 || r.lateMinutes < 0) {
                 status(
                   "Repeat interval must be positive and late allowance cannot be negative.",
@@ -938,7 +958,19 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
               }
               changed();
               if (action === "preview") preview(e, r);
-              else renderDetail(r.id);
+              else {
+                card._availability=clone(r.availability||{});
+                card._originalAnchors={start:clone(r.start),finish:clone(r.finish||r.start)};
+                card.classList.toggle('milestone',!!r.once);
+                const ordered=model.orderedReminderRows(s);rows.splice(0,rows.length,...ordered);
+                for(const [index,row] of ordered.entries()){
+                  const element=document.querySelector('#rows .reminder[data-row="'+CSS.escape(row.id)+'"]');
+                  element.querySelector('.heading h3').textContent=`${index+1}. ${element.querySelector('[data-field=label]').value.trim()||'Period'}`;
+                  $('#rows').append(element);
+                }
+                refreshEffectiveTimes();refreshOverlapWarning();status('Period applied.');
+                requestAnimationFrame(()=>{card.querySelector('[data-field=label]').focus({preventScroll:true});card.scrollIntoView({block:'start',inline:'nearest',behavior:'instant'});window.scrollBy({top:-16,behavior:'instant'});});
+              }
             } else if (action === "remove") {
               s.reminders = tableArray(rows.filter((x) => x !== r));
               changed();
@@ -1612,7 +1644,7 @@ function renderDayTimeline(items,from,until,zone){
       if(item.availability){
         const base=document.createElement('span');base.className='day-availability-base';base.style.left=x(item.availability.baseStart)+'%';base.style.width=(x(item.availability.baseEnd)-x(item.availability.baseStart))+'%';track.append(base);
         const source=item.availability.availabilitySource;
-        const badge=document.createElement('span');badge.className='availability-badge';badge.textContent=(source==='DATE'?'Date override':source==='WEEKDAY'?'Weekday override':'Usual hours')+(item.availability.row.availability.maxPerDay?' · Up to '+item.availability.row.availability.maxPerDay+'/day':'');label.append(badge);
+        const badge=document.createElement('span');badge.className='availability-badge';badge.textContent=(source==='DATE'?'Date override':source==='WEEKDAY'?'Weekday override':'Usual hours');label.append(badge);
         if(source!=='USUAL'){
           const reset=document.createElement('button');reset.className='availability-reset';reset.textContent='Reset '+(source==='DATE'?'date':'weekday');reset.onclick=()=>{try{const before=clone(item.e.schedule),result=model.resetReminderAvailability(before,item.rowId,item.availability.availabilityDate,source);item.e.settings.schedule=result.schedule;dayTimelineUndo={account:accountName,guild,commandId:item.e.commandId,before,after:JSON.stringify(result.schedule)};changed();renderCalendar();status(result.notice||'Override reset. Inherited hours now apply.');}catch(error){status(error.message,true);}};label.append(reset);
         }
