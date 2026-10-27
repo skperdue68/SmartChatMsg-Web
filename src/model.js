@@ -982,7 +982,7 @@ export function validateTimelineForAddon(schedule) {
         )[0];
         if (!window || window.end <= window.start)
           errors.push(
-            `${label}: end must follow start and all local clocks must exist.`,
+            `${label}: end must follow start and all server clocks must exist.`,
           );
       } catch {
         errors.push(`${label}: reminder time cannot be resolved.`);

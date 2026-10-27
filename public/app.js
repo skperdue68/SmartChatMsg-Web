@@ -113,15 +113,15 @@ const fieldHelp = {
  onceUntilFinish:'Permit this one-time announcement anywhere from the start anchor until the finish anchor. Without this, the grace period defines its deadline.',
  timeSensitive:'Bypass ordinary reminder intervals and shared pacing for a precise announcement. Startup hold, user chat and relevant duplicate protection still apply. Enter is always required.',
  allowAfterEventEnd:'Advanced exception for a brief event-ended notice. This reminder may finish after the configured event duration; keep its own finish or grace short.',
- kind:'Choose elapsed minutes from the event, a calendar day at a local clock, or a reusable named important time.',
- days:'Whole calendar days relative to the actual event in its scheduling timezone. Negative days are before it; local clocks follow daylight saving time.',
- time:'A local clock in the displayed scheduling timezone. A nonexistent spring daylight-saving clock is rejected.',
+ kind:'Choose elapsed minutes from the event, a calendar day at a server clock, or a reusable named important time.',
+ days:'Whole calendar days relative to the actual event in its scheduling timezone. Negative days are before it; server clocks follow daylight saving time.',
+ time:'A server clock in the displayed scheduling timezone. A nonexistent spring daylight-saving clock is rejected.',
  minutes:'Whole elapsed minutes relative to the actual event. Negative values are before it; positive values are after it.',
  offsetMinutes:'Whole elapsed minutes from the selected actual event occurrence. For recurring events, this important moment follows every occurrence with the same offset.',
  name:'Choose an important time defined below, such as ticket sales closing. Create one first if this list is empty.',
  markMode:'Use a reusable offset, or select a specific date and clock to calculate that offset from the next occurrence. Specific dates are converted to offsets, not stored as fixed future deadlines.',
  markDate:'Pick a date relative to the next actual event occurrence. Saving converts it into an offset that follows future recurring events.',
- markTime:'Pick a local clock in the event timezone. Saving converts the selected date and clock into elapsed offset minutes.',
+ markTime:'Pick a server clock in the event timezone. Saving converts the selected date and clock into elapsed offset minutes.',
 };
 function helpText(key){return fieldHelp[key]||fieldHelp[key.split('.').at(-1)]||'';}
 function helpAttributes(key){const text=helpText(key);return text?` title="${esc(text)}" data-help="${esc(text)}" aria-description="${esc(text)}"`:'';}
@@ -357,13 +357,13 @@ function anchorMarkup(a, prefix, s) {
   };
   return `${select("Anchor", prefix + ".kind", a.kind || "OFFSET", [
     ["OFFSET", "Minutes from event"],
-    ["DAY", "Day and local time"],
+    ["DAY", "Day and server time"],
     ["MARK", "Important time"],
   ])}${
     a.kind === "DAY"
       ? input("Days from event", prefix + ".days", a.days ?? 0, "number") +
         input(
-          "Local clock",
+          "Server clock",
           prefix + ".time",
           a.time || "08:00 PM",
         )
@@ -1000,18 +1000,16 @@ function preview(e, r) {
   const sim = window
     ? Math.floor((window.start + window.end) / 2)
     : at || Math.floor(Date.now() / 1000);
-  const localDate = new Date(
-    sim * 1000 - new Date(sim * 1000).getTimezoneOffset() * 60000,
-  )
-    .toISOString()
-    .slice(0, 16);
+  const previewZone=e.schedule.timeZone||'ET';
+  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:zoneNames[previewZone],year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(sim*1000)).map(x=>[x.type,x.value]));
+  const serverDate=`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
   $("#dialog-body").innerHTML =
-    `<h2>Preview - ${esc(r.label)}</h2><p class="help">Simulate a time inside this reminder. The addon chooses from the eligible pool and always requires Enter.</p><div class="grid two"><label>Simulated local time<span class="clock-control"><input id="simulate-time" type="datetime-local" value="${localDate}"><span class="clock-zone">${esc(Intl.DateTimeFormat().resolvedOptions().timeZone)}</span></span></label><label>Simulated player zone<input id="simulate-zone" value="Guild Hall"></label></div><p id="simulate-status" class="help"></p><div id="simulate-messages"></div><p class="help">Event, deadline, faction, guild and zone substitutions use this simulated time. Additional natural-language date/time parsing and actual player context are applied in ESO.</p>`;
+    `<h2>Preview - ${esc(r.label)}</h2><p class="help">Simulate a time inside this reminder. The addon chooses from the eligible pool and always requires Enter.</p><div class="grid two"><label>Simulated server time<span class="clock-control"><input id="simulate-time" type="datetime-local" value="${serverDate}"><span class="clock-zone">${esc(previewZone)}</span></span></label><label>Simulated player zone<input id="simulate-zone" value="Guild Hall"></label></div><p id="simulate-status" class="help"></p><div id="simulate-messages"></div><p class="help">Event, deadline, faction, guild and zone substitutions use this simulated time. Additional natural-language date/time parsing and actual player context are applied in ESO.</p>`;
   function update() {
-    const now = Math.floor(
-        new Date($("#simulate-time").value).getTime() / 1000,
-      ),
-      hour = new Date(now * 1000).getHours(),
+    const [previewDate,previewClock]=$('#simulate-time').value.split('T');
+    const now=model.scheduleEventUtc({timeZone:previewZone,eventDate:previewDate,eventTime:previewClock,eventFold:e.schedule.eventFold});
+    if(now===null){$('#simulate-status').textContent='Choose a valid server date and time; this clock may not exist during the daylight-saving transition.';$('#simulate-messages').replaceChildren();return;}
+    const hour=Number(previewClock.split(':')[0]),
       tod = hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening",
       tokens = {
         timeofday: tod,
