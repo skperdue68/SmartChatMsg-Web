@@ -1578,11 +1578,11 @@ function chooseAvailabilityScope(item,apply){
 }
 function renderDayTimeline(items,from,until,zone){
   const root=document.querySelector('#calendar-grid');root.className='day-timeline-scroll';
-  const nav=document.createElement('div');nav.className='day-navigation';nav.innerHTML='<div class="day-date-controls"><button data-day-step="-1">← Previous day</button><button data-day-today>Today</button><button data-day-step="1">Next day →</button></div><button data-day-undo>Undo last timeline edit</button>';
+  const nav=document.createElement('div');nav.className='day-navigation';nav.innerHTML='<div class="day-date-controls"><button data-day-step="-1">← Previous day</button><span class="day-viewed-date" data-day-viewed-date role="status" aria-live="polite"></span><button data-day-step="1">Next day →</button></div><button data-day-undo>Undo last timeline edit</button>';
   const instructions=document.createElement('p');instructions.className='help day-instructions';instructions.textContent='5-minute snapping · Drag a block to move; drag a visible end to resize.';
   nav.querySelectorAll('[data-day-step]').forEach(b=>{const date=new Date(calDate+'T12:00:00Z');date.setUTCDate(date.getUTCDate()+Number(b.dataset.dayStep));b.textContent=(Number(b.dataset.dayStep)<0?'← ':'')+date.toLocaleDateString('en-US',{timeZone:'UTC',weekday:'short',month:'short',day:'numeric'})+(Number(b.dataset.dayStep)>0?' →':'');b.setAttribute('aria-label','View '+date.toLocaleDateString('en-US',{timeZone:'UTC',weekday:'long',year:'numeric',month:'long',day:'numeric'}));});
   nav.querySelectorAll('[data-day-step]').forEach(b=>b.onclick=()=>{const d=new Date(calDate+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+Number(b.dataset.dayStep));calDate=d.toISOString().slice(0,10);renderCalendar();});
-  nav.querySelector('[data-day-today]').onclick=()=>{calDate='';renderCalendar();};
+  nav.querySelector('[data-day-viewed-date]').textContent=new Date(calDate+'T12:00:00Z').toLocaleDateString('en-US',{timeZone:'UTC',weekday:'long',month:'short',day:'numeric',year:'numeric'});
   const undo=nav.querySelector('[data-day-undo]');undo.disabled=!dayTimelineUndo||dayTimelineUndo.account!==accountName||dayTimelineUndo.guild!==guild;
   undo.onclick=()=>{try{const edit=dayTimelineUndo,event=all().find(e=>e.commandId===edit.commandId&&e.guild.trim().toLowerCase()===guild.trim().toLowerCase());if(!event||JSON.stringify(event.schedule)!==edit.after)throw Error('This event changed since the drag; Undo cannot overwrite newer edits.');event.settings.schedule=clone(edit.before);selected=event.commandId;dayTimelineUndo=null;changed();renderCalendar();status('Timeline edit undone.');}catch(error){status(error.message,true);}};
   root.before(nav,instructions);
