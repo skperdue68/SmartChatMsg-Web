@@ -94,3 +94,16 @@ Special pattern **Rotating event** cycles an ordered list of activity names by s
 Guild choices also read the addon’s saved guild roster, so an empty account can create or import its first event without an existing message. Run the matching addon update and let ESO save the file first. Guild names/IDs/slots are account-specific runtime metadata and are not replaced by portable event imports.
 
 Monthly weekday recurrence now uses explicit First–Fifth or Last and Sunday–Saturday selectors. For the last Sunday of every month, select Monthly on weekday, Last, Sunday, interval 1. Older numbered-weekday schedules keep their prior behavior. Install the matching addon update before using explicit Last rules.
+
+
+## Reminder availability and daily limits
+
+Inside a reminder, open **Availability** and enable **Limit when this reminder may run** to choose announcement weekdays, allowed server-clock hours, and an optional maximum announcements per server calendar day. Leave it off to keep existing behavior. This does not change the event recurrence: a Tuesday event can have announcements allowed on Sunday and Monday. The overall promotion start/finish still apply.
+
+For one announcement per day between 7 AM and 10 PM, use a repeating reminder, choose those hours, and set the daily maximum to 1. **Send once** instead means once per whole event occurrence. Counts advance only when you send or the addon recognizes a matching announcement from another player; preparing or timing out a message does not consume an announcement. Counts persist across reloads, and reset at midnight in the schedule's server timezone. Time-sensitive reminders still respect availability and daily limits.
+
+In day view, hatched bands show the overall promotion range and bright bands show allowed hours. Drag or resize a bright band, then choose **Only this date**, **Every weekday**, or **All eligible days**. Date overrides take priority over weekday overrides, which take priority over usual hours. Dashed borders and badges identify overrides; **Reset date** or **Reset weekday** removes that override and inherits the next applicable hours. Undo also restores the previous timeline edit. Changes cannot expand the overall promotion range or enable an excluded weekday.
+
+Hours finishing earlier than they start cross midnight. Overrides belong to the date the window opens, even when editing its continuation after midnight. Daily counts use the actual send date. Daylight saving time follows the configured server timezone. The web overview shows eligibility, not guaranteed sends or a live connection to ESO.
+
+Availability and overrides travel with event exports; recipient daily usage is kept separately. Use the matching addon update before installing files containing availability settings. The addon continues to offer scheduling controls directly; https://scm.perdues.me provides the larger editor.
