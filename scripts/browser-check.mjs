@@ -887,6 +887,7 @@ async function calendarPeriodEditor(){
  const row=page.locator('.reminder').first();
  assert.match(await page.locator('#reminder-timeline h2').textContent(),/Period Timeline/);
  assert.equal(await row.locator('select[data-field$=".kind"]').count(),0);
+ assert.equal(await row.locator('[data-field=allowAfterEventEnd]').count(),1);assert.equal(await row.locator('.row-advanced [data-field=allowAfterEventEnd]').count(),1);assert.equal(await row.locator('[data-period-after-start]').isVisible(),true);
  assert.equal(await row.locator('[data-field="start.date"]').inputValue(),'2026-11-03');
  assert.equal(await row.locator('[data-field="start.time"]').inputValue(),'18:00');
  const left=await row.locator('.period-calendar').first().boundingBox(),right=await row.locator('.period-calendar').last().boundingBox();assert.ok(Math.abs(left.y-right.y)<2);assert.ok(right.x>left.x);
