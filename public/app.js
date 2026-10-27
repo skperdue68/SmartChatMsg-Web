@@ -53,13 +53,13 @@ function overlapNotes(schedule,conflicts=model.timelineConflicts(schedule)){
     return `Overlapping periods: "${c.first.label||c.first.id}" and "${c.second.label||c.second.id}" at ${clock(c.start)}${c.end>c.start?' – '+clock(c.end):''}. End one period before the other begins.`;
   });
 }
-function requireValidTimeline(schedule) {
+function requireValidTimeline(schedule, {allowIncompleteDrafts=false}={}) {
   if (schedule.timelineVersion !== 1) {const errors=model.validateEventRotation(schedule);if(errors.length)throw Error(errors.join(' '));return;}
-  const errors = model.validateTimelineForAddon(schedule);
+  const errors = model.validateTimelineForAddon(schedule).filter(error=>!(allowIncompleteDrafts&&vals(schedule.reminders).length===0&&error==='Choose between one and 100 reminders.'));
   if (errors.length) throw Error(errors.join(" "));
   const overlaps=overlapNotes(schedule);if(overlaps.length)throw Error(overlaps.join(" "));
 }
-function validateEditedTimelines(snapshot = data) {
+function validateEditedTimelines(snapshot = data, {allowIncompleteDrafts=false}={}) {
   for (const entry of model.accounts(snapshot))
     for (const event of model.events(entry.value)) {
       const original =
@@ -67,10 +67,11 @@ function validateEditedTimelines(snapshot = data) {
           event.commandId
         ]?.[event.guild]?.schedule;
       if (
-        event.schedule.timelineVersion === 1 &&
-        JSON.stringify(event.schedule) !== JSON.stringify(original)
+        event.settings.runAt === "SCHEDULED" && event.schedule.timelineVersion === 1 &&
+        (JSON.stringify(event.schedule) !== JSON.stringify(original) || vals(event.schedule.reminders).length===0)
       ) {
-        const errors = [...model.validateTimelineForAddon(event.schedule),...overlapNotes(event.schedule)];
+        const empty=vals(event.schedule.reminders).length===0;
+        const errors = [...model.validateTimelineForAddon(event.schedule).filter(error=>!(allowIncompleteDrafts&&empty&&error==='Choose between one and 100 reminders.')).map(error=>empty&&error==='Choose between one and 100 reminders.'?'This schedule has no reminders. Add a reminder period before downloading it for ESO; Save to server can preserve it as a draft.':error),...overlapNotes(event.schedule)];
         if (errors.length)
           throw Error(
             `${entry.name} / ${event.guild} / ${event.command.name}: ${errors.join(" ")}`,
@@ -396,9 +397,14 @@ function legacyMigrationBanner(event) {
 function showField(root,key,show){const field=root.querySelector(`[data-field="${key}"]`);if(field)field.closest('label').hidden=!show;}
 function refreshEventRelevance(){
  const panel=document.querySelector('#detail>.panel.event-settings');if(!panel)return;
+ const scheduled=panel.querySelector('[data-field=settingsRunAt]').value==='SCHEDULED';
+ for(const key of ['eventDate','eventTime','eventDurationMinutes','recurrence','eventState'])showField(panel,key,scheduled);
+ panel.querySelector('#next-occurrence').closest('label').hidden=!scheduled;
+ panel.querySelector('#schedule-timezone').closest('label').hidden=!scheduled;
+ for(const id of ['reminder-timeline','important-times','event-clock-options','event-schedule-help','migration-panel']){const el=document.getElementById(id);if(el)el.hidden=!scheduled;}
  const recurrence=panel.querySelector('[data-field=recurrence]').value;
- const repeating=recurrence!=='NONE';
- document.querySelector('#monthly-weekday-rule').hidden=recurrence!=='MONTHLY_WEEKDAY';
+ const repeating=scheduled&&recurrence!=='NONE';
+ document.querySelector('#monthly-weekday-rule').hidden=!scheduled||recurrence!=='MONTHLY_WEEKDAY';
  const monthlyWeek=panel.querySelector('[data-field=monthlyWeek]'),monthlyDay=panel.querySelector('[data-field=monthlyWeekday]');
  document.querySelector('#monthly-weekday-help').textContent=monthlyWeek.value==='LAST'?'Last '+monthlyDay.selectedOptions[0].textContent+' of each selected month, including months with four or five occurrences.':monthlyWeek.value==='5'?'Fifth '+monthlyDay.selectedOptions[0].textContent+' only; months without a fifth occurrence are skipped.':'The '+monthlyWeek.selectedOptions[0].textContent.toLowerCase()+' '+monthlyDay.selectedOptions[0].textContent+' of each selected month. Event Date anchors the first eligible month.';
  const faction=repeating&&panel.querySelector('[data-field=specialPattern]').value==='FACTION_ROTATION';
@@ -406,10 +412,10 @@ function refreshEventRelevance(){
  showField(panel,'rotationWeeks',faction);showField(panel,'rotationFactions',faction);
  const pattern=repeating?panel.querySelector('[data-field=specialPattern]').value:'NONE';
  const rotationSettings=document.querySelector('#event-rotation-settings');rotationSettings.hidden=pattern!=='EVENT_ROTATION';if(pattern==='EVENT_ROTATION')rotationSettings.open=true;
- document.querySelector('#rotation-occurrences').hidden=!['EVENT_ROTATION','FACTION_ROTATION'].includes(pattern)&&!Object.keys(selectedEvent().schedule.occurrenceExceptions||{}).length;
+ document.querySelector('#rotation-occurrences').hidden=!scheduled||!['EVENT_ROTATION','FACTION_ROTATION'].includes(pattern)&&!Object.keys(selectedEvent().schedule.occurrenceExceptions||{}).length;
  document.querySelectorAll('.message [data-field=variant]').forEach(field=>{const value=field.value;field.closest('label').hidden=pattern==='NONE';field.innerHTML=opts(variantChoices({...currentEventDraft(),specialPattern:pattern},value),value);});
 
- const weekday=['DAILY','WEEKLY','BIWEEKLY'].includes(recurrence);
+ const weekday=scheduled&&['DAILY','WEEKLY','BIWEEKLY'].includes(recurrence);
  document.querySelector('#weekday-options').hidden=!weekday;
  const enabled=document.querySelector('#use-event-weekdays').checked;
  document.querySelector('#event-weekday-choices').hidden=!enabled;
@@ -455,6 +461,7 @@ function rotationProjectionKey(s){
 }
 function renderRotationOccurrences(event,s=currentEventDraft()){
  const panel=document.querySelector('#rotation-occurrences');if(!panel)return;
+ if(document.querySelector('[data-field=settingsRunAt]')?.value!=='SCHEDULED'){panel.hidden=true;return;}
  const pending=rotationProjectionKey(s)!==rotationProjectionKey(event.schedule);
  const rotating=['EVENT_ROTATION','FACTION_ROTATION'].includes(s.specialPattern);
  const hasExceptions=Object.keys(s.occurrenceExceptions||{}).length>0;panel.hidden=!rotating&&!hasExceptions;if(!rotating&&!hasExceptions){panel.innerHTML='<p class="help">Apply event settings to see upcoming rotation occurrences.</p>';return;}
@@ -587,15 +594,16 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
       '<div class="panel empty">Choose a guild event, or create a new event.</div>';
     return;
   }
+  const pendingRunAt=preserveScroll?document.querySelector('#detail [data-field=settingsRunAt]')?.value:undefined;
   const s = (e.settings.schedule ??= {}),
     messages = eventMessages(e),
     rows = model.orderedReminderRows(s,projectedNext(s)??model.scheduleEventUtc(s));
   const monthlyRule=model.monthlyWeekdayRule(s);let monthlyRulePinned=s.monthlyWeek!==undefined||s.monthlyWeekday!==undefined;
   $("#detail").innerHTML =
-    `<section class="panel event-settings"><div class="heading"><div><p class="eyebrow">EVENT SETTINGS</p><h2>${esc(e.command?.name)}</h2></div><span class="badge">${s.timelineVersion === 1 ? "TIMELINE" : "LEGACY SCHEDULE"}</span></div><div class="grid">${input("Event name", "commandName", e.command.name)}${input("Event Date", "eventDate", s.eventDate || "", "date")}${input("Event Start Time", "eventTime", s.eventTime || "08:00 PM")}<label data-help="The next actual event occurrence, calculated live from the current unsaved date, clock, recurrence, interval and weekday controls.">Next occurrence <span class="readonly-tag">Read only</span><input id="next-occurrence" readonly aria-live="polite"></label>${input("Event duration (minutes, optional)","eventDurationMinutes",s.eventDurationMinutes??"","number")}<label title="Read only here. Change Guild timezone in the toolbar above; all event clocks use that timezone.">Scheduling timezone (guild) <span class="readonly-tag">Read only</span><input value="${esc(guildZone())}" readonly aria-description="Change Guild timezone in the toolbar above."><small class="help">Change using Guild timezone in the toolbar.</small></label>${select("Output channel", "outputChannel", account().chatChannels?.[e.commandId]?.[model.guildKey(account().chatChannels?.[e.commandId],guild)] || "Guild", ["Guild", "Officer", "Zone", "Group"])}${select(
+    `<section class="panel event-settings"><div class="heading"><div><p class="eyebrow">EVENT SETTINGS</p><h2>${esc(e.command?.name)}</h2></div><span class="badge">${s.timelineVersion === 1 ? "TIMELINE" : "LEGACY SCHEDULE"}</span></div><div class="grid">${input("Event name", "commandName", e.command.name)}${input("Event Date", "eventDate", s.eventDate || "", "date")}${input("Event Start Time", "eventTime", s.eventTime || "08:00 PM")}<label data-help="The next actual event occurrence, calculated live from the current unsaved date, clock, recurrence, interval and weekday controls.">Next occurrence <span class="readonly-tag">Read only</span><input id="next-occurrence" readonly aria-live="polite"></label>${input("Event duration (minutes, optional)","eventDurationMinutes",s.eventDurationMinutes??"","number")}<label title="Read only here. Change Guild timezone in the toolbar above; all event clocks use that timezone.">Scheduling timezone (guild) <span class="readonly-tag">Read only</span><input id="schedule-timezone" value="${esc(guildZone())}" readonly aria-description="Change Guild timezone in the toolbar above."><small class="help">Change using Guild timezone in the toolbar.</small></label>${select("Output channel", "outputChannel", account().chatChannels?.[e.commandId]?.[model.guildKey(account().chatChannels?.[e.commandId],guild)] || "Guild", ["Guild", "Officer", "Zone", "Group"])}${select(
       "Run at",
       "settingsRunAt",
-      e.settings.runAt || "ON_DEMAND",
+      pendingRunAt || e.settings.runAt || "ON_DEMAND",
       [
         ["ON_DEMAND", "On demand"],
         ["STARTUP", "Startup"],
@@ -609,7 +617,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
         ["FIRST", "First occurrence"],
         ["SECOND", "Second occurrence"],
       ],
-    )}</div><details id="event-rotation-settings" open><summary>Rotating event</summary><p class="help">The Event Date anchors the first activity. Names follow this order and repeat automatically, including while you are offline. Use <code>%eventactivity%</code> in messages for the selected name.</p>${input("Occurrences per activity","rotationEvery",s.rotationEvery||1,"number")}<div id="rotation-activities"></div><button id="add-activity" type="button">+ Add activity</button><p class="help">Upcoming selections update as you edit. Apply event settings to save these changes.</p></details><details id="weekday-options" ${vals(s.weekdays).some(Boolean)?'open':''}><summary>Event happens on multiple weekdays (advanced)</summary><label class="check"><input id="use-event-weekdays" type="checkbox" ${vals(s.weekdays).some(Boolean)?'checked':''}>Choose event weekdays instead of following Event Date</label><p class="help" id="weekday-explanation"></p><div class="actions weekdays" id="event-weekday-choices">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<label class="check"><input type="checkbox" data-weekday="${i + 1}" ${s.weekdays?.[i + 1] ? "checked" : ""}>${d.slice(0, 3)}</label>`).join("")}</div></details><div class="actions" style="margin-top:18px">${select("Event state", "eventState", stateOf(s), [["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}<button id="save-event" class="gold">Apply event settings</button></div><p class="help">Enter the real event date and time. Reminder offsets are measured from this moment; calendar-day anchors use the event timezone.</p></section><section class="panel" id="rotation-occurrences"></section><section class="panel"><div class="heading"><h2>Reminder timeline</h2><button id="add-row" class="gold">+ Add reminder</button></div>${s.timelineVersion !== 1 ? '<p class="help">This event still uses legacy scheduling. Convert this schedule to review its existing timing and message pools before adding reminders.</p>' : ""}<p class="help">Periods are automatically ordered by start time when applied. Windows cannot overlap within this event; one may finish exactly when the next starts.</p><div id="timeline-conflicts" class="timeline-conflicts" role="alert"></div><div id="rows">${rows.map((r, i) => `<article class="reminder ${r.once ? "milestone" : ""}" data-row="${esc(r.id)}"><div class="heading"><h3>${i + 1}. ${esc(r.label || "Reminder")}</h3>${reminderBadge(r)}</div><p class="effective-reminder-time" data-effective-times></p><p class="reminder-overlap-warning" data-overlap-warning hidden></p><div class="grid">${input("Reminder label", "label", r.label || "")}${select("Reminder state","rowState",stateOf(r),[["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}${input("Repeat every (minutes)", "intervalMinutes", r.intervalMinutes ?? 60, "number")}${input("Late allowance (minutes)", "lateMinutes", r.lateMinutes ?? 5, "number")}</div><h3>Starts</h3><div class="grid">${anchorMarkup(r.start, "start", s)}</div><div data-finish-window><h3>Finishes</h3><div class="grid">${anchorMarkup(r.finish || r.start, "finish", s)}</div></div><div class="actions">${check("Send once", "once", r.once)}${check("Time-sensitive", "timeSensitive", r.timeSensitive)}${check("Allow a brief notice after event end (advanced)","allowAfterEventEnd",r.allowAfterEventEnd)}${check("Allow this announcement anytime within its window", "onceUntilFinish", r.onceUntilFinish)}</div>${availabilityMarkup(r,s.timeZone)}<details class="row-advanced"><summary>Advanced event-end exception</summary>${check("Allow a brief announcement after the event ends","allowAfterEventEnd",r.allowAfterEventEnd)}</details><p class="help">Choose a message pool. The addon selects a message from this pool when the reminder is due.</p><div class="pool">${messages.map((m, j) => `<label class="check" title="${esc(m.text)}"><input type="checkbox" data-message="${esc(m.id)}" ${vals(r.messageIds).includes(m.id) ? "checked" : ""}><span data-pool-message-label="${esc(m.id)}">${esc(model.messageDisplayName(m,j))}: ${esc(m.text)}</span></label>`).join("") || '<span class="help">Add a message below first.</span>'}</div><div class="actions"><button data-action="save">Apply reminder</button><button data-action="preview">Preview here</button><button data-action="remove" class="danger">Remove</button></div></article>`).join("") || '<div class="empty">No timeline reminders yet.</div>'}</div></section><section class="panel"><div class="heading"><h2>Important times</h2><button id="add-mark">+ Add time</button></div><p class="help">Name an important moment, such as doors opening or ticket sales closing, and reuse it in reminder anchors.</p><details class="important-time-guide" id="important-time-guide"><summary>How to use important times</summary><ol><li>Add a key such as <code>tickets</code>, with a label such as Ticket sales close.</li><li>Use <strong>-60</strong> minutes for one hour before the event (-30 means 30 minutes before). Positive values mean after. Click <strong>Apply</strong>.</li><li>For a reminder start or stop, choose <strong>Anchor → Important time</strong> and select it.</li><li>In messages, use <code>%eventwhen:tickets%</code>, <code>%eventtime:tickets%</code>, <code>%eventdate:tickets%</code> or <code>%eventcountdown:tickets%</code>. The key after the colon must match the key you created.</li></ol><p class="help">For an 8 PM event, tickets at -60 means 7 PM on that event day. It follows each recurring event automatically. The Pick date and time option calculates the same reusable offset, not a separate one-off date.</p></details>${Object.entries(
+    )}</div><details id="event-rotation-settings" open><summary>Rotating event</summary><p class="help">The Event Date anchors the first activity. Names follow this order and repeat automatically, including while you are offline. Use <code>%eventactivity%</code> in messages for the selected name.</p>${input("Occurrences per activity","rotationEvery",s.rotationEvery||1,"number")}<div id="rotation-activities"></div><button id="add-activity" type="button">+ Add activity</button><p class="help">Upcoming selections update as you edit. Apply event settings to save these changes.</p></details><details id="weekday-options" ${vals(s.weekdays).some(Boolean)?'open':''}><summary>Event happens on multiple weekdays (advanced)</summary><label class="check"><input id="use-event-weekdays" type="checkbox" ${vals(s.weekdays).some(Boolean)?'checked':''}>Choose event weekdays instead of following Event Date</label><p class="help" id="weekday-explanation"></p><div class="actions weekdays" id="event-weekday-choices">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<label class="check"><input type="checkbox" data-weekday="${i + 1}" ${s.weekdays?.[i + 1] ? "checked" : ""}>${d.slice(0, 3)}</label>`).join("")}</div></details><div class="actions" style="margin-top:18px">${select("Event state", "eventState", stateOf(s), [["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}<button id="save-event" class="gold">Apply event settings</button></div><p class="help" id="event-schedule-help">Enter the real event date and time. Reminder offsets are measured from this moment; calendar-day anchors use the event timezone.</p></section><section class="panel" id="rotation-occurrences"></section><section class="panel" id="reminder-timeline"><div class="heading"><h2>Reminder timeline</h2><button id="add-row" class="gold">+ Add reminder</button></div>${s.timelineVersion !== 1 ? '<p class="help">This event still uses legacy scheduling. Convert this schedule to review its existing timing and message pools before adding reminders.</p>' : ""}<p class="help">Periods are automatically ordered by start time when applied. Windows cannot overlap within this event; one may finish exactly when the next starts.</p><div id="timeline-conflicts" class="timeline-conflicts" role="alert"></div><div id="rows">${rows.map((r, i) => `<article class="reminder ${r.once ? "milestone" : ""}" data-row="${esc(r.id)}"><div class="heading"><h3>${i + 1}. ${esc(r.label || "Reminder")}</h3>${reminderBadge(r)}</div><p class="effective-reminder-time" data-effective-times></p><p class="reminder-overlap-warning" data-overlap-warning hidden></p><div class="grid">${input("Reminder label", "label", r.label || "")}${select("Reminder state","rowState",stateOf(r),[["ENABLED","Enabled"],["PAUSED","Paused"],["DISABLED","Disabled"]])}${input("Repeat every (minutes)", "intervalMinutes", r.intervalMinutes ?? 60, "number")}${input("Late allowance (minutes)", "lateMinutes", r.lateMinutes ?? 5, "number")}</div><h3>Starts</h3><div class="grid">${anchorMarkup(r.start, "start", s)}</div><div data-finish-window><h3>Finishes</h3><div class="grid">${anchorMarkup(r.finish || r.start, "finish", s)}</div></div><div class="actions">${check("Send once", "once", r.once)}${check("Time-sensitive", "timeSensitive", r.timeSensitive)}${check("Allow a brief notice after event end (advanced)","allowAfterEventEnd",r.allowAfterEventEnd)}${check("Allow this announcement anytime within its window", "onceUntilFinish", r.onceUntilFinish)}</div>${availabilityMarkup(r,s.timeZone)}<details class="row-advanced"><summary>Advanced event-end exception</summary>${check("Allow a brief announcement after the event ends","allowAfterEventEnd",r.allowAfterEventEnd)}</details><p class="help">Choose a message pool. The addon selects a message from this pool when the reminder is due.</p><div class="pool">${messages.map((m, j) => `<label class="check" title="${esc(m.text)}"><input type="checkbox" data-message="${esc(m.id)}" ${vals(r.messageIds).includes(m.id) ? "checked" : ""}><span data-pool-message-label="${esc(m.id)}">${esc(model.messageDisplayName(m,j))}: ${esc(m.text)}</span></label>`).join("") || '<span class="help">Add a message below first.</span>'}</div><div class="actions"><button data-action="save">Apply reminder</button><button data-action="preview">Preview here</button><button data-action="remove" class="danger">Remove</button></div></article>`).join("") || '<div class="empty">No timeline reminders yet.</div>'}</div></section><section class="panel" id="important-times"><div class="heading"><h2>Important times</h2><button id="add-mark">+ Add time</button></div><p class="help">Name an important moment, such as doors opening or ticket sales closing, and reuse it in reminder anchors.</p><details class="important-time-guide" id="important-time-guide"><summary>How to use important times</summary><ol><li>Add a key such as <code>tickets</code>, with a label such as Ticket sales close.</li><li>Use <strong>-60</strong> minutes for one hour before the event (-30 means 30 minutes before). Positive values mean after. Click <strong>Apply</strong>.</li><li>For a reminder start or stop, choose <strong>Anchor → Important time</strong> and select it.</li><li>In messages, use <code>%eventwhen:tickets%</code>, <code>%eventtime:tickets%</code>, <code>%eventdate:tickets%</code> or <code>%eventcountdown:tickets%</code>. The key after the colon must match the key you created.</li></ol><p class="help">For an 8 PM event, tickets at -60 means 7 PM on that event day. It follows each recurring event automatically. The Pick date and time option calculates the same reusable offset, not a separate one-off date.</p></details>${Object.entries(
       s.importantTimes || {},
     )
       .map(
@@ -685,7 +693,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
   const fold=eventPanel.querySelector('[data-field=eventFold]').closest('label');
   const advanced=document.createElement('details');advanced.id='event-clock-options';advanced.innerHTML='<summary>Advanced clock options</summary>';advanced.open=s.eventFold==='SECOND';fold.parentElement.append(advanced);advanced.append(fold);
   if(s.timelineVersion!==1)eventPanel.insertAdjacentHTML('afterend',legacyMigrationBanner(e));
-  eventPanel.querySelectorAll('[data-field=recurrence],[data-field=specialPattern],[data-field=eventDate],[data-field=monthlyWeek],[data-field=monthlyWeekday],[data-weekday],#use-event-weekdays').forEach(control=>control.addEventListener('change',refreshEventRelevance));
+  eventPanel.querySelectorAll('[data-field=settingsRunAt],[data-field=recurrence],[data-field=specialPattern],[data-field=eventDate],[data-field=monthlyWeek],[data-field=monthlyWeekday],[data-weekday],#use-event-weekdays').forEach(control=>control.addEventListener('change',refreshEventRelevance));
   eventPanel.querySelectorAll('[data-field=monthlyWeek],[data-field=monthlyWeekday]').forEach(control=>control.addEventListener('change',()=>{monthlyRulePinned=true;}));
   const inferMonthlyRule=()=>{if(!monthlyRulePinned){const rule=model.monthlyWeekdayRule({eventDate:eventPanel.querySelector('[data-field=eventDate]').value});eventPanel.querySelector('[data-field=monthlyWeek]').value=String(rule.monthlyWeek??1);eventPanel.querySelector('[data-field=monthlyWeekday]').value=String(rule.monthlyWeekday??1);}refreshEventRelevance();};
   eventPanel.querySelector('[data-field=eventDate]').addEventListener('input',inferMonthlyRule);eventPanel.querySelector('[data-field=eventDate]').addEventListener('change',inferMonthlyRule);
@@ -693,6 +701,12 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
   eventPanel.querySelectorAll('input,select').forEach(el=>{el.addEventListener('input',refreshNextOccurrence);el.addEventListener('change',refreshNextOccurrence);});refreshNextOccurrence();
   $("#save-event").onclick = () => {
     const p = $("#detail>.panel");
+    if(p.querySelector('[data-field=settingsRunAt]').value!=='SCHEDULED'){
+      const name=p.querySelector('[data-field=commandName]').value.trim();if(name)e.command.name=name;
+      account().chatChannels??={};account().chatChannels[e.commandId]??={};account().chatChannels[e.commandId][model.guildKey(account().chatChannels[e.commandId],guild)]=p.querySelector('[data-field=outputChannel]').value;
+      e.settings.runAt=p.querySelector('[data-field=settingsRunAt]').value;
+      changed();renderList();return;
+    }
     if([...p.querySelectorAll("input")].some(el=>!el.checkValidity())){p.querySelectorAll("input").forEach(el=>el.reportValidity());status("Use valid clocks and whole numbers within their allowed ranges.",true);return;}
     const v = fields(p);
     const rotationDraft=currentEventDraft();v.rotationFactions=rotationDraft.rotationFactions;if(rotationDraft.rotationEvents)v.rotationEvents=rotationDraft.rotationEvents;
@@ -714,7 +728,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
     if(candidate.eventDurationMinutes===null)delete candidate.eventDurationMinutes;
     if(candidate.recurrence==='NONE')candidate.specialPattern='NONE';
     try {
-      requireValidTimeline(candidate);
+      requireValidTimeline(candidate,{allowIncompleteDrafts:true});
     } catch (error) {
       status(error.message, true);
       return;
@@ -1068,7 +1082,7 @@ $("#new-event").onclick = () => {
   a.commandGuildSettings ??= {};
   a.commandGuildSettings[id] = {
     [g]: {
-      runAt: "SCHEDULED",
+      runAt: "ON_DEMAND",
       schedule: {
         enabled: true,
         paused: false,
@@ -1856,9 +1870,9 @@ function download(text, name, type = "text/plain") {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-function prepareCurrentLua(){
+function prepareCurrentLua(options={}){
   if(!data)throw Error('Open a SavedVariables file first.');
-  validateEditedTimelines();
+  validateEditedTimelines(data,options);
   const result=model.mergeSavedVariables(base,data,latest||base);
   if(result.conflicts.length){
     const detail=result.conflicts.map(c=>`${c.path}\nEdited: ${JSON.stringify(c.edited)}\nLatest: ${JSON.stringify(c.latest)}`).join('\n\n');
@@ -1868,7 +1882,7 @@ function prepareCurrentLua(){
     const original=base.Default?.[entry.name]?.$AccountWide?.commandGuildSettings?.[event.commandId]?.[event.guild]?.schedule;
     if(event.schedule.timelineVersion===1&&JSON.stringify(event.schedule)!==JSON.stringify(original))event.schedule.reminders=tableArray(model.orderedReminderRows(event.schedule));
   }
-  validateEditedTimelines(result.data);return writeSavedVariables(result.data);
+  validateEditedTimelines(result.data,options);return writeSavedVariables(result.data);
 }
 $('#export').onclick=()=>{
   try{
@@ -1883,7 +1897,7 @@ async function libraryRequest(path,options={}){
   return response;
 }
 async function showServerLibrary(focusSave=false){
-  $('#dialog-body').innerHTML=`<h2>Shared server library</h2><p class="help">Full Lua configurations saved here are public: anyone can load all their accounts and messages, including locked messages. Names must be unique; saved files cannot be overwritten. Apply editor changes before saving.</p><section class="library-save"><label>Save current configuration as<input id="library-name" maxlength="120" placeholder="For example: Alphabet Mafia — November v1" ${data?'':'disabled'}></label><button id="library-save" class="gold" ${data?'':'disabled'}>Save to server</button></section>${data?'':'<p class="help">Open a local file or load a shared configuration before saving.</p>'}<div class="heading"><h3>Saved configurations</h3><button id="library-refresh">Refresh list</button></div><p id="library-status" role="status" class="help">Loading saved files…</p><div id="library-list"></div><p class="help">Loading opens a copy in this editor. It does not change your ESO files or remap accounts. Use event import/export to transfer events into another account. Download updated Lua when you are ready to install it.</p>`;
+  $('#dialog-body').innerHTML=`<h2>Shared server library</h2><p class="help">Full Lua configurations saved here are public: anyone can load all their accounts and messages, including locked messages. Names must be unique; saved files cannot be overwritten. Apply editor changes before saving. Empty reminder timelines can be saved as drafts; finish them before downloading for ESO.</p><section class="library-save"><label>Save current configuration as<input id="library-name" maxlength="120" placeholder="For example: Alphabet Mafia — November v1" ${data?'':'disabled'}></label><button id="library-save" class="gold" ${data?'':'disabled'}>Save to server</button></section>${data?'':'<p class="help">Open a local file or load a shared configuration before saving.</p>'}<div class="heading"><h3>Saved configurations</h3><button id="library-refresh">Refresh list</button></div><p id="library-status" role="status" class="help">Loading saved files…</p><div id="library-list"></div><p class="help">Loading opens a copy in this editor. It does not change your ESO files or remap accounts. Use event import/export to transfer events into another account. Download updated Lua when you are ready to install it.</p>`;
   $('#dialog').showModal();let requestVersion=0;const listNode=$('#library-list');
   const isActive=()=>$('#dialog').open&&$('#library-list')===listNode;
   const libraryStatus=(text,error=false)=>{const el=$('#library-status');if(isActive()&&el){el.textContent=text;el.classList.toggle('error',error);}};
@@ -1914,9 +1928,11 @@ async function showServerLibrary(focusSave=false){
     if(!name){libraryStatus('Enter a unique name for this configuration.',true);field.focus();return;}
     button.disabled=true;field.disabled=true;
     try{
-      const lua=prepareCurrentLua(),revision=editRevision;
+      const lua=prepareCurrentLua({allowIncompleteDrafts:true}),revision=editRevision;
+      const drafts=model.accounts(parseSavedVariables(lua)).flatMap(entry=>model.events(entry.value).filter(e=>e.settings.runAt==='SCHEDULED'&&e.schedule.timelineVersion===1&&vals(e.schedule.reminders).length===0).map(e=>`${entry.name} / ${e.guild} / ${e.command.name}`));
+      const draftNote=drafts.length?' Draft with no reminders: '+drafts.join('; ')+'. Add reminder periods before downloading for ESO.':'';
       await libraryRequest('',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,lua})});
-      const unchanged=revision===editRevision;if(unchanged)dirty=false;field.value='';if(isActive())await refresh();libraryStatus(`Saved “${name}”. This name is now reserved; choose a different name for future versions.`);status(unchanged?`Saved a shared server copy named “${name}”. Local ESO files are unchanged.`:`Saved the earlier copy named “${name}”. Newer workspace edits were not marked as saved.`);
+      const unchanged=revision===editRevision;if(unchanged)dirty=false;field.value='';if(isActive())await refresh();libraryStatus(`Saved “${name}”. This name is now reserved; choose a different name for future versions.`+draftNote);status(unchanged?`Saved a shared server copy named “${name}”. Local ESO files are unchanged.`:`Saved the earlier copy named “${name}”. Newer workspace edits were not marked as saved.`);
     }catch(error){libraryStatus(error.message,true);}
     finally{button.disabled=false;field.disabled=false;}
   };

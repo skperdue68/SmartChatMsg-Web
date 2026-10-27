@@ -107,3 +107,9 @@ In day view, hatched bands show the overall promotion range and bright bands sho
 Hours finishing earlier than they start cross midnight. Overrides belong to the date the window opens, even when editing its continuation after midnight. Daily counts use the actual send date. Daylight saving time follows the configured server timezone. The web overview shows eligibility, not guaranteed sends or a live connection to ESO.
 
 Availability and overrides travel with event exports; recipient daily usage is kept separately. Use the matching addon update before installing files containing availability settings. The addon continues to offer scheduling controls directly; https://scm.perdues.me provides the larger editor.
+
+
+The server library can also preserve an empty reminder timeline as an unfinished draft. A successful save names those drafts in a warning, and loading restores their messages, settings and usage unchanged. Complete their reminder periods before using **Download updated Lua** for ESO. Other invalid schedule values and latest-snapshot conflicts still block saves.
+
+
+New entries default to **On demand**. **On demand** and **Startup** hide scheduling-only fields and do not require event dates, durations or reminder timelines. Switching to **Scheduled** reveals those controls. Switching away preserves the stored schedule for later reuse; inactive scheduling data does not block a full-file save or download.
