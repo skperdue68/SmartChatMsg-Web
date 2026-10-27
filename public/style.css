@@ -707,3 +707,5 @@ label.check>.help-icon{flex:none;margin-left:4px}
 
 .command-sound-field{display:flex;flex-direction:row;align-items:center;gap:10px;margin:0;min-width:0;flex:1;}.command-sound-field>.field-caption{white-space:nowrap;}.command-sound-field select{width:100%;min-width:140px;flex:1;}@media(min-width:1000px){.command-delivery-flags{flex-wrap:nowrap;}.command-delivery-flags>.check{flex:none;}.command-sound-field select{min-width:0;}}@media(max-width:650px){.command-sound-field{flex-basis:100%;}}
 
+
+.message.has-unapplied-changes{outline:2px solid #e3bb65;outline-offset:2px;border-radius:6px;}

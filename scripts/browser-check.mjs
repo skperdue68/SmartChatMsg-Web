@@ -1139,6 +1139,16 @@ async function sharedServerLibrary(){
  }finally{await page.close();}
 }
 
+async function messageApplyBorderAndDisabledLabels(){
+ const d=fixture();d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.runAt='ON_DEMAND';d.Default['@fixture'].$AccountWide.messages[1].text='Hello\r\n%guild%';const {page,errors}=await open(d);
+ try{
+ const card=page.locator('.message').first();await card.locator('summary').click();assert.equal(await card.evaluate(el=>el.classList.contains('has-unapplied-changes')),false);await card.locator('textarea').fill('New draft text');assert.equal(await card.evaluate(el=>el.classList.contains('has-unapplied-changes')),true);
+ await page.locator('[data-ordinary-message="message-one"]').uncheck();assert.match(await card.locator('.message-summary-title').textContent(),/Message 1 \(disabled\)/);assert.doesNotMatch(await page.locator('#ordinary-message-pool [data-pool-message-label="message-one"]').textContent(),/\(disabled\)/);assert.equal(await card.locator('[data-field=messageName]').inputValue(),'Message 1');assert.equal(await card.locator('textarea').inputValue(),'New draft text');
+ await card.locator('[data-action=save-message]').click();assert.equal(await card.evaluate(el=>el.classList.contains('has-unapplied-changes')),false);await card.locator('textarea').fill('Another draft');await card.locator('textarea').fill('New draft text');assert.equal(await card.evaluate(el=>el.classList.contains('has-unapplied-changes')),false);
+ await page.locator('[data-field=settingsRunAt]').selectOption('SCHEDULED');assert.doesNotMatch(await card.locator('.message-summary-title').textContent(),/\(disabled\)/);await page.locator('[data-field=settingsRunAt]').selectOption('STARTUP');assert.match(await card.locator('.message-summary-title').textContent(),/\(disabled\)/);assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 async function legacyPausedEventCheckbox(){
  const d=fixture(),s=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;s.enabled=true;s.paused=true;const {page,errors}=await open(d);
  try{const enabled=page.locator('[data-field=eventEnabled]');assert.equal(await enabled.isChecked(),false);await enabled.check();await page.locator('#save-event').click();const saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(saved.enabled,true);assert.equal(saved.paused,false);assert.deepEqual(errors,[]);}finally{await page.close();}
@@ -1325,6 +1335,7 @@ async function libraryHttpIntegration(){
 }
 
 try {
+  await messageApplyBorderAndDisabledLabels();
   await legacyPausedEventCheckbox();
   await ordinaryPoolAndEventToggle();
   await newMessageOpens();

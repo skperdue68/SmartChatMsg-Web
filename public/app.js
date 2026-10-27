@@ -514,6 +514,7 @@ function refreshEventRelevance(){
  const rotationSettings=document.querySelector('#event-rotation-settings');rotationSettings.hidden=pattern!=='EVENT_ROTATION';if(pattern==='EVENT_ROTATION')rotationSettings.open=true;
  document.querySelector('#rotation-occurrences').hidden=!scheduled||!['EVENT_ROTATION','FACTION_ROTATION'].includes(pattern)&&!Object.keys(selectedEvent().schedule.occurrenceExceptions||{}).length;
  document.querySelectorAll('.message [data-field=variant]').forEach(field=>{const value=field.value;field.closest('label').hidden=pattern==='NONE';field.innerHTML=opts(variantChoices({...currentEventDraft(),specialPattern:pattern},value),value);});
+ updateMessageDisplayLabels();document.querySelectorAll('#detail .message').forEach(card=>card._refreshMessageDirty?.());
 
  const weekday=scheduled&&['DAILY','WEEKLY','BIWEEKLY'].includes(recurrence);
  document.querySelector('#weekday-options').hidden=!weekday;
@@ -1058,9 +1059,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
       nameInput.oninput=()=>{
         if(nameInput.value.length>60){nameInput.setCustomValidity('Use at most 60 characters.');nameInput.reportValidity();return;}nameInput.setCustomValidity('');
         if(nameInput.value.trim())message.name=nameInput.value.trim();else delete message.name;
-        const name=model.messageDisplayName(message,index);el.querySelector('.message-summary-title').textContent=name+(message.locked?' - Locked':'')+' - '+message.text.slice(0,65)+(message.text.length>65?'...':'');
-        handle.setAttribute('aria-label','Reorder '+name+'; drag or use Up and Down arrows');
-        document.querySelectorAll('[data-pool-message-label]').forEach(label=>{if(label.dataset.poolMessageLabel===message.id)label.textContent=name+': '+message.text;});changed();
+        updateMessageDisplayLabels(e);changed();
       };
       handle.onclick=ev=>{ev.preventDefault();ev.stopPropagation();};
       handle.onkeydown=ev=>{if(!['ArrowUp','ArrowDown'].includes(ev.key))return;ev.preventDefault();ev.stopPropagation();const next=index+(ev.key==='ArrowUp'?-1:1);if(messages[next])reorderLibrary(message.id,messages[next].id,ev.key==='ArrowDown');};
@@ -1071,10 +1070,13 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
       el.ondrop=ev=>{if(!draggedMessageId)return;ev.preventDefault();ev.stopPropagation();const rect=el.querySelector('summary').getBoundingClientRect(),source=draggedMessageId;draggedMessageId=null;reorderLibrary(source,message.id,ev.clientY>rect.y+rect.height/2);};
       const draft=messageDrafts.get(message.id);if(draft){if(draft.text!==undefined)el.querySelector('textarea').value=draft.text;if(draft.variant!==undefined)el.querySelector('[data-field=variant]').value=draft.variant;}
       const messageArea=el.querySelector('textarea');
+      const normalizeText=value=>String(value??'').replace(/\r\n?/g,'\n');
+      const refreshUnapplied=()=>{const variant=el.querySelector('[data-field=variant]');el.classList.toggle('has-unapplied-changes',normalizeText(messageArea.value)!==normalizeText(message.text)||(editorIsScheduled()&&variant.value!==(s.messageVariants?.[message.id]||'ALL')));};
+      el._refreshMessageDirty=refreshUnapplied;messageArea.addEventListener('input',refreshUnapplied);el.querySelector('[data-field=variant]').addEventListener('change',refreshUnapplied);refreshUnapplied();
       const updateCharacterCount=()=>{el.querySelector('.message-character-count').textContent=`${Array.from(messageArea.value).length} characters · before substitutions`;};
       messageArea.addEventListener('input',updateCharacterCount);
       updateCharacterCount();
-      el.querySelector('[data-action=preview-message]').onclick=()=>previewLibraryMessage(e,el.querySelector('textarea').value,model.messageDisplayName(message,index));
+      el.querySelector('[data-action=preview-message]').onclick=()=>previewLibraryMessage(e,el.querySelector('textarea').value,messageDisplayLabel(message,index,e));
       el.querySelector("[data-insert-token]").onchange = (ev) => {
         const area = el.querySelector("textarea");
         if (area.readOnly) return;
@@ -1118,12 +1120,12 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
         const m = messages.find((m) => m.id === el.dataset.id);
         if (m.locked) return;
         m.text = el.querySelector("textarea").value;
-        document.querySelectorAll('[data-pool-message-label]').forEach(label=>{if(label.dataset.poolMessageLabel===m.id)label.textContent=model.messageDisplayName(m,messages.indexOf(m))+': '+m.text;});
+        updateMessageDisplayLabels(e);
         if(editorIsScheduled()){
           s.messageVariants ??= {};
           s.messageVariants[m.id] = el.querySelector("select[data-field=variant]").value;
         }
-        changed();
+        refreshUnapplied();changed();
       };
     });
   decorateFieldLabels();refreshEffectiveTimes();
@@ -1200,12 +1202,20 @@ $("#new-event").onclick = () => {
   render();
   }});
 };
+function messageDisplayLabel(message,index,event=selectedEvent()){
+ return model.messageDisplayName(message,index)+(!editorIsScheduled()&&event?.settings.disabledMessageIds?.[message.id]===true?' (disabled)':'');
+}
+function updateMessageDisplayLabels(event=selectedEvent()){
+ if(!event)return;const messages=eventMessages(event),byId=new Map(messages.map((message,index)=>[message.id,{message,index}]));
+ document.querySelectorAll('#detail .message').forEach(card=>{const entry=byId.get(card.dataset.id);if(!entry)return;const {message,index}=entry,name=messageDisplayLabel(message,index,event);card.querySelector('.message-summary-title').textContent=name+(message.locked?' - Locked':'')+' - '+message.text.slice(0,65)+(message.text.length>65?'...':'');card.querySelector('.message-drag-handle').setAttribute('aria-label','Reorder '+name+'; drag or use Up and Down arrows');});
+ document.querySelectorAll('#detail [data-pool-message-label]').forEach(label=>{const entry=byId.get(label.dataset.poolMessageLabel);if(entry)label.textContent=model.messageDisplayName(entry.message,entry.index)+': '+entry.message.text;});
+}
 function renderOrdinaryMessagePool(event){
  const panel=document.querySelector('#ordinary-message-pool');if(!panel)return;
  const messages=eventMessages(event);
  panel.innerHTML=`<div class="heading"><h2>Message pool</h2><span class="badge" data-pool-count aria-live="polite"></span></div><p class="help">Check the messages this command may choose. Unchecked messages remain saved and recognizable when another player sends them.</p><div class="pool">${messages.map((message,index)=>`<label class="check"><input type="checkbox" data-message="${esc(message.id)}" data-ordinary-message="${esc(message.id)}" ${event.settings.disabledMessageIds?.[message.id]===true?'':'checked'}><span data-pool-message-label="${esc(message.id)}">${esc(model.messageDisplayName(message,index))}: ${esc(message.text)}</span></label>`).join('')||'<p class="help">Add a message to the library below to populate this pool.</p>'}</div><p class="pool-empty-note" data-pool-empty hidden>No messages enabled. This command will not prepare a message until one is enabled.</p>`;
  const summary=()=>{const boxes=[...panel.querySelectorAll('[data-ordinary-message]')],count=boxes.filter(x=>x.checked).length;panel.querySelector('[data-pool-count]').textContent=count+' of '+boxes.length+' enabled';panel.querySelector('[data-pool-empty]').hidden=count!==0;boxes.forEach(box=>box.closest('label').classList.toggle('pool-message-off',!box.checked));};
- panel.querySelectorAll('[data-ordinary-message]').forEach(box=>box.onchange=()=>{const id=box.dataset.ordinaryMessage;event.settings.disabledMessageIds??={};if(box.checked)delete event.settings.disabledMessageIds[id];else event.settings.disabledMessageIds[id]=true;if(!Object.keys(event.settings.disabledMessageIds).length)delete event.settings.disabledMessageIds;changed();summary();});
+ panel.querySelectorAll('[data-ordinary-message]').forEach(box=>box.onchange=()=>{const id=box.dataset.ordinaryMessage;event.settings.disabledMessageIds??={};if(box.checked)delete event.settings.disabledMessageIds[id];else event.settings.disabledMessageIds[id]=true;if(!Object.keys(event.settings.disabledMessageIds).length)delete event.settings.disabledMessageIds;changed();summary();updateMessageDisplayLabels(event);});
  summary();attachPoolPreviews(panel,event,null);
 }
 function attachPoolPreviews(card,event,row){
