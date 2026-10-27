@@ -203,6 +203,7 @@ async function preservationAndEditing() {
   await page.locator("#add-message").click();
     assert.equal(await page.locator("details.message").count(), 2);
     const message = page.locator("details.message").last();
+    await message.locator("textarea").waitFor({state:"visible"});
     assert.equal(await message.evaluate(el=>el.open),true);
     await message.locator("textarea").fill("Tickets: ");
     await message
@@ -1140,7 +1141,7 @@ async function sharedServerLibrary(){
 
 async function newMessageOpens(){
  const {page,errors}=await open(fixture());
- try{await page.locator('#add-message').click();const card=page.locator('.message').last();assert.equal(await card.evaluate(el=>el.open),true);await card.locator('textarea').waitFor({state:'visible'});assert.equal(await card.locator('textarea').evaluate(el=>el===document.activeElement),true);assert.equal(await page.locator('.message').first().evaluate(el=>el.open),false);await card.locator('[data-field=messageName]').fill('A useful name');assert.match(await card.locator('.message-summary-title').textContent(),/A useful name/);assert.equal(await card.locator('.message-full-name').count(),0);assert.deepEqual(errors,[]);}finally{await page.close();}
+ try{await page.locator('#add-message').click();const card=page.locator('.message').last();await card.locator('textarea').waitFor({state:'visible'});assert.equal(await card.evaluate(el=>el.open),true);assert.equal(await card.locator('textarea').evaluate(el=>el===document.activeElement),true);assert.equal(await page.locator('.message').first().evaluate(el=>el.open),false);await card.locator('[data-field=messageName]').fill('A useful name');assert.match(await card.locator('.message-summary-title').textContent(),/A useful name/);assert.equal(await card.locator('.message-full-name').count(),0);assert.deepEqual(errors,[]);}finally{await page.close();}
 }
 
 async function deliverySliderClarity(){
