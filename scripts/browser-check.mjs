@@ -1164,13 +1164,13 @@ async function newMessageOpens(){
 async function deliverySliderClarity(){
  const d=fixture();d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.runAt='ON_DEMAND';const {page,errors}=await open(d);
  try{
- const repeat=page.locator('[data-command-option=reminderMinutes]'),retry=page.locator('[data-command-option=reminderRetryMinutes]'),range=page.locator('[data-command-slider=reminderRetryMinutes]');
- await repeat.fill('7');await retry.fill('25');assert.equal(await retry.inputValue(),'7');assert.equal(await retry.getAttribute('max'),'7');assert.equal(await range.getAttribute('max'),'7');
- await repeat.fill('3');assert.equal(await retry.inputValue(),'3');await repeat.fill('0');assert.equal(await retry.inputValue(),'0');assert.equal(await range.isDisabled(),true);
+ const repeat=page.locator('[data-command-option=reminderMinutes]'),retry=page.locator('[data-command-option=reminderRetryMinutes]'),range=page.locator('[data-command-slider=reminderRetryMinutes]'),cooldown=page.locator('[data-command-option=autoPopulateCooldownMinutes]');
+ await repeat.fill('7');await cooldown.fill('25');await retry.fill('40');assert.equal(await retry.inputValue(),'25');assert.equal(await retry.getAttribute('max'),'25');assert.equal(await range.getAttribute('max'),'25');
+ await repeat.fill('3');assert.equal(await retry.inputValue(),'25','changing repeat frequency does not cap retry to frequency');await cooldown.fill('15');assert.equal(await retry.inputValue(),'15');assert.equal(await range.getAttribute('max'),'15');await repeat.fill('0');assert.equal(await retry.inputValue(),'0');assert.equal(await range.isDisabled(),true);
  assert.match(await page.locator('[data-minute-control=reminderMinutes] label').textContent(),/Repeat Frequency/);assert.equal(await page.locator('.minute-slider>p:visible').count(),0);
  const retryHelp=page.locator('[data-minute-control=reminderRetryMinutes] .help-icon');await retryHelp.hover();assert.equal(await retryHelp.locator('.help-bubble').isVisible(),true);assert.equal(await retryHelp.locator('.help-bubble').textContent(),'How often to try sending again if send fails');
  assert.equal(await page.locator('[data-minute-control=autoPopulateCooldownMinutes] .help-bubble').textContent(),'Delay before trying to send again');
- const a=await page.locator('[data-command-option=autoPopulateOnZone]').boundingBox(),b=await page.locator('[data-command-option=openStatusPanelOnRun]').boundingBox();assert.ok(Math.abs(a.y-b.y)<3,'checkboxes share a row');
+ const a=await page.locator('[data-command-option=autoPopulateOnZone]').boundingBox(),b=await page.locator('[data-command-option=openStatusPanelOnRun]').boundingBox();assert.ok(Math.abs(a.y-b.y)<3,'checkboxes share a row');const soundBox=await page.locator('[data-command-option=populateSound]').boundingBox();assert.ok(soundBox.x>b.x+b.width,'sound is to the right');assert.ok(Math.abs(soundBox.y+soundBox.height/2-a.y-a.height/2)<3,'sound is vertically centered');
  assert.doesNotMatch(await page.locator('.command-delivery').textContent(),/Zone population and timed repetition are alternatives/);assert.deepEqual(errors,[]);
  }finally{await page.close();}
 }
@@ -1231,7 +1231,7 @@ async function accountAndCommandDefaults(){
  const {page,errors}=await open(d);
  try{
  await page.locator('[data-command-option=reminderMinutes]').fill('30');await page.locator('[data-command-option=reminderRetryMinutes]').fill('45');await page.locator('[data-command-option=populateSound]').selectOption('NONE');await page.locator('[data-command-option=openStatusPanelOnRun]').check();await page.locator('#save-event').click();
- let saved=(await downloadData(page)).Default['@fixture'].$AccountWide,cfg=saved.commandGuildSettings['command-one'].alpha;assert.equal(cfg.reminderMinutes,30);assert.equal(cfg.reminderRetryMinutes,30);assert.equal(cfg.populateSound,'NONE');assert.equal(cfg.openStatusPanelOnRun,true);
+ let saved=(await downloadData(page)).Default['@fixture'].$AccountWide,cfg=saved.commandGuildSettings['command-one'].alpha;assert.equal(cfg.reminderMinutes,30);assert.equal(cfg.reminderRetryMinutes,45);assert.equal(cfg.populateSound,'NONE');assert.equal(cfg.openStatusPanelOnRun,true);
  await page.locator('#account-settings').click();await page.locator('#account-default-guild').selectOption('4');await page.locator('#account-revert-seconds').fill('90');await page.locator('#account-default-zone').selectOption('CT');await page.locator('#apply-account-settings').click();
  saved=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(saved.defaultGuildIndex,4);assert.equal(saved.revertChatSeconds,90);assert.equal(saved.schedulingTimeZone,'CT');assert.equal(saved.commandGuildSettings['command-one'].alpha.schedule.timeZone,'CT');assert.equal(saved.commandGuildSettings['command-one'].beta.schedule.timeZone,'PT');assert.equal(saved.messages[1].useCount,5);
  await page.locator('[data-field=settingsRunAt]').selectOption('SCHEDULED');for(const key of ['reminderMinutes','reminderRetryMinutes','autoPopulateCooldownMinutes'])assert.equal(await page.locator(`[data-command-option="${key}"]`).isVisible(),false);assert.equal(await page.locator('[data-command-option=populateSound]').isVisible(),true);assert.deepEqual(errors,[]);
@@ -1259,7 +1259,8 @@ async function plainCommandMessagePool(){
  assert.equal(await page.locator('#reminder-timeline').isVisible(),false);assert.match(await page.locator('#ordinary-message-pool h2').textContent(),/Message pool/);assert.equal(await page.locator('.message').count(),2);
  const card=page.locator('.message').first();await card.locator('summary').click();assert.equal(await card.locator('[data-field=variant]').isVisible(),false);
  assert.equal(await card.locator('[data-insert-token] option').evaluateAll(els=>els.some(el=>el.value.startsWith('%event'))),false);
- for(const token of ['%time%','%timeofday%','%morning%','%greeting%','%guild%','%zone%'])assert.equal(await card.locator('[data-insert-token] option').evaluateAll((els,t)=>els.some(el=>el.value===t),token),true);
+ for(const token of ['%timeofday%','%guild%','%zone%'])assert.equal(await card.locator('[data-insert-token] option').evaluateAll((els,t)=>els.some(el=>el.value===t),token),true);
+ for(const token of ['%time%','%morning%','%greeting%'])assert.equal(await card.locator('[data-insert-token] option').evaluateAll((els,t)=>els.some(el=>el.value===t),token),false);
  const template='Good %greeting%, %guild%! Meet tomorrow at 8PM ET in %zone%. %eventwhen%';await card.locator('textarea').fill(template);await card.locator('[data-action=preview-message]').click();
  assert.equal(await page.locator('#message-preview-template').textContent(),template);assert.match(await page.locator('#message-preview-output').textContent(),/Good morning, alpha!/);assert.match(await page.locator('#message-preview-output').textContent(),/%eventwhen%/);
  await page.locator('#message-preview-zone').fill('My house');assert.match(await page.locator('#message-preview-output').textContent(),/My house/);await page.locator('#close-dialog').click();
