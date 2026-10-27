@@ -203,7 +203,7 @@ async function preservationAndEditing() {
   await page.locator("#add-message").click();
     assert.equal(await page.locator("details.message").count(), 2);
     const message = page.locator("details.message").last();
-    await message.locator("summary").click();
+    assert.equal(await message.evaluate(el=>el.open),true);
     await message.locator("textarea").fill("Tickets: ");
     await message
       .locator("[data-insert-token]")
@@ -1138,6 +1138,25 @@ async function sharedServerLibrary(){
  }finally{await page.close();}
 }
 
+async function newMessageOpens(){
+ const {page,errors}=await open(fixture());
+ try{await page.locator('#add-message').click();const card=page.locator('.message').last();assert.equal(await card.evaluate(el=>el.open),true);await card.locator('textarea').waitFor({state:'visible'});assert.equal(await card.locator('textarea').evaluate(el=>el===document.activeElement),true);assert.equal(await page.locator('.message').first().evaluate(el=>el.open),false);await card.locator('[data-field=messageName]').fill('A useful name');assert.match(await card.locator('.message-summary-title').textContent(),/A useful name/);assert.equal(await card.locator('.message-full-name').count(),0);assert.deepEqual(errors,[]);}finally{await page.close();}
+}
+
+async function deliverySliderClarity(){
+ const d=fixture();d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.runAt='ON_DEMAND';const {page,errors}=await open(d);
+ try{
+ const repeat=page.locator('[data-command-option=reminderMinutes]'),retry=page.locator('[data-command-option=reminderRetryMinutes]'),range=page.locator('[data-command-slider=reminderRetryMinutes]');
+ await repeat.fill('7');await retry.fill('25');assert.equal(await retry.inputValue(),'7');assert.equal(await retry.getAttribute('max'),'7');assert.equal(await range.getAttribute('max'),'7');
+ await repeat.fill('3');assert.equal(await retry.inputValue(),'3');await repeat.fill('0');assert.equal(await retry.inputValue(),'0');assert.equal(await range.isDisabled(),true);
+ assert.match(await page.locator('[data-minute-control=reminderMinutes] label').textContent(),/Repeat Frequency/);assert.equal(await page.locator('.minute-slider>p:visible').count(),0);
+ const retryHelp=page.locator('[data-minute-control=reminderRetryMinutes] .help-icon');await retryHelp.hover();assert.equal(await retryHelp.locator('.help-bubble').isVisible(),true);assert.equal(await retryHelp.locator('.help-bubble').textContent(),'How often to try sending again if send fails');
+ assert.equal(await page.locator('[data-minute-control=autoPopulateCooldownMinutes] .help-bubble').textContent(),'Delay before trying to send again');
+ const a=await page.locator('[data-command-option=autoPopulateOnZone]').boundingBox(),b=await page.locator('[data-command-option=openStatusPanelOnRun]').boundingBox();assert.ok(Math.abs(a.y-b.y)<3,'checkboxes share a row');
+ assert.doesNotMatch(await page.locator('.command-delivery').textContent(),/Zone population and timed repetition are alternatives/);assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 async function commandSlidersAndSounds(){
  const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;cfg.runAt='ON_DEMAND';cfg.populateSound='CUSTOM_EXISTING_SOUND';
  const {page,errors}=await open(d);
@@ -1287,6 +1306,8 @@ async function libraryHttpIntegration(){
 }
 
 try {
+  await newMessageOpens();
+  await deliverySliderClarity();
   await commandSlidersAndSounds();
   await importantTimeCreationModal();
   await creationModals();

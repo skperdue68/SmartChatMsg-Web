@@ -160,29 +160,38 @@ function showInputModal({title,intro,fields,submitLabel,onSubmit}){
  modal.showModal();requestAnimationFrame(()=>$('#site-input-form input:not([readonly])')?.focus());
 }
 const commandSoundKeys=['NONE','DUEL_START','DEFAULT_CLICK','POSITIVE_CLICK','NEGATIVE_CLICK','DIALOG_ACCEPT','DIALOG_DECLINE','NEW_NOTIFICATION','QUEST_SHARE_ACCEPTED','BOOK_ACQUIRED','ACHIEVEMENT_AWARDED','BATTLEGROUND_CAPTURE_FLAG_TAKEN','BATTLEGROUND_CAPTURE_FLAG_RETURNED','BATTLEGROUND_MEDAL_AWARDED','CHAMPION_POINT_GAINED','TELVAR_GAINED','TELVAR_LOST','TRADE_INVITE','GROUP_INVITE','LFG_ACCEPTED','JUSTICE_NOW_KOS','JUSTICE_STATE_CHANGED'];
-function minuteSliderMarkup({key,label,value,min,max,ticks,exactMin=0}){
+function minuteSliderMarkup({key,label,help,value,min,max,ticks,exactMin=0}){
  const n=Number(value||0),position=Number.isFinite(n)?Math.max(min,Math.min(max,n)):min;
- return `<div class="minute-slider" data-minute-control="${key}"><div class="minute-slider-heading"><label for="slider-${key}">${label}</label><div class="minute-slider-value"><output data-command-duration="${key}"></output><span class="minute-slider-exact"><input aria-label="${label}, exact minutes" type="number" min="${exactMin}" max="5256000" step="1" data-command-option="${key}" value="${esc(value??'')}"><span>min</span></span></div></div><input id="slider-${key}" type="range" data-command-slider="${key}" min="${min}" max="${max}" step="1" value="${position}"><div class="minute-slider-ticks" aria-hidden="true">${ticks.map(([n,text])=>`<span style="left:${100*(n-min)/(max-min)}%">${text}</span>`).join('')}</div><p class="help" data-command-slider-note="${key}"></p></div>`;
+ return `<div class="minute-slider" data-minute-control="${key}"><div class="minute-slider-heading"><label for="slider-${key}" data-help="${esc(help||'')}">${label}</label><div class="minute-slider-value"><output data-command-duration="${key}"></output><span class="minute-slider-exact"><input aria-label="${label}, exact minutes" type="number" min="${exactMin}" max="5256000" step="1" data-command-option="${key}" value="${esc(value??'')}"><span>min</span></span></div></div><input id="slider-${key}" type="range" data-command-slider="${key}" min="${min}" max="${max}" step="1" value="${position}"><div class="minute-slider-ticks" aria-hidden="true">${ticks.map(([n,text])=>`<span style="left:${100*(n-min)/(max-min)}%">${text}</span>`).join('')}</div><p class="help" data-command-slider-note="${key}"></p></div>`;
 }
 function commandDeliveryMarkup(event){
  const c=event.settings,current=String(c.populateSound||'DUEL_START').trim().toUpperCase(),sounds=commandSoundKeys.includes(current)?commandSoundKeys:[...commandSoundKeys,current];
- const controls=[{key:'reminderMinutes',label:'Repeat Every',value:c.reminderMinutes,min:0,max:1440,ticks:[[0,'Off'],[360,'6h'],[720,'12h'],[1080,'18h'],[1440,'24h']]},{key:'reminderRetryMinutes',label:'Retry Delay',value:c.reminderRetryMinutes??0,min:0,max:60,ticks:[[0,'Off'],[15,'15m'],[30,'30m'],[45,'45m'],[60,'1h']]},{key:'autoPopulateCooldownMinutes',label:'Cooldown',value:c.autoPopulateCooldownMinutes??60,min:15,max:480,exactMin:1,ticks:[[15,'15m'],[120,'2h'],[240,'4h'],[360,'6h'],[480,'8h']]}];
- return `<section class="command-delivery"><h3>Command delivery</h3><div id="ordinary-delivery"><p class="help">Drag a slider or type exact minutes. The duration label updates with your selection.</p><div class="minute-slider-list">${controls.map(minuteSliderMarkup).join('')}</div><label class="check"><input type="checkbox" data-command-option="autoPopulateOnZone" ${c.autoPopulateOnZone?'checked':''}>Auto Populate Chat on Zone</label><p class="help">Zone population and timed repetition are alternatives. Zone population prepares a message after entering an eligible parent zone, with cooldowns applied. On Demand engages after you run the command; Startup engages on login. Repeat Every uses the same command-and-guild message pool. Retry Delay is capped at the repeat interval.</p></div><label class="check"><input type="checkbox" data-command-option="openStatusPanelOnRun" ${c.openStatusPanelOnRun?'checked':''}>Open Status Panel on Run</label><label>Notify Sound<select data-command-option="populateSound">${opts(sounds.map(key=>[key,key==='NONE'?'NONE — Silent':key==='DUEL_START'?'DUEL_START — Default':key]),current)}</select></label><p class="help">Choose from the addon’s notification sounds. Existing custom selections are retained. Availability and playback depend on ESO; play sound previews in the addon.</p></section>`;
+ const controls=[{key:'reminderMinutes',label:'Repeat Frequency',help:'Off stops timed repetition; manual use remains available.',value:c.reminderMinutes,min:0,max:1440,ticks:[[0,'Off'],[360,'6h'],[720,'12h'],[1080,'18h'],[1440,'24h']]},{key:'reminderRetryMinutes',label:'Retry Delay',help:'How often to try sending again if send fails',value:c.reminderRetryMinutes??0,min:0,max:60,ticks:[[0,'Off'],[15,'15m'],[30,'30m'],[45,'45m'],[60,'1h']]},{key:'autoPopulateCooldownMinutes',label:'Cooldown',help:'Delay before trying to send again',value:c.autoPopulateCooldownMinutes??60,min:15,max:480,exactMin:1,ticks:[[15,'15m'],[120,'2h'],[240,'4h'],[360,'6h'],[480,'8h']]}];
+ return `<section class="command-delivery"><h3>Command delivery</h3><div id="ordinary-delivery"><p class="help">Drag a slider or type exact minutes. The duration label updates with your selection.</p><div class="minute-slider-list">${controls.map(minuteSliderMarkup).join('')}</div></div><div class="command-delivery-flags"><label class="check"><input type="checkbox" data-command-option="autoPopulateOnZone" ${c.autoPopulateOnZone?'checked':''}>Auto Populate Chat on Zone</label><label class="check"><input type="checkbox" data-command-option="openStatusPanelOnRun" ${c.openStatusPanelOnRun?'checked':''}>Open Status Panel on Run</label></div><label>Notify Sound<select data-command-option="populateSound">${opts(sounds.map(key=>[key,key==='NONE'?'NONE — Silent':key==='DUEL_START'?'DUEL_START — Default':key]),current)}</select></label><p class="help">Choose from the addon’s notification sounds. Existing custom selections are retained. Availability and playback depend on ESO; play sound previews in the addon.</p></section>`;
 }
 function refreshCommandDelivery(){
  const panel=document.querySelector('.event-settings'),read=key=>panel?.querySelector(`[data-command-option="${key}"]`);if(!read('reminderMinutes'))return;
  document.querySelector('#ordinary-delivery').hidden=editorIsScheduled();
+ read('autoPopulateOnZone').closest('label').hidden=editorIsScheduled();
+ const frequency=Number(read('reminderMinutes').value),retryCap=Number.isInteger(frequency)&&frequency>0?frequency:0;
+ read('reminderRetryMinutes').max=String(retryCap);
+ if(!editorIsScheduled()&&Number(read('reminderRetryMinutes').value)>retryCap)read('reminderRetryMinutes').value=String(retryCap);
  const retryDisabled=editorIsScheduled()||read('autoPopulateOnZone').checked||!(Number(read('reminderMinutes').value)>0);
  read('reminderRetryMinutes').disabled=retryDisabled;
  for(const key of ['reminderMinutes','reminderRetryMinutes','autoPopulateCooldownMinutes']){
   const input=read(key),range=panel.querySelector(`[data-command-slider="${key}"]`),output=panel.querySelector(`[data-command-duration="${key}"]`),note=panel.querySelector(`[data-command-slider-note="${key}"]`),n=input.value===''?0:Number(input.value),valid=Number.isInteger(n)&&n>=0;
+  if(key==='reminderRetryMinutes'){
+   const maximum=Math.min(60,retryCap);range.max=String(maximum);
+   const ticks=[...new Set([0,Math.floor(maximum/4),Math.floor(maximum/2),Math.floor(3*maximum/4),maximum])];
+   range.parentElement.querySelector('.minute-slider-ticks').innerHTML=ticks.map(value=>`<span style="left:${maximum?100*value/maximum:0}%">${value===0?'Off':value===60?'1h':value+'m'}</span>`).join('');
+  }
   const position=valid?Math.max(Number(range.min),Math.min(Number(range.max),n)):Number(range.min);
-  range.value=String(position);range.style.setProperty('--slider-fill',100*(position-Number(range.min))/(Number(range.max)-Number(range.min))+'%');
+  range.value=String(position);range.style.setProperty('--slider-fill',(Number(range.max)>Number(range.min)?100*(position-Number(range.min))/(Number(range.max)-Number(range.min)):0)+'%');
   range.disabled=key==='reminderRetryMinutes'&&retryDisabled;range.closest('.minute-slider').classList.toggle('is-disabled',range.disabled);
   const text=valid?(n===0?(key==='autoPopulateCooldownMinutes'?'Enter positive minutes':'Off'):model.formatRepeatInterval(n)):'Enter whole minutes';output.textContent=text;
   range.setAttribute('aria-valuetext',position===0?'Off':model.formatRepeatInterval(position));
-  note.textContent=key==='reminderMinutes'?'Off stops timed repetition; manual use remains available.':key==='reminderRetryMinutes'?(retryDisabled?'Enable timed repetition to use retries.':n>Number(read('reminderMinutes').value)?'Effective retry: '+model.formatRepeatInterval(Number(read('reminderMinutes').value))+', capped at Repeat Every.':'Off disables retries.'):'Slider: 15 minutes to 8 hours. Type exact minutes for other positive values.';
-  if(valid&&n>0&&(n<Number(range.min)||n>Number(range.max)))note.textContent+=' Exact value is beyond the slider range and will be preserved.';
+  note.hidden=!(valid&&n>0&&(n<Number(range.min)||n>Number(range.max)));
+  note.textContent=note.hidden?'':'Exact value is beyond the slider range and will be preserved.';
   if(!range.dataset.sliderBound){range.dataset.sliderBound='true';range.addEventListener('input',()=>{input.value=range.value;input.dispatchEvent(new Event('input',{bubbles:true}));});input.addEventListener('input',refreshCommandDelivery);}
  }
 }
@@ -191,7 +200,7 @@ function readCommandDelivery(panel){
  if(!/^[A-Z0-9_]{1,200}$/.test(sound))throw Error('Notify Sound: use an ESO sound key or NONE.');
  if(panel.querySelector('[data-field=settingsRunAt]').value==='SCHEDULED')return out;
  const zone=read('autoPopulateOnZone').checked,repeat=read('reminderMinutes').value===''||Number(read('reminderMinutes').value)===0?null:Number(read('reminderMinutes').value),retry=Number(read('reminderRetryMinutes').value||0),cooldown=Number(read('autoPopulateCooldownMinutes').value);
- if(!zone&&repeat!==null&&(!Number.isInteger(repeat)||repeat<1||repeat>5256000))throw Error('Repeat Every must be a positive whole number, or blank/0 to turn it off.');
+ if(!zone&&repeat!==null&&(!Number.isInteger(repeat)||repeat<1||repeat>5256000))throw Error('Repeat Frequency must be a positive whole number, or blank/0 to turn it off.');
  if(!zone&&repeat&&(!Number.isInteger(retry)||retry<0||retry>5256000))throw Error('Retry Delay must be zero or a positive whole number.');
  if(!Number.isInteger(cooldown)||cooldown<1||cooldown>5256000)throw Error('Zone cooldown must be a positive whole number.');
  out.autoPopulateOnZone=zone;out.autoPopulateCooldownMinutes=cooldown;out.reminderMinutes=zone||repeat===null?undefined:repeat;out.reminderRetryMinutes=zone||!repeat?0:Math.min(retry,repeat);
@@ -668,7 +677,7 @@ function decorateFieldLabels(root=document.querySelector('#detail')){
   });
   root.querySelectorAll('[data-help]').forEach(el=>{el.removeAttribute('title');if(el.dataset.help)el.setAttribute('aria-description',el.dataset.help);});
 }
-function renderDetail(focusReminderId = null,focusMessageId = null) {
+function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMessage = false) {
   document.querySelector("#pool-preview")?.remove();
   const renderKey = accountName + "|" + guild + "|" + selected,
     preserveScroll = lastRenderedKey === renderKey,
@@ -715,7 +724,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
       )
       .join(
         "",
-      )}</section><section class="panel"><div class="heading"><h2 id="message-library-title">Message library <span class="badge">${messages.length} VARIANTS</span></h2><button id="add-message">+ Add message</button></div><p class="help" id="message-library-help">Drag and drop a message handle to reorder messages. Optional names are limited to 60 characters and are not sent in chat. Order is for display only; selection remains randomized.</p>${ambiguousMessages(e) ? '<p class="help" role="alert">Some legacy messages have no guild name and their guild slot cannot be resolved safely. They are omitted from this editor and remain untouched in the file.</p>' : ""}${messages.map((m, i) => `<details class="message" data-id="${esc(m.id)}"><summary><span class="message-drag-handle" draggable="true" tabindex="0" role="button" aria-label="Reorder ${esc(model.messageDisplayName(m,i))}; drag or use Up and Down arrows">↕</span><span class="message-summary-title">${esc(model.messageDisplayName(m,i))} ${m.locked ? " - Locked" : ""} - ${esc(m.text.slice(0, 65))}${m.text.length > 65 ? "..." : ""}</span></summary>${input("Message name (optional)","messageName",model.messageDisplayName(m,i))}<div class="heading"><strong class="message-full-name">${esc(model.messageDisplayName(m,i))}</strong>${select("Variant", "variant", s.messageVariants?.[m.id] || "ALL", variantChoices(s,s.messageVariants?.[m.id]||"ALL"))}</div><textarea aria-label="Message ${i + 1}" ${m.locked ? "readonly" : ""}>${esc(m.text)}</textarea><div class="message-character-count" aria-live="polite" title="Template length before substitutions; the completed chat message may have a different length."></div><div class="actions"><button data-action="save-message" ${m.locked ? "disabled" : ""}>Apply message</button><button data-action="preview-message">Preview announcement</button><button data-action="delete-message" class="danger" ${m.locked ? "disabled" : ""}>Delete message</button><select data-insert-token aria-label="Insert substitution"><option value="">Insert substitution...</option>${opts(insertableTokens(s))}</select></div></details>`).join("")}</section>`;
+      )}</section><section class="panel"><div class="heading"><h2 id="message-library-title">Message library <span class="badge">${messages.length} VARIANTS</span></h2><button id="add-message">+ Add message</button></div><p class="help" id="message-library-help">Drag and drop a message handle to reorder messages. Optional names are limited to 60 characters and are not sent in chat. Order is for display only; selection remains randomized.</p>${ambiguousMessages(e) ? '<p class="help" role="alert">Some legacy messages have no guild name and their guild slot cannot be resolved safely. They are omitted from this editor and remain untouched in the file.</p>' : ""}${messages.map((m, i) => `<details class="message" data-id="${esc(m.id)}"><summary><span class="message-drag-handle" draggable="true" tabindex="0" role="button" aria-label="Reorder ${esc(model.messageDisplayName(m,i))}; drag or use Up and Down arrows">↕</span><span class="message-summary-title">${esc(model.messageDisplayName(m,i))} ${m.locked ? " - Locked" : ""} - ${esc(m.text.slice(0, 65))}${m.text.length > 65 ? "..." : ""}</span></summary>${input("Message name (optional)","messageName",model.messageDisplayName(m,i))}${select("Variant", "variant", s.messageVariants?.[m.id] || "ALL", variantChoices(s,s.messageVariants?.[m.id]||"ALL"))}<textarea aria-label="Message ${i + 1}" ${m.locked ? "readonly" : ""}>${esc(m.text)}</textarea><div class="message-character-count" aria-live="polite" title="Template length before substitutions; the completed chat message may have a different length."></div><div class="actions"><button data-action="save-message" ${m.locked ? "disabled" : ""}>Apply message</button><button data-action="preview-message">Preview announcement</button><button data-action="delete-message" class="danger" ${m.locked ? "disabled" : ""}>Delete message</button><select data-insert-token aria-label="Insert substitution"><option value="">Insert substitution...</option>${opts(insertableTokens(s))}</select></div></details>`).join("")}</section>`;
   function refreshOverlapWarning(){
     const note=document.querySelector('#timeline-conflicts'),cards=[...document.querySelectorAll('#rows .reminder')],byId=new Map(cards.map(card=>[card.dataset.row,card]));
     cards.forEach(card=>{card.classList.remove('has-overlap');card.querySelector('[data-overlap-warning]').hidden=true;card.removeAttribute('aria-describedby');});
@@ -1019,9 +1028,10 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
   $("#add-message").onclick = () => {
     account().messages ??= {};
     const existingMessages=eventMessages(e);existingMessages.forEach((message,i)=>message.displayOrder=i+1);
+    const messageId=crypto.randomUUID();
     append(account().messages, {
       name:model.nextMessageName(existingMessages),displayOrder:existingMessages.length+1,
-      id: crypto.randomUUID(),
+      id: messageId,
       commandId: e.commandId,
       guildName: guild,
       ...(deliveryGuildSlot(e) ? { guildIndex: deliveryGuildSlot(e) } : {}),
@@ -1029,7 +1039,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
       useCount: 0,
     });
     changed();
-    renderDetail();
+    renderDetail(null,messageId,true);
   };
   let draggedMessageId=null;
   const reorderLibrary=(sourceId,targetId,after)=>{
@@ -1045,7 +1055,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
       nameInput.oninput=()=>{
         if(nameInput.value.length>60){nameInput.setCustomValidity('Use at most 60 characters.');nameInput.reportValidity();return;}nameInput.setCustomValidity('');
         if(nameInput.value.trim())message.name=nameInput.value.trim();else delete message.name;
-        const name=model.messageDisplayName(message,index);el.querySelector('.message-summary-title').textContent=name+(message.locked?' - Locked':'')+' - '+message.text.slice(0,65)+(message.text.length>65?'...':'');el.querySelector('.message-full-name').textContent=name;
+        const name=model.messageDisplayName(message,index);el.querySelector('.message-summary-title').textContent=name+(message.locked?' - Locked':'')+' - '+message.text.slice(0,65)+(message.text.length>65?'...':'');
         handle.setAttribute('aria-label','Reorder '+name+'; drag or use Up and Down arrows');
         document.querySelectorAll('[data-pool-message-label]').forEach(label=>{if(label.dataset.poolMessageLabel===message.id)label.textContent=name+': '+message.text;});changed();
       };
@@ -1113,7 +1123,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null) {
     });
   decorateFieldLabels();refreshEffectiveTimes();
   document.querySelectorAll('#detail details').forEach(d=>{const key=detailKey(d);if(openDetails.has(key))d.open=openDetails.get(key);});
-  if(focusMessageId){requestAnimationFrame(()=>{const message=[...document.querySelectorAll('#detail .message')].find(el=>el.dataset.id===focusMessageId);if(message){message.querySelector('.message-drag-handle')?.focus({preventScroll:true});message.scrollIntoView({block:'nearest',behavior:'instant'});}});}
+  if(focusMessageId){requestAnimationFrame(()=>{const message=[...document.querySelectorAll('#detail .message')].find(el=>el.dataset.id===focusMessageId);if(message){if(expandNewMessage){message.open=true;const area=message.querySelector('textarea');area?.focus({preventScroll:true});area?.select();}else message.querySelector('.message-drag-handle')?.focus({preventScroll:true});message.scrollIntoView({block:'nearest',behavior:'instant'});}});}
   else if(focusReminderId){
     requestAnimationFrame(()=>{
       const card=[...document.querySelectorAll('#rows .reminder')].find(el=>el.dataset.row===focusReminderId);
