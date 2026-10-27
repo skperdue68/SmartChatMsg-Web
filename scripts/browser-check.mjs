@@ -1264,6 +1264,20 @@ async function legacyAccountSettings(){
  }finally{await page.close();}
 }
 
+async function ordinarySettingsApply(){
+ const d=fixture(),cfg=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;cfg.runAt='ON_DEMAND';cfg.reminderMinutes=30;
+ const {page,errors}=await open(d);
+ try{
+ const panel=page.locator('.event-settings');assert.equal(await panel.evaluate(el=>el.classList.contains('has-unapplied-changes')),false);
+ await page.locator('[data-command-option=autoPopulateOnZone]').check();await page.locator('[data-command-option=openStatusPanelOnRun]').check();await page.locator('[data-field=outputChannel]').selectOption('Zone');
+ assert.equal(await panel.evaluate(el=>el.classList.contains('has-unapplied-changes')),true);
+ await page.locator('#save-event').click();assert.equal(await page.locator('.event-settings').evaluate(el=>el.classList.contains('has-unapplied-changes')),false);
+ let saved=(await downloadData(page)).Default['@fixture'].$AccountWide;let settings=saved.commandGuildSettings['command-one'].alpha;
+ assert.equal(settings.reminderMinutes,undefined);assert.equal(settings.autoPopulateOnZone,true);assert.equal(settings.openStatusPanelOnRun,true);assert.equal(saved.chatChannels['command-one'].alpha,'Zone');
+ await page.locator('[data-command-option=autoPopulateOnZone]').uncheck();await page.locator('#save-event').click();saved=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(saved.commandGuildSettings['command-one'].alpha.reminderMinutes,undefined);assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 async function accountAndCommandDefaults(){
  const d=fixture(),a=d.Default['@fixture'].$AccountWide;a.guildRoster=numeric([{guildIndex:4,guildId:101,guildName:'Alpha'},{guildIndex:2,guildId:102,guildName:'Beta'}]);a.guildSchedulingTimeZones.beta='PT';a.commandGuildSettings['command-one'].beta.schedule.timeZone='PT';a.commandGuildSettings['command-one'].alpha.runAt='ON_DEMAND';
  const {page,errors}=await open(d);
@@ -1375,6 +1389,7 @@ try {
   await commandSettingAttributeEscaping();
   await legacyAccountSettings();
   await downloadConfirmation();
+  await ordinarySettingsApply();
   await accountAndCommandDefaults();
   await zoneCommandOption();
   await plainCommandMessagePool();
