@@ -1,4 +1,4 @@
-import { validateTimelineForAddon, cloneSavedData, events, timelineConflicts, orderedReminderRows, orderedMessageEntries, guildNames, guildIndexFromRoster, guildKey } from "/model.js";
+import { validateTimelineForAddon, cloneSavedData, events, timelineConflicts, orderedReminderRows, orderedMessageEntries, guildNames, guildIndexFromRoster, guildKey, monthlyWeekdayRule } from "/model.js";
 import { setLuaValue } from "/lua-data.js";
 const values = (x) => Object.values(x || {});
 const scheduleKeys = [
@@ -9,6 +9,8 @@ const scheduleKeys = [
   "timeZone",
   "recurrence",
   "recurrenceInterval",
+  "monthlyWeek",
+  "monthlyWeekday",
   "specialPattern",
   "rotationWeeks",
   "rotationEvents",
@@ -337,6 +339,7 @@ export function stageImport(p, event, existingMessages, guild) {
     });
   }
   const s = p.schedule;
+  if(s.recurrence==='MONTHLY_WEEKDAY')Object.assign(s,monthlyWeekdayRule(s));
   for (const r of values(s.reminders)) {
     const matches=values(prior.reminders).filter(old=>old.id===r.id||(old.label===r.label&&JSON.stringify(old.start)===JSON.stringify(r.start)&&JSON.stringify(old.finish)===JSON.stringify(r.finish)&&old.once===r.once));
     const privateIds=matches.length===1?values(matches[0].messageIds).filter(id=>lockedIds.has(id)):[];
@@ -483,7 +486,7 @@ export function importEventBundle(account,document,selectedIndices){
       schedule.reminders=array(orderedReminderRows(schedule));
       settings.schedule={...prior,...schedule};
       delete settings.schedule.mergedInto;
-      for(const key of ['rotationEvents','rotationEvery','occurrenceExceptions'])if(schedule[key]===undefined)delete settings.schedule[key];
+      for(const key of ['rotationEvents','rotationEvery','occurrenceExceptions','monthlyWeek','monthlyWeekday'])if(schedule[key]===undefined)delete settings.schedule[key];
       // An imported duration can explicitly clear the old optional cap.
       if(schedule.eventDurationMinutes===undefined)delete settings.schedule.eventDurationMinutes;
       const errors=validateTimelineForAddon(settings.schedule);if(errors.length)throw Error(errors.join(' '));

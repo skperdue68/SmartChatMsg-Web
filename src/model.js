@@ -333,7 +333,20 @@ function date(s) {
   const c = m.slice(1).map(Number);
   return equal(civil(stamp(c), "UTC").slice(0, 3), c) ? c : null;
 }
-function nominalOccurrences(schedule, fromUtc, toUtc, unlimited = false) {
+export function monthlyWeekdayRule(schedule = {}) {
+  const anchor=date(schedule.eventDate||schedule.startDate);
+  return {
+    monthlyWeek:schedule.monthlyWeek ?? (anchor?Math.floor((anchor[2]-1)/7)+1:undefined),
+    monthlyWeekday:schedule.monthlyWeekday ?? (anchor?new Date(stamp(anchor)*1000).getUTCDay()+1:undefined),
+  };
+}
+export function validateMonthlyWeekdayRule(schedule = {}) {
+  const errors=[];
+  if(schedule.monthlyWeek!==undefined && schedule.monthlyWeek!=='LAST' && (!Number.isInteger(schedule.monthlyWeek)||schedule.monthlyWeek<1||schedule.monthlyWeek>5))errors.push('Monthly week must be 1 through 5 or LAST.');
+  if(schedule.monthlyWeekday!==undefined && (!Number.isInteger(schedule.monthlyWeekday)||schedule.monthlyWeekday<1||schedule.monthlyWeekday>7))errors.push('Monthly weekday must be 1 through 7 (Sunday through Saturday).');
+  return errors;
+}
+function nominalOccurrences(schedule, fromUtc, toUtc, unlimited = false, firstOnly = false) {
   if (!Number.isFinite(fromUtc) || !Number.isFinite(toUtc) || toUtc < fromUtc)
     return [];
   if (!unlimited && toUtc - fromUtc > 400 * 86400)
@@ -349,6 +362,7 @@ function nominalOccurrences(schedule, fromUtc, toUtc, unlimited = false) {
       Math.floor(+schedule.interval || +schedule.recurrenceInterval || 1),
     ),
     weekday = new Date(anchor * 1000).getUTCDay(),
+    monthly = monthlyWeekdayRule(schedule),
     wanted = Object.entries(schedule.weekdays || {})
       .filter(([, v]) => v === true)
       .map(([k]) => Number(k) - 1);
@@ -360,6 +374,7 @@ function nominalOccurrences(schedule, fromUtc, toUtc, unlimited = false) {
       diff = Math.round((day - anchor) / 86400),
       dow = new Date(day * 1000).getUTCDay(),
       months = (c[0] - d[0]) * 12 + c[1] - d[1];
+    if(c[0]>2099)break;
     let yes = false;
     if (rec === "NONE") yes = diff === 0;
     else if (rec === "DAILY")
@@ -374,19 +389,23 @@ function nominalOccurrences(schedule, fromUtc, toUtc, unlimited = false) {
     else if (rec === "MONTHLY_WEEKDAY")
       yes =
         months % interval === 0 &&
-        dow === weekday &&
-        Math.floor((c[2] - 1) / 7) === Math.floor((d[2] - 1) / 7);
+        dow === monthly.monthlyWeekday-1 &&
+        (monthly.monthlyWeek==='LAST'
+          ? new Date(Date.UTC(c[0],c[1]-1,c[2]+7)).getUTCMonth()!==c[1]-1
+          : Math.floor((c[2]-1)/7)+1===monthly.monthlyWeek);
     if (yes) {
       const occurrence = utc([...c, ...t], z, schedule.eventFold);
-      if (occurrence !== null && occurrence >= fromUtc && occurrence <= toUtc)
+      if (occurrence !== null && occurrence >= fromUtc && occurrence <= toUtc) {
         result.push(occurrence);
+        if(firstOnly)return result;
+      }
     }
   }
   return result;
 }
 const nominalCache = new Map();
 function nominalHistory(schedule, at) {
-  const key = JSON.stringify([schedule.eventDate,schedule.startDate,schedule.eventTime,schedule.startTime,schedule.timeZone,schedule.eventFold,schedule.recurrence,schedule.interval,schedule.recurrenceInterval,schedule.weekdays]);
+  const key = JSON.stringify([schedule.eventDate,schedule.startDate,schedule.eventTime,schedule.startTime,schedule.timeZone,schedule.eventFold,schedule.recurrence,schedule.interval,schedule.recurrenceInterval,schedule.weekdays,schedule.monthlyWeek,schedule.monthlyWeekday]);
   let cached = nominalCache.get(key);
   if (!cached || cached.until < at) {
     const anchor = scheduleEventUtc(schedule);
@@ -408,6 +427,23 @@ export function occurrenceCancellation(schedule, atUtc) {
 export function projectedOccurrences(schedule, fromUtc, toUtc, options = {}) {
   const occurrences = nominalOccurrences(schedule,fromUtc,toUtc);
   return options.includeCancelled ? occurrences : occurrences.filter(at=>!occurrenceCancellation(schedule,at));
+}
+export function nextScheduleOccurrence(schedule, fromUtc = Date.now()/1000, options = {}) {
+  // Allow UTC spill from the final supported civil date in western timezones.
+  const end=Date.UTC(2100,0,2)/1000;
+  if(!Number.isFinite(fromUtc)||fromUtc>end)return null;
+  if((schedule.recurrence||'NONE')==='NONE') {
+    const at=scheduleEventUtc(schedule);
+    return Number.isFinite(at)&&at>=fromUtc&&at<=end&&nominalOccurrences(schedule,at,at).length&&(options.includeCancelled||!occurrenceCancellation(schedule,at))?at:null;
+  }
+  while(fromUtc<=end){
+    const next=nominalOccurrences(schedule,fromUtc,end,true,true)[0];
+    if(next===undefined)return null;
+    const action=schedule.occurrenceExceptions?.[civilDateKey(schedule,next)]?.action;
+    if(options.includeCancelled||!['KEEP','POSTPONE'].includes(action))return next;
+    fromUtc=next+1;
+  }
+  return null;
 }
 export function plannedOccurrences(schedule, fromUtc, toUtc) {
   return nominalOccurrences(schedule,fromUtc,toUtc,true);
@@ -474,8 +510,10 @@ export function orderedReminderRows(schedule, eventAtUtc = scheduleEventUtc(sche
 export function timelineConflicts(schedule) {
   const anchor=scheduleEventUtc(schedule);
   if(!Number.isFinite(anchor))return [];
-  // Include the anchor and recurring occurrences across a complete DST cycle.
-  const occurrences=[...new Set([anchor,...projectedOccurrences(schedule,anchor,anchor+400*86400)])];
+  // Only actual occurrences create windows; an explicit monthly anchor can be a date bound.
+  const first=nextScheduleOccurrence(schedule,anchor);
+  if(first===null)return [];
+  const occurrences=projectedOccurrences(schedule,first,first+400*86400);
   const windows=occurrences.flatMap(at=>reminderWindows(schedule,at)).sort((a,b)=>a.start-b.start);
   const conflicts=[],seen=new Set();let active=[];
   for(const current of windows){
@@ -507,6 +545,7 @@ export function editDayTimeline(source,eventAtUtc,rowId,edge,deltaMinutes){
       const anchorWeekday=new Date(stamp(base.slice(0,3))*1000).getUTCDay(),anchorShift=Math.floor((anchorWeekday+days)/7);
       if(Object.entries(schedule.weekdays||{}).some(([key,value])=>value&&Math.floor((Number(key)-1+days)/7)!==anchorShift))throw Error('Moving across this week boundary would change the multi-week weekday pattern. Edit recurrence/weekday settings instead.');
     }
+    if(schedule.recurrence==='MONTHLY_WEEKDAY'&&(schedule.monthlyWeek!==undefined||schedule.monthlyWeekday!==undefined))Object.assign(schedule,monthlyWeekdayRule(source));
     schedule.eventDate=`${newDate[0]}-${String(newDate[1]).padStart(2,'0')}-${String(newDate[2]).padStart(2,'0')}`;
     schedule.eventTime=formatClock(next);schedule.eventFold=foldAt(eventAtUtc+deltaMinutes*60);
     schedule.eventAtUtc=scheduleEventUtc(schedule);if(schedule.eventAtUtc===null)throw Error('This clock does not exist at the recurrence anchor.');
@@ -684,8 +723,9 @@ export function legacyToTimeline(
   messages,
   parentSchedule = schedule,
 ) {
-  const target = scheduleEventUtc(parentSchedule),
-    original = legacyTechnicalEventUtc(schedule),
+  const parentAnchor = scheduleEventUtc(parentSchedule);
+  let target = parentAnchor;
+  const original = legacyTechnicalEventUtc(schedule),
     zone = schedule.timeZone || "ET";
   if (target === null || original === null)
     throw Error(
@@ -710,11 +750,8 @@ export function legacyToTimeline(
       throw Error("Monthly source and parent must use the same calendar day.");
     if (
       rec === "MONTHLY_WEEKDAY" &&
-      sd &&
-      pd &&
-      (Math.floor((sd[2] - 1) / 7) !== Math.floor((pd[2] - 1) / 7) ||
-        new Date(stamp(sd) * 1000).getUTCDay() !==
-          new Date(stamp(pd) * 1000).getUTCDay())
+      (monthlyWeekdayRule(legacyOccurrenceSchedule(schedule)).monthlyWeek !== monthlyWeekdayRule(parentSchedule).monthlyWeek ||
+        monthlyWeekdayRule(legacyOccurrenceSchedule(schedule)).monthlyWeekday !== monthlyWeekdayRule(parentSchedule).monthlyWeekday)
     )
       throw Error(
         "Monthly source and parent must use the same ordinal weekday.",
@@ -743,7 +780,16 @@ export function legacyToTimeline(
       "Review matching source and parent timezones before combining reminders.",
     );
   let source = original;
-  if (schedule !== parentSchedule) {
+  const monthly=['MONTHLY_DATE','MONTHLY_WEEKDAY'].includes(schedule.recurrence);
+  if(monthly){
+    const sourceSchedule=legacyOccurrenceSchedule(schedule),sd=civil(original,zone).slice(0,3),pd=civil(target,zone).slice(0,3),interval=schedule.recurrenceInterval??schedule.interval??1;
+    if(((sd[0]-pd[0])*12+sd[1]-pd[1])%interval!==0)throw Error('Review incompatible source and parent monthly recurrence phases before combining.');
+    const commonDate=stamp(sd)>stamp(pd)?sd:pd,from=utc([...commonDate,0,0,0],zone,'FIRST');
+    target=nextScheduleOccurrence(parentSchedule,from,{includeCancelled:true});
+    source=nextScheduleOccurrence(sourceSchedule,from,{includeCancelled:true});
+    if(target===null||source===null||!equal(civil(target,zone).slice(0,3),civil(source,zone).slice(0,3)))throw Error('Choose an unambiguous matching monthly source occurrence.');
+  }
+  if (schedule !== parentSchedule && !monthly) {
     const recurrence = schedule.recurrence || "NONE";
     if (recurrence === "NONE") {
       if (Math.abs(source - target) > 14 * 86400)
@@ -826,10 +872,16 @@ export function legacyToTimeline(
     "timeZone",
   ])
     if (parentSchedule[key] !== undefined) result[key] = parentSchedule[key];
-  result.eventAtUtc = target;
-  const actual = civil(target, zone);
-  result.eventDate = `${actual[0]}-${String(actual[1]).padStart(2, "0")}-${String(actual[2]).padStart(2, "0")}`;
-  result.eventTime = `${String(actual[3] % 12 || 12).padStart(2, "0")}:${String(actual[4]).padStart(2, "0")} ${actual[3] >= 12 ? "PM" : "AM"}`;
+  // Matching occurrences align reminder offsets; the parent's original bound still defines recurrence and rotation phase.
+  result.eventAtUtc = parentAnchor;
+  const actual = civil(parentAnchor, zone);
+  result.eventDate = parentSchedule.eventDate ?? `${actual[0]}-${String(actual[1]).padStart(2, "0")}-${String(actual[2]).padStart(2, "0")}`;
+  result.eventTime = parentSchedule.eventTime ?? `${String(actual[3] % 12 || 12).padStart(2, "0")}:${String(actual[4]).padStart(2, "0")} ${actual[3] >= 12 ? "PM" : "AM"}`;
+  result.eventFold = parentSchedule.eventFold ?? parentSchedule.startFold ?? 'FIRST';
+  for(const key of ['recurrence','recurrenceInterval','interval','monthlyWeek','monthlyWeekday','weekdays','specialPattern','rotationWeeks','rotationFactions','rotationEvents','rotationEvery','occurrenceExceptions']){
+    if(parentSchedule[key]!==undefined)result[key]=object(parentSchedule[key])?cloneSavedData(parentSchedule[key]):parentSchedule[key];
+    else delete result[key];
+  }
   result.promotionDays = 0;
   result.endDelayMinutes = Math.max(
     1,
@@ -943,7 +995,7 @@ export function legacyToTimeline(
   return mapLegacyTimelineUsage(schedule, result);
 }
 export function validateEventRotation(schedule = {}) {
-  const errors=[], activities=values(schedule.rotationEvents), ids=new Set();
+  const errors=validateMonthlyWeekdayRule(schedule), activities=values(schedule.rotationEvents), ids=new Set();
   if(schedule.specialPattern!==undefined && !['NONE','MONTH_FINAL','FACTION_ROTATION','EVENT_ROTATION'].includes(schedule.specialPattern)) errors.push('Choose a valid special pattern.');
   if(schedule.specialPattern==='EVENT_ROTATION' && ((schedule.mode||'EVENT')!=='EVENT'||(schedule.recurrence||'NONE')==='NONE'))errors.push('Rotating events require a recurring EVENT schedule.');
   if((schedule.rotationEvents!==undefined && activities.length>0) || schedule.specialPattern==='EVENT_ROTATION') {
@@ -1016,6 +1068,11 @@ export function validateTimelineForAddon(schedule) {
       );
   } catch {
     errors.push("Choose a supported timezone and actual event time.");
+  }
+  if(Number.isFinite(event) && schedule.recurrence==='MONTHLY_WEEKDAY') {
+    // Validate real reminder clocks, including a cancelled first occurrence, rather than a phantom anchor date.
+    const first=nextScheduleOccurrence(schedule,event,{includeCancelled:true});
+    if(first!==null)event=first;
   }
   if (schedule.importantTimes !== undefined && !object(schedule.importantTimes))
     errors.push("Important times must be a table.");
