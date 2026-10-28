@@ -603,8 +603,8 @@ async function timelineOrderingAndPoolPreview(){
  await setPeriodOffset(page,second,'finish',-90);assert.match(await page.locator('#timeline-conflicts').textContent(),/Overlapping periods.*Second.*First/);
  await second.locator('[data-action=save]').click();assert.match(await page.locator('#status').textContent(),/Overlapping periods/);
  await setPeriodOffset(page,second,'finish',-120);
- const pool=second.locator('.pool label').first();await pool.hover();assert.match(await page.locator('#pool-preview p').textContent(),/Meet alpha/);assert.doesNotMatch(await page.locator('#pool-preview p').textContent(),/%event(time|when|countdown)%/);assert.match(await page.locator('#pool-preview small').textContent(),/%eventtime%/);
- await pool.locator('input').focus();assert.equal(await page.locator('#pool-preview').count(),1);await page.keyboard.press('Escape');assert.equal(await page.locator('#pool-preview').count(),0);
+ const pool=second.locator('.pool label').first();await pool.hover();assert.equal(await page.locator('#pool-preview').count(),0);const trigger=pool.locator('..').locator('.pool-preview-trigger');await trigger.hover();assert.match(await page.locator('#pool-preview p').textContent(),/Meet alpha/);assert.doesNotMatch(await page.locator('#pool-preview p').textContent(),/%event(time|when|countdown)%/);assert.match(await page.locator('#pool-preview small').textContent(),/%eventtime%/);
+ await pool.locator('input').focus();assert.equal(await page.locator('#pool-preview').count(),0);await trigger.focus();assert.equal(await page.locator('#pool-preview').count(),1);const itemRect=await pool.locator('..').boundingBox(),previewRect=await page.locator('#pool-preview').boundingBox();assert.ok(previewRect.x>=itemRect.x+itemRect.width||previewRect.x+previewRect.width<=itemRect.x||previewRect.y>=itemRect.y+itemRect.height||previewRect.y+previewRect.height<=itemRect.y,'preview does not cover its item');await page.keyboard.press('Escape');assert.equal(await page.locator('#pool-preview').count(),0);
  await second.locator('[data-action=preview]').click();
  assert.match(await page.locator('#dialog-body').textContent(),/Simulated server time/);assert.doesNotMatch(await page.locator('#dialog-body').textContent(),/local time/i);
  assert.equal(await page.locator('#simulate-time + .clock-zone').textContent(),'ET');
@@ -995,7 +995,7 @@ async function ordinaryPoolAndEventToggle(){
  const {page,errors}=await open(d);
  try{
  const pool=page.locator('#ordinary-message-pool');assert.equal(await pool.isVisible(),true);assert.equal(await pool.locator('[data-ordinary-message]').count(),2);assert.equal(await pool.locator('[data-ordinary-message]:checked').count(),2);
- await pool.locator('label').first().hover();assert.match(await page.locator('#pool-preview p').textContent(),/Hello alpha/);assert.match(await page.locator('#pool-preview small').textContent(),/Template: Hello %guild%/);
+ await pool.locator('label').first().hover();assert.equal(await page.locator('#pool-preview').count(),0);await pool.locator('.pool-preview-trigger').first().hover();assert.match(await page.locator('#pool-preview p').textContent(),/Hello alpha/);assert.match(await page.locator('#pool-preview small').textContent(),/Template: Hello %guild%/);await pool.locator('.pool-preview-trigger').first().click();assert.equal(await pool.locator('[data-ordinary-message]:checked').count(),2,'preview button does not toggle the message');await page.keyboard.press('Escape');await page.setViewportSize({width:480,height:850});await pool.locator('.pool-preview-trigger').first().hover();const choiceBox=await pool.locator('.pool-choice').first().boundingBox(),tipBox=await page.locator('#pool-preview').boundingBox();assert.ok(tipBox.x>=8&&tipBox.x+tipBox.width<=472,'mobile preview stays in viewport');assert.ok(tipBox.y>=choiceBox.y+choiceBox.height||tipBox.y+tipBox.height<=choiceBox.y,'mobile preview does not cover selection');await page.setViewportSize({width:1440,height:1000});await page.keyboard.press('Escape');
  await pool.locator('[data-ordinary-message="message-one"]').uncheck();let saved=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(saved.commandGuildSettings['command-one'].alpha.disabledMessageIds['message-one'],true);assert.equal(saved.messages[1].useCount,5);
  await pool.locator('[data-ordinary-message="pool-two"]').uncheck();assert.equal(await pool.locator('[data-pool-empty]').isVisible(),true);await pool.locator('[data-ordinary-message="message-one"]').check();assert.equal(await pool.locator('[data-pool-empty]').isVisible(),false);const editor=page.locator('.message').first();await editor.locator('summary').click();await editor.locator('textarea').fill('Updated pool template');await editor.locator('[data-action=save-message]').click();assert.match(await pool.locator('[data-pool-message-label="message-one"]').textContent(),/Updated pool template/);
  await page.locator('[data-field=settingsRunAt]').selectOption('SCHEDULED');assert.equal(await pool.isVisible(),false);const enabled=page.locator('[data-field=eventEnabled]');assert.equal(await enabled.getAttribute('type'),'checkbox');assert.equal(await enabled.isChecked(),true);await enabled.uncheck();await page.locator('#save-event').click();saved=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(saved.commandGuildSettings['command-one'].alpha.schedule.enabled,false);assert.equal(saved.commandGuildSettings['command-one'].alpha.schedule.paused,false);assert.equal(await page.locator('#event-schedule-help').count(),0);assert.deepEqual(errors,[]);
@@ -1007,6 +1007,23 @@ async function newMessageOpens(){
  try{await page.locator('#add-message').click();const card=page.locator('.message').last();await card.locator('textarea').waitFor({state:'visible'});assert.equal(await card.evaluate(el=>el.open),true);assert.equal(await card.locator('textarea').evaluate(el=>el===document.activeElement),true);assert.equal(await page.locator('.message').first().evaluate(el=>el.open),false);await card.locator('[data-field=messageName]').fill('A useful name');assert.match(await card.locator('.message-summary-title').textContent(),/A useful name/);assert.equal(await card.locator('.message-full-name').count(),0);assert.deepEqual(errors,[]);}finally{await page.close();}
 }
 
+async function sliderKeyboardControls(){
+ const d=fixture();const {page,errors}=await open(d);
+ try{
+  const duration=page.locator('[data-scheduling-slider=eventDurationMinutes]');
+  await duration.focus();await page.keyboard.press('ArrowRight');assert.equal(await duration.inputValue(),'1');
+  await page.keyboard.press('Shift+ArrowRight');assert.equal(await duration.inputValue(),'16');
+  await page.keyboard.press('PageUp');assert.equal(await duration.inputValue(),'76');
+  await page.keyboard.press('Home');assert.equal(await duration.inputValue(),'0');
+  await page.keyboard.press('End');assert.equal(await duration.inputValue(),'240');
+  assert.match(await duration.getAttribute('aria-description'),/Shift/);
+  const count=page.locator('[data-scheduling-slider=maxPerDay]').first();await count.focus();await page.keyboard.press('Home');await page.keyboard.press('Shift+ArrowRight');assert.equal(await count.inputValue(),'5');await page.keyboard.press('ArrowRight');assert.equal(await count.inputValue(),'6');
+  await page.locator('#account-settings').click();const timeout=page.locator('#account-revert-slider');await timeout.focus();await page.keyboard.press('Home');await page.keyboard.press('Shift+ArrowRight');assert.equal(await timeout.inputValue(),'40');await page.keyboard.press('PageUp');assert.equal(await page.locator('#account-revert-seconds').inputValue(),'70');await page.keyboard.press('End');assert.equal(await timeout.inputValue(),'300');await page.keyboard.press('ArrowRight');assert.equal(await timeout.inputValue(),'300');
+  await page.locator('#cancel-account-settings').click();
+  assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 async function deliverySliderClarity(){
  const d=fixture();d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.runAt='ON_DEMAND';const {page,errors}=await open(d);
  try{
@@ -1014,8 +1031,8 @@ async function deliverySliderClarity(){
  await repeat.fill('7');await cooldown.fill('25');await retry.fill('40');assert.equal(await retry.inputValue(),'7');assert.equal(await retry.getAttribute('max'),'7');assert.equal(await range.getAttribute('max'),'7');
  await repeat.fill('30');await retry.fill('40');assert.equal(await retry.inputValue(),'25');await cooldown.fill('15');assert.equal(await retry.inputValue(),'15');assert.equal(await range.getAttribute('max'),'15');await repeat.fill('3');assert.equal(await retry.inputValue(),'3');await cooldown.fill('60');assert.equal(await retry.inputValue(),'3');await repeat.fill('0');assert.equal(await retry.inputValue(),'0');assert.equal(await range.isDisabled(),true);
  assert.match(await page.locator('[data-minute-control=reminderMinutes] label').textContent(),/Repeat Frequency/);assert.equal(await page.locator('.minute-slider>p:visible').count(),0);
- const retryHelp=page.locator('[data-minute-control=reminderRetryMinutes] .help-icon');await retryHelp.hover();assert.equal(await retryHelp.locator('.help-bubble').isVisible(),true);assert.equal(await retryHelp.locator('.help-bubble').textContent(),'How often to try sending again if send fails');
- assert.equal(await page.locator('[data-minute-control=autoPopulateCooldownMinutes] .help-bubble').textContent(),'Delay before trying to send again');
+ const retryHelp=page.locator('[data-minute-control=reminderRetryMinutes] .help-icon');await retryHelp.hover();assert.equal(await retryHelp.locator('.help-bubble').isVisible(),true);assert.match(await retryHelp.locator('.help-bubble').textContent(),/^How often to try sending again if send fails.*Keyboard:/);
+ assert.match(await page.locator('[data-minute-control=autoPopulateCooldownMinutes] .help-bubble').textContent(),/^Delay before trying to send again.*Keyboard:/);
  const a=await page.locator('[data-command-option=autoPopulateOnZone]').boundingBox(),b=await page.locator('[data-command-option=openStatusPanelOnRun]').boundingBox();assert.ok(Math.abs(a.y-b.y)<3,'checkboxes share a row');const soundBox=await page.locator('[data-command-option=populateSound]').boundingBox();assert.ok(soundBox.x>b.x+b.width,'sound is to the right');assert.ok(Math.abs(soundBox.y+soundBox.height/2-a.y-a.height/2)<3,'sound is vertically centered');
  assert.doesNotMatch(await page.locator('.command-delivery').textContent(),/Zone population and timed repetition are alternatives/);assert.deepEqual(errors,[]);
  }finally{await page.close();}
@@ -1232,6 +1249,7 @@ try {
   await compactSchedulingSliders();
   await messageApplyBorderAndDisabledLabels();
   await legacyPausedEventCheckbox();
+  await sliderKeyboardControls();
   await ordinaryPoolAndEventToggle();
   await newMessageOpens();
   await deliverySliderClarity();

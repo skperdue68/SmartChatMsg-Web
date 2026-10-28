@@ -60,3 +60,33 @@ export function setSchedulingSliderValue(input, value, root) {
   if(n<min||n>max)input.dataset.sliderOriginal=String(n);else delete input.dataset.sliderOriginal;
   refresh(input,root);
 }
+
+export function sliderKeyboardHelp(input) {
+  const count=['maxPerDay','recurrenceInterval'].includes(input.dataset.schedulingSlider);
+  const seconds=input.id==='account-revert-slider';
+  return count ? 'Keyboard: Arrow keys adjust by 1; Shift+Arrow and Page Up/Down adjust by 5. Home/End jump to the limits.'
+    : seconds ? 'Keyboard: Arrow keys adjust by 1 second; Shift+Arrow adjusts by 10 seconds; Page Up/Down adjusts by 30 seconds. Home/End jump to the limits.'
+    : 'Keyboard: Arrow keys adjust by 1 minute; Shift+Arrow adjusts by 15 minutes; Page Up/Down adjusts by 1 hour. Home/End jump to the limits.';
+}
+
+// Delegate once so dynamically created sliders use the same keyboard behavior.
+export function bindSliderKeyboard(root) {
+  root.addEventListener('keydown', event => {
+    const input=event.target;
+    if(!input.matches?.('input[type="range"]')||input.disabled||event.ctrlKey||event.metaKey||event.altKey)return;
+    const count=['maxPerDay','recurrenceInterval'].includes(input.dataset.schedulingSlider),seconds=input.id==='account-revert-slider';
+    let value=Number(input.value),delta;
+    if(event.key==='Home')value=Number(input.min);
+    else if(event.key==='End')value=Number(input.max);
+    else {
+      const direction=({ArrowRight:1,ArrowUp:1,ArrowLeft:-1,ArrowDown:-1,PageUp:1,PageDown:-1})[event.key];
+      if(!direction)return;
+      delta=event.key.startsWith('Page')?(count?5:seconds?30:60):event.shiftKey?(count?5:seconds?10:15):Number(input.step||1);
+      value+=direction*delta;
+    }
+    event.preventDefault();
+    input.value=String(Math.max(Number(input.min),Math.min(Number(input.max),value)));
+    input.dispatchEvent(new Event('input',{bubbles:true}));
+    input.dispatchEvent(new Event('change',{bubbles:true}));
+  });
+}
