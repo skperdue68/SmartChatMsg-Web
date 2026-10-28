@@ -1519,7 +1519,9 @@ function refreshMigratedRuntime(data, base, latest, conflicts) {
 // These formats intentionally mirror the addon's event-token formatter.
 export function formatEventCountdown(seconds) {
  if(seconds<0)return 'passed';if(seconds===0)return 'now';
- return formatDurationMinutes(Math.ceil(seconds/60));
+ const total=Math.ceil(seconds/60),days=Math.floor(total/1440),hours=Math.floor(total%1440/60),minutes=total%60;
+ const parts=[];if(days)parts.push(days+'d');if(hours)parts.push(hours+'h');if(minutes)parts.push(minutes+'m');
+ return parts.join(' ');
 }
 function formatDurationMinutes(total){
  total=Math.max(0,total);if(total<5)return 'soon';
