@@ -11,9 +11,17 @@ test('event previews expand standard named and offset tokens at simulated phase 
 test('preview countdown formatting and automatic event-time countdown match addon conventions',()=>{
  assert.equal(previewMessage('%eventtime%',schedule,at,at-3600),'08:00 PM EST (1h)');
  assert.equal(previewMessage('%eventcountdown%',schedule,at,at-17*60),'17m');
- assert.equal(previewMessage('%eventcountdown%',schedule,at,at-31*60),'~30m');
+ assert.equal(previewMessage('%eventcountdown%',schedule,at,at-31*60),'31m');
  assert.equal(previewMessage('%eventcountdown%',schedule,at,at+60),'passed');
  assert.equal(previewMessage('%eventcountdown%',schedule,at,at),'now');
 });
 
 test('unsupported greeting-like tokens stay literal as in ESO',()=>{assert.equal(previewMessage('%morning% %time%',schedule,at,at,{localHour:9}),'%morning% morning');});
+
+test('explicit deadline countdowns preserve offsets even many days ahead',()=>{
+ const text='%eventcountdown% / %eventcountdown-60m% / %eventcountdown-1h% / %eventcountdown-4h% / %eventcountdown:tickets%';
+ assert.equal(previewMessage(text,schedule,at,at-(10*86400+6*3600+17*60)), '10d 6h 17m / 10d 5h 17m / 10d 5h 17m / 10d 2h 17m / 10d 5h 17m');
+ assert.equal(previewMessage('%eventcountdown-1d% / %eventcountdown+30m%',schedule,at,at-2*86400),'1d / 2d 30m');
+ assert.equal(previewMessage('%eventcountdown%',schedule,at,at-1),'1m');
+ assert.equal(previewMessage('%eventcountdown-1%h',schedule,at,at-3600),'%eventcountdown-1%h');
+});
