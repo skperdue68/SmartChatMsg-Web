@@ -1,4 +1,4 @@
-import { schedulingSlider, schedulingValue, bindSchedulingSliders, setSchedulingSliderValue } from "/scheduling-sliders.js";
+import { schedulingSlider, schedulingValue, bindSchedulingSliders, setSchedulingSliderValue, bindSliderKeyboard, sliderKeyboardHelp } from "/scheduling-sliders.js";
 import { exportEventBundle, readEventBundle, reviewEventImport, importEventBundle } from "/portable.js";
 import {
   parseSavedVariables,
@@ -6,6 +6,7 @@ import {
   setLuaValue,
 } from "/lua-data.js";
 import * as model from "/model.js";
+bindSliderKeyboard(document);
 const $ = (s) => document.querySelector(s),
   vals = (o) => Object.values(o || {}),
   esc = (x) =>
@@ -655,6 +656,11 @@ function reminderFieldError(card,value=reminderFields(card)){
  return null;
 }
 function decorateFieldLabels(root=document.querySelector('#detail')){
+  root.querySelectorAll('input[type="range"]').forEach(input=>{
+    const help=sliderKeyboardHelp(input);input.setAttribute('aria-description',help);
+    const label=input.closest('label')||root.querySelector(`label[for="${input.id}"]`);
+    if(label&&!label.dataset.keyboardHelp){label.dataset.help=[label.dataset.help,help].filter(Boolean).join(' ');label.dataset.keyboardHelp='true';}
+  });
   root.querySelectorAll('.readonly-tag').forEach(el=>el.remove());
   root.querySelectorAll('input[readonly],textarea[readonly]').forEach(el=>{
     el.setAttribute('aria-readonly','true');
@@ -1242,7 +1248,7 @@ function renderOrdinaryMessagePool(event){
 function attachPoolPreviews(card,event,row){
   let bubble;
   const close=()=>{bubble?.remove();bubble=null;card.querySelectorAll('[aria-describedby="pool-preview"]').forEach(el=>el.removeAttribute('aria-describedby'));};
-  const show=label=>{
+  const show=(label,trigger)=>{
     close();const id=label.querySelector('[data-message]')?.dataset.message;
     const message=eventMessages(event).find(m=>m.id===id);if(!message)return;
     let output=message.text,caption='Full message template';
@@ -1257,16 +1263,35 @@ function attachPoolPreviews(card,event,row){
     bubble=document.createElement('div');bubble.id='pool-preview';bubble.className='pool-preview-tooltip';bubble.setAttribute('role','tooltip');
     const heading=document.createElement('strong');heading.textContent=caption;const text=document.createElement('p');text.textContent=output;
     const template=document.createElement('small');template.textContent='Template: '+message.text;bubble.append(heading,text,template);document.body.append(bubble);
-    label.querySelector('input').setAttribute('aria-describedby','pool-preview');
-    const rect=label.getBoundingClientRect(),width=bubble.getBoundingClientRect().width,height=bubble.getBoundingClientRect().height;
-    bubble.style.left=Math.max(8,Math.min(rect.left,innerWidth-width-8))+'px';
-    bubble.style.top=Math.max(8,Math.min(rect.bottom+6,innerHeight-height-8))+'px';
+    trigger.setAttribute('aria-describedby','pool-preview');
+    const rect=trigger.parentElement.getBoundingClientRect(),width=bubble.getBoundingClientRect().width,height=bubble.getBoundingClientRect().height,gap=10;
+    let left,top;
+    if(rect.right+gap+width<=innerWidth-8){left=rect.right+gap;top=rect.top;}
+    else if(rect.left-gap-width>=8){left=rect.left-gap-width;top=rect.top;}
+    else {
+      left=Math.max(8,Math.min(rect.left,innerWidth-width-8));
+      // On narrow screens keep the originating checkbox and text unobstructed.
+      const below=innerHeight-rect.bottom-gap-8,above=rect.top-gap-8;
+      if(below>=Math.min(height,above)){top=rect.bottom+gap;bubble.style.maxHeight=Math.max(1,below)+'px';}
+      else {bubble.style.maxHeight=Math.max(1,above)+'px';top=rect.top-gap-Math.min(height,above);}
+    }
+    bubble.style.left=left+'px';
+    bubble.style.top=Math.max(8,Math.min(top,innerHeight-bubble.getBoundingClientRect().height-8))+'px';
   };
   card.querySelectorAll('.pool label').forEach(label=>{
     label.removeAttribute('title');
-    label.addEventListener('mouseenter',()=>show(label));label.addEventListener('mouseleave',close);
-    label.addEventListener('focusin',()=>show(label));label.addEventListener('focusout',close);
-    label.addEventListener('keydown',ev=>{if(ev.key==='Escape')close();});
+    label.addEventListener('focusin',close);
+    label.addEventListener('click',close);
+    const choice=document.createElement('div');choice.className='pool-choice';label.before(choice);choice.append(label);
+    const trigger=document.createElement('button');trigger.type='button';trigger.className='pool-preview-trigger';
+    const id=label.querySelector('[data-message]')?.dataset.message,message=eventMessages(event).find(m=>m.id===id);
+    trigger.setAttribute('aria-label','Preview '+(message?.name||'message'));
+    trigger.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>';
+    choice.append(trigger);
+    trigger.addEventListener('mouseenter',()=>show(label,trigger));trigger.addEventListener('mouseleave',close);
+    trigger.addEventListener('focus',()=>show(label,trigger));trigger.addEventListener('blur',close);
+    trigger.addEventListener('click',()=>show(label,trigger));
+    trigger.addEventListener('keydown',ev=>{if(ev.key==='Escape')close();});
   });
   // A rerender must not leave a detached card's tooltip behind.
   card.addEventListener('click',ev=>{if(ev.target.closest('[data-action]'))close();});
