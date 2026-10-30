@@ -948,7 +948,8 @@ async function sharedServerLibrary(){
    if(path==='/api/library'&&request.method()==='GET')return reply(200,{files:[...files.values()].map(({lua,...metadata})=>metadata)});
    if(path==='/api/library'&&request.method()==='POST'){
      const payload=request.postDataJSON();state.onSave?.(payload);if(state.saveGate)await state.saveGate;
-     if([...files.values()].some(file=>file.name.toLowerCase()===payload.name.trim().toLowerCase()))return reply(409,{error:'That name already exists; choose a unique name.'});
+     const existing=[...files.values()].find(file=>file.name.toLowerCase()===payload.name.trim().toLowerCase());
+     if(existing){if(!payload.overwrite)return reply(409,{error:'That name already exists; choose a unique name.'});existing.lua=payload.lua;existing.updatedAt='2026-10-30T12:00:00Z';return reply(201,{file:{...existing,lua:undefined}});}
      const {lua,...file}=add(payload.name.trim(),payload.lua);return reply(201,{file});
    }
    const file=files.get(path.split('/').at(-1));state.onLoad?.();if(state.loadGate)await state.loadGate;
@@ -960,7 +961,8 @@ async function sharedServerLibrary(){
    await page.locator('#latest').setInputFiles({name:'SmartChatMsg.lua',mimeType:'text/plain',buffer:Buffer.from(writeSavedVariables(latest))});await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('for merging'));
    await page.locator('#save-server').click();await page.locator('#library-list [data-library-id]').first().waitFor();await page.locator('#library-name').fill('Shared version');await page.locator('#library-save').click();await page.waitForFunction(()=>document.querySelector('#library-status')?.textContent.includes('Saved “Shared version”'));
    const saved=[...files.values()].find(file=>file.name==='Shared version'),savedData=parseSavedVariables(saved.lua).Default['@fixture'].$AccountWide;assert.equal(savedData.commands[1].name,'Shared edit');assert.equal(savedData.messages[1].useCount,99);
-   await page.locator('#library-name').fill('SHARED VERSION');await page.locator('#library-save').click();await page.waitForFunction(()=>document.querySelector('#library-status')?.textContent.includes('already exists'));assert.equal(files.size,2);assert.equal(files.get(saved.id).lua,saved.lua);await page.locator('#close-dialog').click();
+   await page.locator('#library-name').fill('SHARED VERSION');await page.locator('#library-save').click();await page.locator('#library-cancel-overwrite').click();await page.waitForFunction(()=>document.querySelector('#library-status')?.textContent.includes('Overwrite cancelled'));assert.equal(files.size,2);assert.equal(files.get(saved.id).lua,saved.lua);
+   await page.locator('#library-save').click();await page.locator('#library-confirm-overwrite').click();await page.waitForFunction(()=>document.querySelector('#library-status')?.textContent.includes('Overwrote “SHARED VERSION”'));assert.equal(files.size,2);assert.equal(files.get(saved.id).updatedAt,'2026-10-30T12:00:00Z');await page.locator('#close-dialog').click();
    await page.locator('[data-field=commandName]').fill('Before request');await page.locator('#save-event').click();await page.locator('#save-server').click();await page.locator('#library-name').fill('Delayed save');
    let releaseSave,saveStarted;state.saveGate=new Promise(resolve=>releaseSave=resolve);const saving=new Promise(resolve=>saveStarted=resolve);state.onSave=saveStarted;
    await page.locator('#library-save').click();await saving;await page.locator('#close-dialog').click();await page.locator('[data-field=commandName]').fill('Newer unsaved edit');await page.locator('#save-event').click();releaseSave();await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('earlier copy'));state.saveGate=null;state.onSave=null;

@@ -59,3 +59,24 @@ test('library validates data, origin, media type, paths, and methods', async () 
     assert.deepEqual((await (await fetch(app.root + '/api/library')).json()).files, []);
   } finally { await app.stop(); await rm(directory, {recursive:true, force:true}); }
 });
+
+test('confirmed overwrite replaces the named file while preserving its identity and other files',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'scm-overwrite-'));let app=await start(directory);
+ try{
+  const file=(await(await app.post('My events')).json()).file;
+  const other=(await(await app.post('Other events')).json()).file;
+  const replacement=lua.replace('@example','@updated');
+  const post=(overwrite,text=replacement)=>fetch(app.root+'/api/library',{method:'POST',headers:{origin:app.root,'content-type':'application/json'},body:JSON.stringify({name:'MY EVENTS',lua:text,overwrite})});
+  assert.equal((await post('true')).status,400);
+  assert.equal((await post(false)).status,409);
+  assert.equal((await post(true,'not lua')).status,400);
+  assert.equal(await(await fetch(app.root+'/api/library/'+file.id)).text(),lua);
+  const response=await post(true);assert.equal(response.status,201);const updated=(await response.json()).file;
+  assert.equal(updated.id,file.id);assert.equal(updated.createdAt,file.createdAt);assert.ok(updated.updatedAt);
+  await app.stop();app=await start(directory);
+  assert.equal(await(await fetch(app.root+'/api/library/'+file.id)).text(),replacement);
+  assert.equal(await(await fetch(app.root+'/api/library/'+other.id)).text(),lua);
+  assert.equal((await(await fetch(app.root+'/api/library')).json()).files.length,2);
+  assert.equal((await readdir(directory)).filter(name=>name.endsWith('.tmp')).length,0);
+ }finally{await app.stop();await rm(directory,{recursive:true,force:true});}
+});

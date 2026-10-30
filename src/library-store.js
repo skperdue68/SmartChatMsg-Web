@@ -1,4 +1,4 @@
-import { mkdir, open, readdir, readFile, link, unlink } from 'node:fs/promises';
+import { mkdir, open, readdir, readFile, link, unlink, rename } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { parseSavedVariables } from './lua-data.js';
@@ -33,9 +33,10 @@ export function createLibraryStore(directory) {
         if (!/^[a-f0-9]{64}\.scm$/.test(entry)) continue;
         files.push(await metadata(resolve(location, entry)));
       }
-      return files.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
+      return files.sort((a, b) => (b.updatedAt||b.createdAt).localeCompare(a.updatedAt||a.createdAt) || a.id.localeCompare(b.id));
     },
-    async save(name, lua) {
+    async save(name, lua, {overwrite=false}={}) {
+      if(typeof overwrite!=='boolean')throw new LibraryError(400, 'Overwrite must be true or false.');
       if (typeof name !== 'string') throw new LibraryError(400, 'Provide a friendly name.');
       name = name.trim().normalize('NFC');
       if (!name || [...name].length > 120 || /\p{Cc}/u.test(name)) throw new LibraryError(400, 'Use a name of 1–120 characters without control characters.');
@@ -47,6 +48,10 @@ export function createLibraryStore(directory) {
       try { validateCommandNamesForAddon(requireCurrentScheduleFormat(parseSavedVariables(lua))); } catch(error) { throw new LibraryError(400,error.message); }
       const id = createHash('sha256').update(name.toLowerCase().normalize('NFC')).digest('hex');
       const file = { id, name, createdAt: new Date().toISOString(), bytes };
+      if(overwrite){
+        try { const existing=await metadata(filename(id));file.createdAt=existing.createdAt;file.updatedAt=new Date().toISOString(); }
+        catch(error){if(error.code!=='ENOENT')throw error;}
+      }
       await mkdir(location, { recursive: true });
       const temporary = resolve(location, `${randomUUID()}.tmp`);
       let handle;
@@ -55,7 +60,7 @@ export function createLibraryStore(directory) {
         await handle.writeFile(JSON.stringify(file) + '\n' + lua, 'utf8');
         await handle.sync();
         await handle.close(); handle = null;
-        try { await link(temporary, filename(id)); }
+        try { if(overwrite)await rename(temporary,filename(id));else await link(temporary, filename(id)); }
         catch (error) { if (error.code === 'EEXIST') throw new LibraryError(409, 'That name already exists; choose a unique name.'); throw error; }
         return file;
       } finally { if (handle) await handle.close(); await unlink(temporary).catch(() => {}); }

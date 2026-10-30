@@ -60,7 +60,7 @@ export function createServer(options={}) {
           try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
           catch { return json(400, {error:'Provide valid JSON.'}); }
           if (!body || typeof body !== 'object' || Array.isArray(body)) return json(400, {error:'Provide a name and Lua text.'});
-          return json(201, {file:await library.save(body.name, body.lua)});
+          return json(201, {file:await library.save(body.name, body.lua, {overwrite:body.overwrite??false})});
         }
         if (req.method !== 'GET' && req.method !== 'HEAD') return json(405, {error:'Method not allowed.'}, {Allow:path === '/api/library' ? 'GET, HEAD, POST' : 'GET, HEAD'});
         if (path === '/api/library') return json(200, {files:await library.list()});
