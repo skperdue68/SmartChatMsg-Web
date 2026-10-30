@@ -189,3 +189,5 @@ When saving either type, an optional **Overwrite password** protects later repla
 ### Condensed substitutions
 
 **Use condensed dates and times** in Event settings is stored per command + guild and defaults off. Dates become `11/07`, clocks become `8PM ET` or `645PM ET`, and weekday references become `Sat 11/07`; today/tomorrow wording stays relative. Signed offsets and named important times follow the same format. Previews reflect the checkbox immediately; Apply event settings saves it. Literal template text is not rewritten. The setting travels through JSON and Lua transfers. Use SmartChatMsg **3.01** for matching in-game output and duplicate recognition of either format.
+
+In **Save to server**, click an existing file in the list to copy its exact name into the save field. This selects a name only; it does not load or overwrite the file. Only compatible file types are shown (full configuration or event export). Click Save to server afterward to confirm replacement and supply its password if protected. In the regular Server library browser, clicking an entry still opens the configuration or export review.
