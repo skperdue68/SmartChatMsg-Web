@@ -1,5 +1,5 @@
-import { isReservedCommandName, validateTimelineForAddon, cloneSavedData, events, timelineConflicts, orderedReminderRows, orderedMessageEntries, guildNames, guildIndexFromRoster, guildKey, monthlyWeekdayRule, normalizeReminderAvailability } from "/model.js";
-import { setLuaValue } from "/lua-data.js";
+import { isReservedCommandName, validateTimelineForAddon, cloneSavedData, events, timelineConflicts, orderedReminderRows, orderedMessageEntries, guildNames, guildIndexFromRoster, guildKey, monthlyWeekdayRule, normalizeReminderAvailability } from "./model.js";
+import { setLuaValue } from "./lua-data.js";
 const values = (x) => Object.values(x || {});
 const scheduleKeys = [
   "timelineVersion",
@@ -369,7 +369,7 @@ export function stageImport(p, event, existingMessages, guild) {
   };
 }
 
-const commandKeys=['runAt','reminderMinutes','reminderRetryMinutes','autoPopulateCooldownMinutes','autoPopulateOnZone','openStatusPanelOnRun','populateSound','disabledMessageIds'];
+const commandKeys=['condensedDateTime','runAt','reminderMinutes','reminderRetryMinutes','autoPopulateCooldownMinutes','autoPopulateOnZone','openStatusPanelOnRun','populateSound','disabledMessageIds'];
 const normalized=value=>String(value||'').trim().toLowerCase();
 function commandConfig(source={}){
   const result={};
@@ -383,7 +383,7 @@ function commandConfig(source={}){
     }
     if(key==='runAt'&&!['SCHEDULED','ON_DEMAND','STARTUP'].includes(v))throw Error('Invalid Run at setting.');
     if(key==='populateSound'&&(typeof v!=='string'||v.length>200))throw Error('Invalid notification sound.');
-    if(['autoPopulateOnZone','openStatusPanelOnRun'].includes(key)&&typeof v!=='boolean')throw Error('Invalid command option.');
+    if(['autoPopulateOnZone','openStatusPanelOnRun','condensedDateTime'].includes(key)&&typeof v!=='boolean')throw Error('Invalid command option.');
     if(key.endsWith('Minutes'))num(v,key,0,5256000);
     result[key]=v;
   }

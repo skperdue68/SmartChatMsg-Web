@@ -66,7 +66,7 @@ test('latest availability counters survive hours edits and Lua full roundtrip',(
 });
 
 test('portable availability normalizes numeric keys, strips counters and preserves matching recipient row counters',async()=>{
- const source=fs.readFileSync(new URL('../public/portable.js',import.meta.url),'utf8').replaceAll('"/model.js"',JSON.stringify(new URL('../src/model.js',import.meta.url).href)).replaceAll('"/lua-data.js"',JSON.stringify(new URL('../src/lua-data.js',import.meta.url).href));
+ const source=fs.readFileSync(new URL('../public/portable.js',import.meta.url),'utf8').replaceAll('"./model.js"',JSON.stringify(new URL('../src/model.js',import.meta.url).href)).replaceAll('"./lua-data.js"',JSON.stringify(new URL('../src/lua-data.js',import.meta.url).href));
  const {portableEvent,validatePortable,stageImport,exportEventBundle,importEventBundle}=await import('data:text/javascript;base64,'+Buffer.from(source+'\n//# sourceURL=availability-portable-test.js').toString('base64'));
  const s=fixture(),messages=[{id:'m',commandId:'c',guildName:'guild',text:'Message'}];s.reminders[1].messageIds=seq(['m']);s.reminders[1].availability.weekdays={};setLuaValue(s.reminders[1].availability.weekdays,3,true);s.reminders[1].availability.weekdayOverrides={};setLuaValue(s.reminders[1].availability.weekdayOverrides,3,{startMinute:480,endMinute:1200});s.dailyLimitShared=true;s.sharedDailyLimit=6;s.availabilityUsage={'r:2026-10-27':{count:5,lastAt:123},'_command:2026-10-27':{count:6,lastAt:456}};
  const event={commandId:'c',command:{name:'Available'},guild:'guild',schedule:s},payload=JSON.parse(JSON.stringify(portableEvent(event,messages)));assert.doesNotMatch(JSON.stringify(payload),/availabilityUsage|lastAt/);
@@ -91,7 +91,7 @@ test('long promotion windows expand only the visible range and recurring overlap
 });
 
 test('exact recipient row IDs win over identical base geometry on single and bundle imports',async()=>{
- const source=fs.readFileSync(new URL('../public/portable.js',import.meta.url),'utf8').replaceAll('"/model.js"',JSON.stringify(new URL('../src/model.js',import.meta.url).href)).replaceAll('"/lua-data.js"',JSON.stringify(new URL('../src/lua-data.js',import.meta.url).href));
+ const source=fs.readFileSync(new URL('../public/portable.js',import.meta.url),'utf8').replaceAll('"./model.js"',JSON.stringify(new URL('../src/model.js',import.meta.url).href)).replaceAll('"./lua-data.js"',JSON.stringify(new URL('../src/lua-data.js',import.meta.url).href));
  const {portableEvent,stageImport,exportEventBundle,importEventBundle}=await import('data:text/javascript;base64,'+Buffer.from(source+'\n//# sourceURL=availability-id-test.js').toString('base64'));
  const s=fixture(),messages=[{id:'m',commandId:'c',guildName:'guild',text:'Message'}];s.reminders[1].messageIds=seq(['m']);s.reminders[1].availability={enabled:true,startMinute:420,endMinute:600,maxPerDay:1};setLuaValue(s.reminders,2,{...s.reminders[1],id:'r2',availability:{enabled:true,startMinute:600,endMinute:720,maxPerDay:1}});
  s.availabilityUsage={'r:2026-10-27':{count:1,lastAt:123},'r2:2026-10-27':{count:1,lastAt:124}};

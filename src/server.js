@@ -60,12 +60,13 @@ export function createServer(options={}) {
           try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
           catch { return json(400, {error:'Provide valid JSON.'}); }
           if (!body || typeof body !== 'object' || Array.isArray(body)) return json(400, {error:'Provide a name and Lua text.'});
-          return json(201, {file:await library.save(body.name, body.lua, {overwrite:body.overwrite??false})});
+          return json(201, {file:await library.save(body.name, body.kind==='export'?JSON.stringify(body.bundle):body.lua, {overwrite:body.overwrite??false,password:body.password??'',kind:body.kind??'configuration'})});
         }
         if (req.method !== 'GET' && req.method !== 'HEAD') return json(405, {error:'Method not allowed.'}, {Allow:path === '/api/library' ? 'GET, HEAD, POST' : 'GET, HEAD'});
         if (path === '/api/library') return json(200, {files:await library.list()});
-        const lua = await library.load(path.slice('/api/library/'.length));
-        res.writeHead(200, {'Content-Type':'text/plain; charset=utf-8', 'Content-Length':lua.length, 'Cache-Control':'no-store', 'X-Content-Type-Options':'nosniff'});
+        const id=path.slice('/api/library/'.length),record=await library.describe(id);
+        const lua = await library.load(id);
+        res.writeHead(200, {'Content-Type':record.kind==='export'?'application/json; charset=utf-8':'text/plain; charset=utf-8', 'Content-Length':lua.length, 'Cache-Control':'no-store', 'X-Content-Type-Options':'nosniff'});
         return res.end(req.method === 'HEAD' ? undefined : lua);
       } catch (error) { return json(error instanceof LibraryError ? error.status : 500, {error:error instanceof LibraryError ? error.message : 'Unable to access the shared library.'}); }
     }
