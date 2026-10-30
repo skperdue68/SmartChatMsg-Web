@@ -1811,11 +1811,11 @@ $('#export').onclick=()=>{
 };
 async function libraryRequest(path,options={}){
   const response=await fetch('/api/library'+path,options);
-  if(!response.ok){const body=await response.json().catch(()=>null);throw Error(body?.error||`Unable to access the server library (HTTP ${response.status}).`);}
+  if(!response.ok){const body=await response.json().catch(()=>null);const error=Error(body?.error||`Unable to access the server library (HTTP ${response.status}).`);error.httpStatus=response.status;throw error;}
   return response;
 }
 async function showServerLibrary(focusSave=false){
-  $('#dialog-body').innerHTML=`<h2>Shared server library</h2><p class="help">Full Lua configurations saved here are public: anyone can load all their accounts and messages, including locked messages. Names must be unique; saved files cannot be overwritten. Apply editor changes before saving. Empty reminder timelines can be saved as drafts; finish them before downloading for ESO.</p><section class="library-save"><label>Save current configuration as<input id="library-name" maxlength="120" placeholder="For example: Alphabet Mafia — November v1" ${data?'':'disabled'}></label><button id="library-save" class="gold" ${data?'':'disabled'}>Save to server</button></section>${data?'':'<p class="help">Open a local file or load a shared configuration before saving.</p>'}<div class="heading"><h3>Saved configurations</h3><button id="library-refresh">Refresh list</button></div><p id="library-status" role="status" class="help">Loading saved files…</p><div id="library-list"></div><p class="help">Loading opens a copy in this editor. It does not change your ESO files or remap accounts. Use event import/export to transfer events into another account. Download updated Lua when you are ready to install it.</p>`;
+  $('#dialog-body').innerHTML=`<h2>Shared server library</h2><p class="help">Full Lua configurations saved here are public: anyone can load all their accounts and messages, including locked messages. Saving an existing name asks you to confirm before replacing that shared file. Apply editor changes before saving. Empty reminder timelines can be saved as drafts; finish them before downloading for ESO.</p><section class="library-save"><label>Save current configuration as<input id="library-name" maxlength="120" placeholder="For example: Alphabet Mafia — November v1" ${data?'':'disabled'}></label><button id="library-save" class="gold" ${data?'':'disabled'}>Save to server</button></section>${data?'':'<p class="help">Open a local file or load a shared configuration before saving.</p>'}<div class="heading"><h3>Saved configurations</h3><button id="library-refresh">Refresh list</button></div><p id="library-status" role="status" class="help">Loading saved files…</p><div id="library-overwrite" hidden></div><div id="library-list"></div><p class="help">Loading opens a copy in this editor. It does not change your ESO files or remap accounts. Use event import/export to transfer events into another account. Download updated Lua when you are ready to install it.</p>`;
   $('#dialog').showModal();let requestVersion=0;const listNode=$('#library-list');
   const isActive=()=>$('#dialog').open&&$('#library-list')===listNode;
   const libraryStatus=(text,error=false)=>{const el=$('#library-status');if(isActive()&&el){el.textContent=text;el.classList.toggle('error',error);}};
@@ -1825,7 +1825,7 @@ async function showServerLibrary(focusSave=false){
       const payload=await(await libraryRequest('')).json();if(version!==requestVersion||!isActive())return;
       if(!Array.isArray(payload.files))throw Error('The server returned an invalid library list.');
       const files=payload.files.filter(file=>/^[a-f0-9]{64}$/.test(file.id)&&typeof file.name==='string');
-      $('#library-list').innerHTML=files.map(file=>`<button class="library-file" data-library-id="${esc(file.id)}"><strong>${esc(file.name)}</strong><small>Saved ${esc(new Date(file.createdAt).toLocaleString())} · ${esc(Math.ceil(file.bytes/1024))} KB</small></button>`).join('')||'<p class="empty">No configurations saved yet.</p>';
+      $('#library-list').innerHTML=files.map(file=>`<button class="library-file" data-library-id="${esc(file.id)}"><strong>${esc(file.name)}</strong><small>${file.updatedAt?'Updated':'Saved'} ${esc(new Date(file.updatedAt||file.createdAt).toLocaleString())} · ${esc(Math.ceil(file.bytes/1024))} KB</small></button>`).join('')||'<p class="empty">No configurations saved yet.</p>';
       $('#library-list').querySelectorAll('[data-library-id]').forEach(button=>button.onclick=async()=>{
         if(dirty&&!confirm('Discard unsaved edits and load this shared configuration?'))return;
         button.disabled=true;const revision=editRevision;
@@ -1843,14 +1843,28 @@ async function showServerLibrary(focusSave=false){
   $('#library-refresh').onclick=refresh;
   $('#library-save').onclick=async()=>{
     const button=$('#library-save'),field=$('#library-name'),name=field.value.trim();
-    if(!name){libraryStatus('Enter a unique name for this configuration.',true);field.focus();return;}
+    if(!name){libraryStatus('Enter a name for this configuration.',true);field.focus();return;}
     button.disabled=true;field.disabled=true;
     try{
       const lua=prepareCurrentLua({allowIncompleteDrafts:true}),revision=editRevision;
       const drafts=model.accounts(parseSavedVariables(lua)).flatMap(entry=>model.events(entry.value).filter(e=>e.settings.runAt==='SCHEDULED'&&e.schedule.timelineVersion===1&&vals(e.schedule.reminders).length===0).map(e=>`${entry.name} / ${e.guild} / ${e.command.name}`));
       const draftNote=drafts.length?' Draft with no reminders: '+drafts.join('; ')+'. Add reminder periods before downloading for ESO.':'';
-      await libraryRequest('',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,lua})});
-      const unchanged=revision===editRevision;if(unchanged)dirty=false;field.value='';if(isActive())await refresh();libraryStatus(`Saved “${name}”. This name is now reserved; choose a different name for future versions.`+draftNote);status(unchanged?`Saved a shared server copy named “${name}”. Local ESO files are unchanged.`:`Saved the earlier copy named “${name}”. Newer workspace edits were not marked as saved.`);
+      const save=overwrite=>libraryRequest('',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,lua,overwrite})});
+      let overwritten=false;
+      try { await save(false); }
+      catch(error){
+        if(error.httpStatus!==409||!isActive())throw error;
+        const confirmed=await new Promise(resolve=>{
+          const modal=$('#dialog'),panel=$('#library-overwrite');panel.hidden=false;
+          panel.innerHTML=`<h3>Overwrite saved file?</h3><p>Replace <strong>${esc(name)}</strong> on the shared server with this configuration? Other people will load the replacement from now on.</p><div class="actions"><button id="library-confirm-overwrite" class="danger">Overwrite saved file</button><button id="library-cancel-overwrite">Cancel</button></div>`;
+          const finish=value=>{modal.removeEventListener('close',cancel);panel.hidden=true;panel.innerHTML='';resolve(value);};
+          const cancel=()=>finish(false);modal.addEventListener('close',cancel,{once:true});
+          $('#library-confirm-overwrite').onclick=()=>finish(true);$('#library-cancel-overwrite').onclick=cancel;$('#library-cancel-overwrite').focus();
+        });
+        if(!confirmed||!isActive()){libraryStatus('Overwrite cancelled. The saved file was not changed.');return;}
+        await save(true);overwritten=true;
+      }
+      const unchanged=revision===editRevision;if(unchanged)dirty=false;field.value='';if(isActive())await refresh();libraryStatus(`${overwritten?'Overwrote':'Saved'} “${name}”.`+draftNote);status(unchanged?`Saved a shared server copy named “${name}”. Local ESO files are unchanged.`:`Saved the earlier copy named “${name}”. Newer workspace edits were not marked as saved.`);
     }catch(error){libraryStatus(error.message,true);}
     finally{button.disabled=false;field.disabled=false;}
   };

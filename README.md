@@ -77,7 +77,7 @@ Only relevant controls are shown: faction settings for faction rotation; repeat 
 
 ## Shared server library
 
-Use **Server library** to list saved configurations and click a name to load one, even before opening a local file. **Save to server** saves your applied editor changes under a unique friendly name. Names are case-insensitive; overwrites and deletion are not offered. Use a new name for each revision.
+Use **Server library** to list saved configurations and click a name to load one, even before opening a local file. **Save to server** saves your applied editor changes under a friendly name. Names are case-insensitive. Saving an existing name opens an in-page confirmation: choose **Overwrite saved file** to replace it, or **Cancel** to keep the existing server copy. Replacement retains the library ID and original creation date, records its update time, and publishes the validated file atomically. Loading a file alone never overwrites it. Deletion is not offered.
 
 Loading copies the configuration into the editor. **Download updated Lua** includes that configuration plus your applied changes; it never modifies the server copy or ESO files. Full-file loading retains the stored accounts and guilds. To transfer selected events between accounts, use the separate event import/export controls instead.
 
