@@ -35,7 +35,7 @@ test('old anchors count years without public preview limit',()=>{
  assert.ok(['a','b'].includes(eventVariant(s,at)));assert.throws(()=>projectedOccurrences(s,0,500*86400),/400/);
 });
 test('portable and native Lua retain activity IDs, numeric keys and exceptions',async()=>{
- const source=fs.readFileSync(new URL('../public/portable.js',import.meta.url),'utf8').replaceAll('"/model.js"',JSON.stringify(new URL('../src/model.js',import.meta.url).href)).replaceAll('"/lua-data.js"',JSON.stringify(new URL('../src/lua-data.js',import.meta.url).href));
+ const source=fs.readFileSync(new URL('../public/portable.js',import.meta.url),'utf8').replaceAll('"./model.js"',JSON.stringify(new URL('../src/model.js',import.meta.url).href)).replaceAll('"./lua-data.js"',JSON.stringify(new URL('../src/lua-data.js',import.meta.url).href));
  const {portableEvent,validatePortable}=await import('data:text/javascript;base64,'+Buffer.from(source+'\n//# sourceURL=rotation-portable-test.js').toString('base64'));
  const s=fixture({occurrenceExceptions:{'2026-03-01':{action:'POSTPONE'}}});const payload=JSON.parse(JSON.stringify(portableEvent({command:{name:'Rotation'},guild:'Guild',schedule:s},[{id:'a',text:'A'},{id:'b',text:'B'},{id:'all',text:'All'}])));
  const out=validatePortable(payload).schedule;assert.equal(out.rotationEvents[1].id,'a');assert.ok(isLuaNumericKey(out.rotationEvents,'1'));assert.deepEqual(out.occurrenceExceptions,s.occurrenceExceptions);
@@ -70,7 +70,7 @@ test('explicit cancellations remain effective when the special pattern changes',
 });
 
 test('portable import reconciles independent activity IDs and preserves locked groups through repeated import',async()=>{
- const source=fs.readFileSync(new URL('../public/portable.js',import.meta.url),'utf8').replaceAll('"/model.js"',JSON.stringify(new URL('../src/model.js',import.meta.url).href)).replaceAll('"/lua-data.js"',JSON.stringify(new URL('../src/lua-data.js',import.meta.url).href));
+ const source=fs.readFileSync(new URL('../public/portable.js',import.meta.url),'utf8').replaceAll('"./model.js"',JSON.stringify(new URL('../src/model.js',import.meta.url).href)).replaceAll('"./lua-data.js"',JSON.stringify(new URL('../src/lua-data.js',import.meta.url).href));
  const {exportEventBundle,importEventBundle}=await import('data:text/javascript;base64,'+Buffer.from(source+'\n//# sourceURL=rotation-sharing-test.js').toString('base64'));
  const account=(prefix,locked=false)=>{
   const schedule=fixture({rotationEvents:seq([{id:prefix+'-a',name:'Activity A'},{id:prefix+'-b',name:'Activity B'}]),messageVariants:{[prefix+'-message']:prefix+'-a'}});
@@ -89,7 +89,7 @@ test('portable import reconciles independent activity IDs and preserves locked g
 });
 
 test('single timeline staging preserves locked activity groups and explicitly clears omitted cancellations',async()=>{
- const source=fs.readFileSync(new URL('../public/portable.js',import.meta.url),'utf8').replaceAll('"/model.js"',JSON.stringify(new URL('../src/model.js',import.meta.url).href)).replaceAll('"/lua-data.js"',JSON.stringify(new URL('../src/lua-data.js',import.meta.url).href));
+ const source=fs.readFileSync(new URL('../public/portable.js',import.meta.url),'utf8').replaceAll('"./model.js"',JSON.stringify(new URL('../src/model.js',import.meta.url).href)).replaceAll('"./lua-data.js"',JSON.stringify(new URL('../src/lua-data.js',import.meta.url).href));
  const {portableEvent,stageImport}=await import('data:text/javascript;base64,'+Buffer.from(source+'\n//# sourceURL=rotation-stage-test.js').toString('base64'));
  const remote=fixture(),messages=[{id:'a',text:'A'},{id:'b',text:'B'},{id:'all',text:'All'}];
  const payload=JSON.parse(JSON.stringify(portableEvent({command:{name:'Rotation'},guild:'guild',schedule:remote},messages)));

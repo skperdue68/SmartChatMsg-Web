@@ -77,13 +77,13 @@ Only relevant controls are shown: faction settings for faction rotation; repeat 
 
 ## Shared server library
 
-Use **Server library** to list saved configurations and click a name to load one, even before opening a local file. **Save to server** saves your applied editor changes under a unique friendly name. Names are case-insensitive; overwrites and deletion are not offered. Use a new name for each revision.
+Use **Server library** to list saved configurations and click a name to load one, even before opening a local file. **Save to server** saves your applied editor changes under a friendly name. Names are case-insensitive. Saving an existing name opens an in-page confirmation: choose **Overwrite saved file** to replace it, or **Cancel** to keep the existing server copy. Replacement retains the library ID and original creation date, records its update time, and publishes the validated file atomically. Loading a file alone never overwrites it. Deletion is not offered.
 
 Loading copies the configuration into the editor. **Download updated Lua** includes that configuration plus your applied changes; it never modifies the server copy or ESO files. Full-file loading retains the stored accounts and guilds. To transfer selected events between accounts, use the separate event import/export controls instead.
 
 Save and download use the same validation and latest-snapshot merge, preserving cooldowns and usage. Apply form changes before saving. If ESO has written newer runtime data, load that latest snapshot first; conflicting configuration edits block saving until resolved.
 
-The server stores records in `data/shared-library` by default, excluded from Git. Set `LIBRARY_DIR` in `.env` to change it; relative paths resolve from the server working directory. Keep this directory across deployments and back it up. The systemd service user must be able to write it. Internal `.scm` records contain metadata plus Lua; use the app's download button to obtain the installable `SmartChatMsg.lua`.
+The server stores records in `data/shared-library` by default, excluded from Git. Set `LIBRARY_DIR` in `.env` to change it; relative paths resolve from the server working directory. Keep this directory across deployments and back it up. The systemd service user must be able to write it. Internal `.scm` records contain metadata plus Lua or validated event-export JSON; use the app's download button to obtain the installable `SmartChatMsg.lua`.
 
 Uploads accept Lua files up to 20 MiB. If Nginx Proxy Manager rejects larger uploads, set `client_max_body_size 40m;` in the proxy host's Advanced configuration. After pulling the update, restart your service with `sudo systemctl restart scm-web`. No new runtime dependencies are required.
 
@@ -176,3 +176,16 @@ The ESO addon's `/scm off` and `/scm on` switch only scheduled sending. The save
 Message-pool previews open only from the eye icon (hover, keyboard focus, or click), leaving the message checkbox and text clear for selection. The popup prefers the right side of the item, flips left near the screen edge, and uses space above or below on narrow screens. Escape dismisses the preview. Scheduled previews still simulate a time inside the announcement period and show both the substituted announcement and its template.
 
 Explicit event countdowns (`%eventcountdown%`, offsets such as `%eventcountdown-60m%`, and named deadlines) retain day/hour/minute precision even far ahead of the event. For example, `10d 6h 17m` versus `10d 5h 17m` for ticket sales closing one hour earlier. Positive countdowns round up to the next minute; a reached/past deadline shows `now`/`passed`. Automatic event-time countdown insertion keeps its approximate display.
+
+
+### Server-saved event exports and overwrite passwords (3.01)
+
+In Import / export, select events (or all events) and choose **Save selected export to server**. These entries are labeled **Event export — review and merge** in Server library. Click one to review available events for the currently loaded account, then **Import selected events → Merge events**. This updates selected matching command/guild settings while retaining unrelated events, account defaults, runtime history and private locked content. Guilds map by name and unknown guilds are skipped. Loading an export never replaces the full workspace. **Download export** also retrieves its JSON for later sharing.
+
+Full configuration entries remain a separate type: opening one loads a copy of all its stored accounts into the editor. Download updated Lua includes applied changes. Names are shared across both entry types; an existing name cannot be changed to the other type.
+
+When saving either type, an optional **Overwrite password** protects later replacement. Enter that password in the overwrite confirmation. Passwords are salted and hashed with scrypt, kept only in server metadata, and never included in public lists, exported JSON or Lua downloads. Passwords do not restrict reading or merging. Existing unprotected entries can acquire a password on overwrite; protected entries keep their password. There is no password reset or removal UI. Cancel preserves the server copy; use another name to publish a separate version.
+
+### Condensed substitutions
+
+**Use condensed dates and times** in Event settings is stored per command + guild and defaults off. Dates become `11/07`, clocks become `8PM ET` or `645PM ET`, and weekday references become `Sat 11/07`; today/tomorrow wording stays relative. Signed offsets and named important times follow the same format. Previews reflect the checkbox immediately; Apply event settings saves it. Literal template text is not rewritten. The setting travels through JSON and Lua transfers. Use SmartChatMsg **3.01** for matching in-game output and duplicate recognition of either format.

@@ -25,3 +25,12 @@ test('explicit deadline countdowns preserve offsets even many days ahead',()=>{
  assert.equal(previewMessage('%eventcountdown%',schedule,at,at-1),'1m');
  assert.equal(previewMessage('%eventcountdown-1%h',schedule,at,at-3600),'%eventcountdown-1%h');
 });
+
+ test('condensed event substitutions use compact dates, weekdays and standard zone families',()=>{
+ const context={condensedDateTime:true};
+ assert.equal(previewMessage('%eventdate% %eventwhen% %eventtime% %eventcountdown%',schedule,at,at-3*86400,context),'11/07 Sat 11/07 8PM ET 3d');
+ assert.equal(previewMessage('%eventwhen% %eventwhen+1d% %eventtime-75m% %eventtime:tickets% %eventcountdown%',schedule,at,at,context),'today tomorrow 645PM ET 7PM ET now');
+ for(const [timeZone,hour] of [['ET','8'],['CT','7'],['MT','6'],['PT','5']])assert.equal(previewMessage('%eventtime% %eventcountdown%',{...schedule,timeZone},at,at,context),hour+'PM '+timeZone+' now');
+ assert.equal(previewMessage('%eventtime%',schedule,at,at-3600,context),'8PM ET (1h)');
+ assert.equal(previewMessage('%eventdate%',schedule,at,at,{condensedDateTime:false}),'11/07/2026');
+ });

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {setLuaValue,writeSavedVariables,parseSavedVariables,isLuaNumericKey} from '../src/lua-data.js';
-const portableSource=fs.readFileSync(new URL('../public/portable.js',import.meta.url),'utf8').replaceAll('"/model.js"',JSON.stringify(new URL('../src/model.js',import.meta.url).href)).replaceAll('"/lua-data.js"',JSON.stringify(new URL('../src/lua-data.js',import.meta.url).href));
+const portableSource=fs.readFileSync(new URL('../public/portable.js',import.meta.url),'utf8').replaceAll('"./model.js"',JSON.stringify(new URL('../src/model.js',import.meta.url).href)).replaceAll('"./lua-data.js"',JSON.stringify(new URL('../src/lua-data.js',import.meta.url).href));
 const {exportEventBundle,readEventBundle,reviewEventImport,importEventBundle}=await import('data:text/javascript;base64,'+Buffer.from(portableSource+'\n//# sourceURL=command-settings-sharing-test.js').toString('base64'));
 const seq=items=>{const table={};items.forEach((item,i)=>setLuaValue(table,i+1,item));return table;};
 const plain=value=>JSON.parse(JSON.stringify(value));
@@ -55,3 +55,16 @@ test('omitted shared configuration resets only known command options and preserv
  assert.equal(result.runAt,'ON_DEMAND');for(const key of ['reminderMinutes','reminderRetryMinutes','autoPopulateCooldownMinutes','autoPopulateOnZone','openStatusPanelOnRun','populateSound'])assert.equal(result[key],undefined,key);
  assert.equal(result.futureOption.keep,true);assert.equal(result.lastUsedAt,123);assert.equal(result.schedule.availabilityUsage['r:2026-10-27'].count,2);assert.equal(result.schedule.timelineUsage['123:r'].completed,true);assert.equal(out.messages[2].text,'PRIVATE');assert.equal(out.messages[2].useCount,12);assert.equal(out.messages[2].locked,true);
 });
+
+ test('condensed date/time command setting survives bundles and validates boolean type',()=>{
+ for(const condensedDateTime of [true,false]){
+ const source=account('source',1,{...commandOptions,condensedDateTime}),bundle=exportEventBundle(source,'shared guild',['source']);
+ assert.equal(readEventBundle(bundle).items[0].settings.condensedDateTime,condensedDateTime);
+ const native=parseSavedVariables(writeSavedVariables({Default:{'@Source':{$AccountWide:source}}}));
+ assert.equal(native.Default['@Source'].$AccountWide.commandGuildSettings.source['shared guild'].condensedDateTime,condensedDateTime);
+ const imported=importEventBundle(account('recipient',4),bundle,[0]).account;
+ assert.equal(imported.commandGuildSettings.recipient['shared guild'].condensedDateTime,condensedDateTime);
+ }
+ const bundle=exportEventBundle(account('source',1,commandOptions),'shared guild',['source']);bundle.items[0].settings.condensedDateTime='true';
+ assert.throws(()=>readEventBundle(bundle),/Invalid command option/);
+ });

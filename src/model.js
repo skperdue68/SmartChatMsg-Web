@@ -1545,15 +1545,18 @@ export function previewMessage(text,schedule,eventAtUtc,nowUtc,context={}){
   if(kind==='eventactivity')return rotationActivityName(schedule,eventAtUtc)||whole;
   if(kind==='eventfaction')return {EP:'Ebonheart Pact',AD:'Aldmeri Dominion',DC:'Daggerfall Covenant'}[eventVariant(schedule,eventAtUtc)]||whole;
   const target=eventAtUtc+offset,part=civil(target,zone);if(kind==='eventcountdown')return formatEventCountdown(target-nowUtc);
-  const dateText=String(part[1]).padStart(2,'0')+'/'+String(part[2]).padStart(2,'0')+'/'+part[0];
+  const condensed=context.condensedDateTime===true;
+  const dateText=String(part[1]).padStart(2,'0')+'/'+String(part[2]).padStart(2,'0')+(condensed?'':'/'+part[0]);
   if(kind==='eventdate')return dateText;
   if(kind==='eventwhen'){
    const current=civil(nowUtc,zone);const diff=(stamp(part.slice(0,3))-stamp(current.slice(0,3)))/86400;
    if(diff===0)return 'today';if(diff===1)return 'tomorrow';
-   return ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date(stamp(part.slice(0,3))*1000).getUTCDay()]+' '+dateText;
+   const weekday=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date(stamp(part.slice(0,3))*1000).getUTCDay()];
+   return (condensed?weekday.slice(0,3):weekday)+' '+dateText;
   }
   const label=new Intl.DateTimeFormat('en-US',{timeZone:zones[zone]||zone,timeZoneName:'short'}).formatToParts(new Date(target*1000)).find(p=>p.type==='timeZoneName')?.value||zone;
   let result=String(part[3]%12||12).padStart(2,'0')+':'+String(part[4]).padStart(2,'0')+' '+(part[3]>=12?'PM':'AM')+' '+label;
+  if(condensed)result=String(part[3]%12||12)+(part[4]?String(part[4]).padStart(2,'0'):'')+(part[3]>=12?'PM':'AM')+' '+({EST:'ET',EDT:'ET',CST:'CT',CDT:'CT',MST:'MT',MDT:'MT',PST:'PT',PDT:'PT'}[label]||zone);
   if(!explicit&&!decorated){result+=' ('+formatDurationMinutes(Math.floor((target-nowUtc)/60))+')';decorated=true;}
   return result;
  });

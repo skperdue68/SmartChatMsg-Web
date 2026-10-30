@@ -45,7 +45,7 @@ test('monthly helper conversion compares effective LAST rules rather than anchor
  assert.throws(()=>legacyToTimeline({...source,monthlyWeek:5},{},parent),/same ordinal weekday/);
 });
 test('portable and Lua roundtrip monthly rules and imports clear omitted prior explicit rules',async()=>{
- const source=fs.readFileSync(new URL('../public/portable.js',import.meta.url),'utf8').replaceAll('"/model.js"',JSON.stringify(new URL('../src/model.js',import.meta.url).href)).replaceAll('"/lua-data.js"',JSON.stringify(new URL('../src/lua-data.js',import.meta.url).href));
+ const source=fs.readFileSync(new URL('../public/portable.js',import.meta.url),'utf8').replaceAll('"./model.js"',JSON.stringify(new URL('../src/model.js',import.meta.url).href)).replaceAll('"./lua-data.js"',JSON.stringify(new URL('../src/lua-data.js',import.meta.url).href));
  const {portableEvent,validatePortable,stageImport,exportEventBundle,importEventBundle}=await import('data:text/javascript;base64,'+Buffer.from(source+'\n//# sourceURL=monthly-portable-test.js').toString('base64'));
  const schedule=fixture(),event={command:{name:'Monthly'},commandId:'c',guild:'guild',schedule},messages=[{id:'m',commandId:'c',guildName:'guild',text:'Monthly'}];const payload=JSON.parse(JSON.stringify(portableEvent(event,messages)));
  const result=validatePortable(payload);assert.equal(result.schedule.monthlyWeek,'LAST');assert.equal(result.schedule.monthlyWeekday,1);assert.equal(parseSavedVariables(writeSavedVariables(result.schedule)).monthlyWeek,'LAST');

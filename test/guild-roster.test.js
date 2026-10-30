@@ -18,7 +18,7 @@ test('older files keep guild discovery and newer roster metadata wins on runtime
  const older={setting:'old'};assert.equal(mergeSavedVariables(base,edited,older).data.guildRoster[1].guildName,'Alphabet Mafia');
 });
 test('event imports into an empty account use cached guild identity and destination slot',async()=>{
- const source=fs.readFileSync(new URL('../public/portable.js',import.meta.url),'utf8').replaceAll('"/model.js"',JSON.stringify(new URL('../src/model.js',import.meta.url).href)).replaceAll('"/lua-data.js"',JSON.stringify(new URL('../src/lua-data.js',import.meta.url).href));
+ const source=fs.readFileSync(new URL('../public/portable.js',import.meta.url),'utf8').replaceAll('"./model.js"',JSON.stringify(new URL('../src/model.js',import.meta.url).href)).replaceAll('"./lua-data.js"',JSON.stringify(new URL('../src/lua-data.js',import.meta.url).href));
  const {exportEventBundle,reviewEventImport,importEventBundle}=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
  const remote={commands:seq([{id:'c',name:'Test'}]),messages:seq([{id:'m',commandId:'c',guildIndex:1,guildName:'Alphabet Mafia',text:'Hello'}]),commandGuildSettings:{c:{'alphabet mafia':{runAt:'ON_DEMAND'}}},schedulingTimeZone:'ET'};
  const local={commands:{},messages:{},commandGuildSettings:{},guildRoster:roster(),guildRosterUpdatedAt:123,schedulingTimeZone:'ET'};

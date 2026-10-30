@@ -205,6 +205,20 @@ async function open(data) {
   await page.locator("#workspace").waitFor({ state: "visible" });
   return { page, errors };
 }
+async function condensedDateTimeSettings(){
+ const d=fixture();d.Default['@fixture'].$AccountWide.messages[1].text='Meet %eventtime% %eventdate%.';const {page,errors}=await open(d);
+ await page.locator('[data-view=editor]').click();
+ const toggle=page.locator('[data-field=condensedDateTime]');
+ assert.equal(await toggle.isChecked(),false);
+ assert.match(await page.locator('#next-occurrence').locator('..').textContent(),/Next Event Occurrence/);
+ await toggle.check();await page.locator('.message summary').first().click();await page.locator('[data-action=preview-message]').first().click();assert.match(await page.locator('#message-preview-output').textContent(),/8PM ET/);await page.locator('#close-dialog').click();await page.locator('#save-event').click();
+ let data=await downloadData(page),settings=data.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;
+ assert.equal(settings.condensedDateTime,true);assert.equal(settings.schedule.condensedDateTime,undefined);
+ await toggle.uncheck();await page.locator('[data-field=settingsRunAt]').selectOption('ON_DEMAND');await page.locator('#save-event').click();
+ data=await downloadData(page);assert.equal(data.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.condensedDateTime,false);
+ assert.deepEqual(errors,[]);await page.close();
+}
+
 async function downloadConfirmation(){
  const {page,errors}=await open(fixture());let downloads=0;page.on('download',()=>downloads++);
  try{
@@ -444,7 +458,7 @@ async function validationAndWeekdays() {
     const pending=next.page.waitForEvent('download');await next.page.locator('#export-events').click();
     const stream=await (await pending).createReadStream(),chunks=[];for await(const c of stream)chunks.push(c);
     await next.page.locator('#import-events-file').setInputFiles({name:'events.json',mimeType:'application/json',buffer:Buffer.concat(chunks)});
-    await next.page.locator('#apply-event-import').click();
+    await next.page.locator('#apply-event-import').click();await next.page.locator('#confirm-event-merge').click();
     const saved = writeSavedVariables(await downloadData(next.page));
     assert.match(saved, /\[3\] = true/);
     assert.doesNotMatch(saved, /\["3"\] = true/);
@@ -629,7 +643,7 @@ async function batchEventSharing(){
  const pending=page.waitForEvent('download');await page.locator('#export-events').click();const stream=await (await pending).createReadStream(),chunks=[];for await(const c of stream)chunks.push(c);const bundle=JSON.parse(Buffer.concat(chunks).toString());assert.equal(bundle.items.length,2);assert.equal(bundle.items[1].settings.openStatusPanelOnRun,true);assert.equal(bundle.items[1].outputChannel,'Group');assert.doesNotMatch(JSON.stringify(bundle),/lastUsedAt|useCount/);
  bundle.items[1].eventName='New Fishing';
  await page.locator('#import-events-file').setInputFiles({name:'events.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(bundle))});await page.locator('#import-event-review').waitFor({state:'visible'});assert.equal(await page.locator('.bulk-import-choice').count(),2);assert.match(await page.locator('#import-event-review').textContent(),/Update/);assert.match(await page.locator('#import-event-review').textContent(),/Create/);
- await page.locator('#clear-import').click();await page.locator('.bulk-import-choice[value="1"]').check();await page.locator('#apply-event-import').click();assert.match(await page.locator('#status').textContent(),/Imported 1 event/);
+ await page.locator('#clear-import').click();await page.locator('.bulk-import-choice[value="1"]').check();await page.locator('#apply-event-import').click();await page.locator('#confirm-event-merge').click();assert.match(await page.locator('#status').textContent(),/Imported 1 event/);
  const out=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(Object.keys(out.commands).length,3);assert.equal(out.messages[1].useCount,5);assert.deepEqual(errors,[]);
  }finally{await page.close();}
 }
@@ -948,7 +962,8 @@ async function sharedServerLibrary(){
    if(path==='/api/library'&&request.method()==='GET')return reply(200,{files:[...files.values()].map(({lua,...metadata})=>metadata)});
    if(path==='/api/library'&&request.method()==='POST'){
      const payload=request.postDataJSON();state.onSave?.(payload);if(state.saveGate)await state.saveGate;
-     if([...files.values()].some(file=>file.name.toLowerCase()===payload.name.trim().toLowerCase()))return reply(409,{error:'That name already exists; choose a unique name.'});
+     const existing=[...files.values()].find(file=>file.name.toLowerCase()===payload.name.trim().toLowerCase());
+     if(existing){if(!payload.overwrite)return reply(409,{error:'That name already exists; choose a unique name.'});existing.lua=payload.lua;existing.updatedAt='2026-10-30T12:00:00Z';return reply(201,{file:{...existing,lua:undefined}});}
      const {lua,...file}=add(payload.name.trim(),payload.lua);return reply(201,{file});
    }
    const file=files.get(path.split('/').at(-1));state.onLoad?.();if(state.loadGate)await state.loadGate;
@@ -960,7 +975,8 @@ async function sharedServerLibrary(){
    await page.locator('#latest').setInputFiles({name:'SmartChatMsg.lua',mimeType:'text/plain',buffer:Buffer.from(writeSavedVariables(latest))});await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('for merging'));
    await page.locator('#save-server').click();await page.locator('#library-list [data-library-id]').first().waitFor();await page.locator('#library-name').fill('Shared version');await page.locator('#library-save').click();await page.waitForFunction(()=>document.querySelector('#library-status')?.textContent.includes('Saved “Shared version”'));
    const saved=[...files.values()].find(file=>file.name==='Shared version'),savedData=parseSavedVariables(saved.lua).Default['@fixture'].$AccountWide;assert.equal(savedData.commands[1].name,'Shared edit');assert.equal(savedData.messages[1].useCount,99);
-   await page.locator('#library-name').fill('SHARED VERSION');await page.locator('#library-save').click();await page.waitForFunction(()=>document.querySelector('#library-status')?.textContent.includes('already exists'));assert.equal(files.size,2);assert.equal(files.get(saved.id).lua,saved.lua);await page.locator('#close-dialog').click();
+   await page.locator('#library-name').fill('SHARED VERSION');await page.locator('#library-save').click();await page.locator('#library-cancel-overwrite').click();await page.waitForFunction(()=>document.querySelector('#library-status')?.textContent.includes('Overwrite cancelled'));assert.equal(files.size,2);assert.equal(files.get(saved.id).lua,saved.lua);
+   await page.locator('#library-save').click();await page.locator('#library-confirm-overwrite').click();await page.waitForFunction(()=>document.querySelector('#library-status')?.textContent.includes('Overwrote “SHARED VERSION”'));assert.equal(files.size,2);assert.equal(files.get(saved.id).updatedAt,'2026-10-30T12:00:00Z');await page.locator('#close-dialog').click();
    await page.locator('[data-field=commandName]').fill('Before request');await page.locator('#save-event').click();await page.locator('#save-server').click();await page.locator('#library-name').fill('Delayed save');
    let releaseSave,saveStarted;state.saveGate=new Promise(resolve=>releaseSave=resolve);const saving=new Promise(resolve=>saveStarted=resolve);state.onSave=saveStarted;
    await page.locator('#library-save').click();await saving;await page.locator('#close-dialog').click();await page.locator('[data-field=commandName]').fill('Newer unsaved edit');await page.locator('#save-event').click();releaseSave();await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('earlier copy'));state.saveGate=null;state.onSave=null;
@@ -1227,6 +1243,29 @@ async function libraryIncompleteDraft(){
  }finally{if(page)await page.close();if(server.listening)await new Promise(resolve=>server.close(resolve));for(const name of await readdir(directory))await unlink(resolve(directory,name));await rmdir(directory);}
 }
 
+async function libraryExportsAndPasswords(){
+ const directory=await mkdtemp(resolve(temp,'library-export-')),server=createServer({libraryDir:directory});let page;
+ try{
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const origin=`http://127.0.0.1:${server.address().port}`;
+  page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
+  await page.goto(origin);await page.locator('#open').setInputFiles({name:'SmartChatMsg.lua',mimeType:'text/plain',buffer:Buffer.from(writeSavedVariables(fixture()))});await page.locator('#workspace').waitFor();
+  await page.locator('#save-server').click();await page.locator('#library-name').fill('Protected full');await page.locator('#library-password').fill('full secret');await page.locator('#library-save').click();await page.waitForFunction(()=>document.querySelector('#library-status').textContent.includes('Saved “Protected full”'));
+  await page.locator('#library-name').fill('Protected full');await page.locator('#library-save').click();await page.locator('#library-overwrite-password').fill('wrong');await page.locator('#library-confirm-overwrite').click();await page.waitForFunction(()=>document.querySelector('#library-status').textContent.includes('Incorrect overwrite password'));
+  await page.locator('#library-save').click();await page.locator('#library-overwrite-password').fill('full secret');await page.locator('#library-confirm-overwrite').click();await page.waitForFunction(()=>document.querySelector('#library-status').textContent.includes('Overwrote “Protected full”'));await page.locator('#close-dialog').click();
+  await page.locator('[data-view=transfer]').click();await page.locator('#server-export-events').click();await page.locator('#library-name').fill('Protected export');await page.locator('#library-password').fill('export secret');await page.locator('#library-save').click();await page.waitForFunction(()=>document.querySelector('#library-status').textContent.includes('Saved “Protected export”'));
+  const files=(await(await fetch(origin+'/api/library')).json()).files;const file=files.find(f=>f.kind==='export');assert.ok(file.protected);assert.equal(files.length,2);assert.equal(file.passwordHash,undefined);
+  await page.locator('#library-name').fill('Protected export');await page.locator('#library-save').click();await page.locator('#library-cancel-overwrite').click();assert.equal(await page.locator('#library-overwrite').isHidden(),true);
+  await page.locator('#library-save').click();await page.locator('#library-overwrite-password').fill('export secret');await page.locator('#library-confirm-overwrite').click();await page.waitForFunction(()=>document.querySelector('#library-status').textContent.includes('Overwrote “Protected export”'));
+  const exported=JSON.parse(await(await fetch(origin+'/api/library/'+file.id)).text());assert.equal(exported.items.length,1);assert.equal(exported.items[0].eventName,'Example');
+  const downloading=page.waitForEvent('download');await page.locator(`[data-library-download="${file.id}"]`).click();assert.equal((await downloading).suggestedFilename(),'SmartChatMsg-events.json');await page.locator('#close-dialog').click();
+  const local=fixture();local.Default['@fixture'].$AccountWide.messages[1].useCount=123;setLuaValue(local.Default['@fixture'].$AccountWide.commands,2,{id:'personal',name:'Personal'});local.Default['@fixture'].$AccountWide.commandGuildSettings.personal={alpha:{runAt:'ON_DEMAND'}};
+  await page.locator('#open').setInputFiles({name:'SmartChatMsg.lua',mimeType:'text/plain',buffer:Buffer.from(writeSavedVariables(local))});await page.locator('[data-view=transfer]').click();await page.locator('#import-server-export').click();await page.locator(`[data-library-id="${file.id}"]`).click();await page.locator('#import-event-review').waitFor();
+  await page.locator('#apply-event-import').click();await page.locator('#cancel-event-merge').click();assert.equal(await page.locator('#import-event-review').isVisible(),true);
+  await page.locator('#apply-event-import').click();await page.locator('#confirm-event-merge').click();assert.match(await page.locator('#status').textContent(),/Imported 1 event/);
+  const saved=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(saved.messages[1].useCount,123);assert.ok(Object.values(saved.commands).some(c=>c.id==='personal'));assert.deepEqual(errors,[]);
+ }finally{if(page)await page.close();if(server.listening)await new Promise(resolve=>server.close(resolve));for(const name of await readdir(directory))await unlink(resolve(directory,name));await rmdir(directory);}
+}
+
 async function libraryHttpIntegration(){
  const directory=await mkdtemp(resolve(temp,'library-http-')),server=createServer({libraryDir:directory});
  let page;
@@ -1267,6 +1306,7 @@ try {
   await runModeRelevantFields();
   await ordinaryLibraryWithoutSchedule();
   await libraryIncompleteDraft();
+  await libraryExportsAndPasswords();
   await libraryHttpIntegration();
   await sharedServerLibrary();
   await onceNoticeIgnoresInactiveFields();
@@ -1293,6 +1333,7 @@ try {
   await clocksOccurrenceStatesAndHelp();
   await relevantSettingsAndMigration();
   await preservationAndEditing();
+  await condensedDateTimeSettings();
 
 
 
