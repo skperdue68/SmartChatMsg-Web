@@ -85,6 +85,8 @@ Save and download use the same validation and latest-snapshot merge, preserving 
 
 The server stores records in `data/shared-library` by default, excluded from Git. Set `LIBRARY_DIR` in `.env` to change it; relative paths resolve from the server working directory. Keep this directory across deployments and back it up. The systemd service user must be able to write it. Internal `.scm` records contain metadata plus Lua or validated event-export JSON; use the app's download button to obtain the installable `SmartChatMsg.lua`.
 
+Because the library has no logins, it is limited to protect the server: at most `LIBRARY_MAX_FILES` entries (default 500) and `LIBRARY_MAX_BYTES` in total (default 1 GiB), at most `MAX_CONCURRENT_UPLOADS` uploads being received at once (default 4, extra uploads get `503`), and an entry's overwrite password is locked against further guesses after 5 consecutive failures (30 seconds, doubling up to 15 minutes; held in memory, so a restart clears it). Raise the limits in `.env` if your guild needs more. Consider also adding request rate limiting at your reverse proxy.
+
 Uploads accept Lua files up to 20 MiB. If Nginx Proxy Manager rejects larger uploads, set `client_max_body_size 40m;` in the proxy host's Advanced configuration. After pulling the update, restart your service with `sudo systemctl restart scm-web`. No new runtime dependencies are required.
 
 ## Rotating activities
