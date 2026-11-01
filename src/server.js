@@ -28,6 +28,14 @@ export function createServer(options={}) {
   const publicHost=config.publicOrigin?new URL(config.publicOrigin).host.toLowerCase():null;
   const handle = async (req, res) => {
     const host = (req.headers.host || "").toLowerCase();
+    // Baseline protections for every response, including errors. Individual responses may override them.
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()');
+    // Only meaningful (and only sent) when the site is served over HTTPS, normally through the reverse proxy.
+    if (publicHost && host === publicHost && config.publicOrigin.startsWith('https:')) res.setHeader('Strict-Transport-Security', 'max-age=15552000');
     let path;
     try { path = new URL(req.url, 'http://localhost').pathname; }
     catch {
@@ -37,6 +45,8 @@ export function createServer(options={}) {
       return res.end('Bad request.');
     }
     const api = path === '/api/library' || path.startsWith('/api/library/');
+    // API responses are data, never pages: forbid scripts, framing and sandbox-escaping if one is opened directly.
+    if (api) res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; sandbox");
     const json = (status, value, headers = {}) => {
       res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...headers });
       res.end(req.method === 'HEAD' ? undefined : JSON.stringify(value));
@@ -93,7 +103,7 @@ export function createServer(options={}) {
         "Cache-Control": "no-store",
         "X-Content-Type-Options": "nosniff",
         "Content-Security-Policy":
-          "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+          "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
         "Referrer-Policy": "no-referrer",
       });
       res.end(req.method === "HEAD" ? undefined : data);
