@@ -26,9 +26,16 @@ export function createServer(options={}) {
   const config=readConfig({HOST:options.host,PORT:options.port,PUBLIC_ORIGIN:options.publicOrigin,LIBRARY_DIR:options.libraryDir});
   const library = createLibraryStore(config.libraryDir);
   const publicHost=config.publicOrigin?new URL(config.publicOrigin).host.toLowerCase():null;
-  return http.createServer(async (req, res) => {
+  const handle = async (req, res) => {
     const host = (req.headers.host || "").toLowerCase();
-    const path = new URL(req.url, 'http://localhost').pathname;
+    let path;
+    try { path = new URL(req.url, 'http://localhost').pathname; }
+    catch {
+      // Security: a malformed request target (for example "//[") used to throw here,
+      // become an unhandled rejection and terminate the whole process.
+      res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff' });
+      return res.end('Bad request.');
+    }
     const api = path === '/api/library' || path.startsWith('/api/library/');
     const json = (status, value, headers = {}) => {
       res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...headers });
@@ -94,6 +101,16 @@ export function createServer(options={}) {
       res.writeHead(404);
       res.end("Not found");
     }
+  };
+  // Security: never let an unexpected error in a request handler become an unhandled
+  // rejection, which would crash the process for every user.
+  return http.createServer((req, res) => {
+    handle(req, res).catch(() => {
+      try {
+        if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff' });
+        res.end('Internal error.');
+      } catch { /* connection already gone */ }
+    });
   });
 }
 if (
