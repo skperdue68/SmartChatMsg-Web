@@ -13,9 +13,15 @@ export class LibraryError extends Error {
 const scrypt=promisify(scryptCallback);
 const publicMetadata=({passwordHash,passwordSalt,...record})=>({...record,kind:record.kind||'configuration',protected:Boolean(passwordHash)});
 const validId = id => /^[a-f0-9]{64}$/.test(id);
-export function createLibraryStore(directory) {
+export const DEFAULT_MAX_FILES = 500;
+export const DEFAULT_MAX_BYTES = 1024 * 1024 * 1024;
+// Overwrite-password guesses are throttled per entry: after this many consecutive failures the
+// entry refuses further attempts for a growing delay (30 s, 60 s, ... capped at 15 minutes).
+const FREE_PASSWORD_ATTEMPTS = 5, BASE_LOCKOUT_MS = 30000, MAX_LOCKOUT_MS = 15 * 60000;
+export function createLibraryStore(directory, {maxFiles = DEFAULT_MAX_FILES, maxBytes = DEFAULT_MAX_BYTES, now = Date.now} = {}) {
   const location = resolve(directory);
   const pending=new Map();
+  const failures=new Map();
   async function exclusive(id,action){const prior=pending.get(id)||Promise.resolve();let release;const gate=new Promise(resolve=>release=resolve);pending.set(id,gate);await prior;try{return await action();}finally{release();if(pending.get(id)===gate)pending.delete(id);}}
   const filename = id => resolve(location, `${id}.scm`);
   async function metadata(path) {
@@ -30,15 +36,20 @@ export function createLibraryStore(directory) {
       return value;
     } finally { await handle.close(); }
   }
+  async function records() {
+    let entries;
+    try { entries = await readdir(location); } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+    const found = [];
+    for (const entry of entries) {
+      if (!/^[a-f0-9]{64}\.scm$/.test(entry)) continue;
+      // One unreadable record must not make the whole library unavailable.
+      try { found.push(await metadata(resolve(location, entry))); } catch { /* skip */ }
+    }
+    return found;
+  }
   return {
     async list() {
-      let entries;
-      try { entries = await readdir(location); } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
-      const files = [];
-      for (const entry of entries) {
-        if (!/^[a-f0-9]{64}\.scm$/.test(entry)) continue;
-        files.push(publicMetadata(await metadata(resolve(location, entry))));
-      }
+      const files = (await records()).map(publicMetadata);
       return files.sort((a, b) => (b.updatedAt||b.createdAt).localeCompare(a.updatedAt||a.createdAt) || a.id.localeCompare(b.id));
     },
     async save(name, lua, {overwrite=false,password='',kind='configuration'}={}) {
@@ -68,9 +79,20 @@ export function createLibraryStore(directory) {
       if(existing&&!overwrite)throw new LibraryError(409,'That name already exists; choose a unique name or confirm overwrite.');
       if(existing&&(existing.kind||'configuration')!==kind)throw new LibraryError(400,'That name belongs to a different file type. Choose another name.');
       if(existing?.passwordHash){
+        const lock=failures.get(id);
+        if(lock&&lock.until>now())throw new LibraryError(429,`Too many incorrect overwrite passwords. Try again in ${Math.ceil((lock.until-now())/1000)} seconds.`);
         const hash=await scrypt(password,existing.passwordSalt,64);
-        if(!timingSafeEqual(hash,Buffer.from(existing.passwordHash,'hex')))throw new LibraryError(403,'Incorrect overwrite password.');
+        if(!timingSafeEqual(hash,Buffer.from(existing.passwordHash,'hex'))){
+          const count=(lock?.count||0)+1;
+          failures.set(id,{count,until:count>=FREE_PASSWORD_ATTEMPTS?now()+Math.min(MAX_LOCKOUT_MS,BASE_LOCKOUT_MS*2**(count-FREE_PASSWORD_ATTEMPTS)):0});
+          throw new LibraryError(403,'Incorrect overwrite password.');
+        }
+        failures.delete(id);
       }
+      // Anyone can publish, so bound what the library may grow to.
+      const size=Buffer.byteLength(lua,'utf8'),used=(await records()).filter(record=>record.id!==id);
+      if(used.length>=maxFiles)throw new LibraryError(507,'The shared library has reached its maximum number of files.');
+      if(used.reduce((total,record)=>total+record.bytes,0)+size>maxBytes)throw new LibraryError(507,'The shared library does not have room for this file.');
       const file={id,name,kind,createdAt:existing?.createdAt||new Date().toISOString(),bytes:Buffer.byteLength(lua)};
       if(existing)file.updatedAt=new Date().toISOString();
       if(existing?.passwordHash){file.passwordHash=existing.passwordHash;file.passwordSalt=existing.passwordSalt;}

@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname } from "node:path";
-import { createLibraryStore, LibraryError } from './library-store.js';
+import { createLibraryStore, LibraryError, DEFAULT_MAX_FILES, DEFAULT_MAX_BYTES } from './library-store.js';
 const MAX_REQUEST_BYTES = 40 * 1024 * 1024 + 16384;
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../public");
 const paths = {
@@ -20,11 +20,13 @@ export function readConfig(env=process.env){
  const host=env.HOST||'127.0.0.1',port=Number(env.PORT||4173);let publicOrigin='';
  if(!Number.isInteger(port)||port<1||port>65535)throw Error('PORT must be 1-65535.');
  if(env.PUBLIC_ORIGIN){const value=new URL(env.PUBLIC_ORIGIN);if(!['http:','https:'].includes(value.protocol)||value.username||value.password||value.pathname!=='/'||value.search||value.hash)throw Error('PUBLIC_ORIGIN must be an HTTP(S) origin without a path or credentials.');publicOrigin=value.origin;}
- return {host,port,publicOrigin,libraryDir:resolve(env.LIBRARY_DIR || 'data/shared-library')};
+ const positive=(name,fallback)=>{if(env[name]===undefined||env[name]==='')return fallback;const value=Number(env[name]);if(!Number.isSafeInteger(value)||value<1)throw Error(`${name} must be a positive whole number.`);return value;};
+ return {host,port,publicOrigin,libraryDir:resolve(env.LIBRARY_DIR || 'data/shared-library'),libraryMaxFiles:positive('LIBRARY_MAX_FILES',DEFAULT_MAX_FILES),libraryMaxBytes:positive('LIBRARY_MAX_BYTES',DEFAULT_MAX_BYTES),maxConcurrentUploads:positive('MAX_CONCURRENT_UPLOADS',4)};
 }
 export function createServer(options={}) {
-  const config=readConfig({HOST:options.host,PORT:options.port,PUBLIC_ORIGIN:options.publicOrigin,LIBRARY_DIR:options.libraryDir});
-  const library = createLibraryStore(config.libraryDir);
+  const config=readConfig({HOST:options.host,PORT:options.port,PUBLIC_ORIGIN:options.publicOrigin,LIBRARY_DIR:options.libraryDir,LIBRARY_MAX_FILES:options.libraryMaxFiles,LIBRARY_MAX_BYTES:options.libraryMaxBytes,MAX_CONCURRENT_UPLOADS:options.maxConcurrentUploads});
+  const library = createLibraryStore(config.libraryDir,{maxFiles:config.libraryMaxFiles,maxBytes:config.libraryMaxBytes});
+  let activeUploads=0;
   const publicHost=config.publicOrigin?new URL(config.publicOrigin).host.toLowerCase():null;
   const handle = async (req, res) => {
     const host = (req.headers.host || "").toLowerCase();
@@ -57,15 +59,20 @@ export function createServer(options={}) {
           if (!req.headers.origin) return json(403, {error:'A matching Origin is required.'});
           if (!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] || '')) return json(415, {error:'Use application/json.'});
           if (Number(req.headers['content-length']) > MAX_REQUEST_BYTES) return json(413, {error:'Request is too large.'});
-          let length = 0; const chunks = [];
-          for await (const chunk of req) {
-            length += chunk.length;
-            if (length > MAX_REQUEST_BYTES) { json(413, {error:'Request is too large.'}); return; }
-            chunks.push(chunk);
-          }
+          // Each in-flight upload may buffer up to 40 MiB, so only a few are accepted at once.
+          if (activeUploads >= config.maxConcurrentUploads) return json(503, {error:'The server is busy receiving other uploads. Try again shortly.'}, {'Retry-After':'5'});
+          activeUploads++;
           let body;
-          try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
-          catch { return json(400, {error:'Provide valid JSON.'}); }
+          try {
+            let length = 0; const chunks = [];
+            for await (const chunk of req) {
+              length += chunk.length;
+              if (length > MAX_REQUEST_BYTES) { json(413, {error:'Request is too large.'}); return; }
+              chunks.push(chunk);
+            }
+            try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
+            catch { return json(400, {error:'Provide valid JSON.'}); }
+          } finally { activeUploads--; }
           if (!body || typeof body !== 'object' || Array.isArray(body)) return json(400, {error:'Provide a name and Lua text.'});
           return json(201, {file:await library.save(body.name, body.kind==='export'?JSON.stringify(body.bundle):body.lua, {overwrite:body.overwrite??false,password:body.password??'',kind:body.kind??'configuration'})});
         }
@@ -119,5 +126,8 @@ if (
 ) {
   if(existsSync(resolve(process.cwd(),'.env')))process.loadEnvFile(resolve(process.cwd(),'.env'));
   const config=readConfig();
-  createServer(config).listen(config.port,config.host,()=>console.log(`SmartChatMsg Web listening on ${config.host}:${config.port}${config.publicOrigin?' / public URL: '+config.publicOrigin:''}`));
+  const server=createServer(config);
+  // Cut off clients that drip headers or bodies to hold connections (and upload buffers) open.
+  server.headersTimeout=30000;server.requestTimeout=120000;
+  server.listen(config.port,config.host,()=>console.log(`SmartChatMsg Web listening on ${config.host}:${config.port}${config.publicOrigin?' / public URL: '+config.publicOrigin:''}`));
 }
