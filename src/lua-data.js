@@ -1,7 +1,10 @@
 const numericKeys = new WeakMap();
 const utf8Encoder = new TextEncoder();
 // Lua strings are bytes. Preserve invalid UTF-8 bytes as low surrogate escapes.
+const strictUtf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 function decodeLuaBytes(bytes) {
+  // Fast path: well-formed UTF-8 decodes identically to the loop below.
+  try { return strictUtf8.decode(bytes); } catch { /* invalid bytes: use the lossless loop */ }
   let result = "";
   for (let i = 0; i < bytes.length;) {
     const first = bytes[i];
@@ -42,9 +45,21 @@ export function parseSavedVariables(input) {
   const fail = (message) => {
     throw Error(`${message} at character ${i + 1}.`);
   };
+  // Sticky patterns scan in place. Slicing or per-character allocation made a single
+  // 20 MiB string block the server's event loop for about half a minute.
+  const whitespace = /\s*/y;
+  const keyName = /([A-Za-z_][A-Za-z_0-9]*)\s*=/y;
+  const numberToken = /-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/y;
+  const stringRun = { '"': /[^"\\]*/y, "'": /[^'\\]*/y };
+  const simpleEscapes = {
+    n: "\n", r: "\r", t: "\t", a: "\x07", b: "\b", f: "\f", v: "\v",
+    "\\": "\\", '"': '"', "'": "'",
+  };
   function space() {
     for (;;) {
-      while (/\s/.test(input[i] || "") && i < input.length) i++;
+      whitespace.lastIndex = i;
+      whitespace.exec(input);
+      i = whitespace.lastIndex;
       if (input.startsWith("--", i)) {
         const end = input.indexOf("\n", i);
         i = end < 0 ? input.length : end + 1;
@@ -59,37 +74,38 @@ export function parseSavedVariables(input) {
   function string() {
     space();
     const quote = input[i++];
-    const bytes = [];
+    const run = stringRun[quote];
+    const pieces = [];
+    let total = 0;
+    const add = (piece) => { pieces.push(piece); total += piece.length; };
+    const finish = () => {
+      const bytes = new Uint8Array(total);
+      let offset = 0;
+      for (const piece of pieces) { bytes.set(piece, offset); offset += piece.length; }
+      return decodeLuaBytes(bytes);
+    };
     while (i < input.length) {
-      let c = input[i++];
-      if (c === quote) return decodeLuaBytes(bytes);
-      if (c !== "\\") {
-        const point = c.codePointAt(0);
-        if (point >= 55296 && point <= 56319 && input.charCodeAt(i) >= 56320 && input.charCodeAt(i) <= 57343) c += input[i++];
-        else if (point >= 55296 && point <= 57343) fail("Unsupported isolated Unicode surrogate");
-        bytes.push(...utf8Encoder.encode(c));
-        continue;
+      // Copy the whole run of ordinary characters at once.
+      run.lastIndex = i;
+      const text = run.exec(input)[0];
+      if (text) {
+        const lone = /\p{Surrogate}/u.exec(text);
+        if (lone) { i += lone.index + 1; fail("Unsupported isolated Unicode surrogate"); }
+        add(utf8Encoder.encode(text));
+        i += text.length;
+        if (i >= input.length) break;
       }
+      let c = input[i++];
+      if (c === quote) return finish();
+      // Otherwise c is a backslash.
       c = input[i++];
-      const escapes = {
-        n: "\n",
-        r: "\r",
-        t: "\t",
-        a: "\x07",
-        b: "\b",
-        f: "\f",
-        v: "\v",
-        "\\": "\\",
-        '"': '"',
-        "'": "'",
-      };
-      if (c in escapes) bytes.push(...utf8Encoder.encode(escapes[c]));
+      if (c in simpleEscapes) add(utf8Encoder.encode(simpleEscapes[c]));
       else if (/[0-9]/.test(c || "")) {
         let n = c;
         while (n.length < 3 && /[0-9]/.test(input[i] || "")) n += input[i++];
         if (+n > 255) fail("Invalid byte escape");
-        bytes.push(+n);
-      } else if (c === "\n") bytes.push(10);
+        add(Uint8Array.of(+n));
+      } else if (c === "\n") add(Uint8Array.of(10));
       else fail("Unsupported escape");
     }
     fail("Unterminated string");
@@ -117,7 +133,8 @@ export function parseSavedVariables(input) {
           take("=");
           v = value(depth + 1);
         } else {
-          const m = /^([A-Za-z_][A-Za-z_0-9]*)\s*=/.exec(input.slice(i));
+          keyName.lastIndex = i;
+          const m = keyName.exec(input);
           if (m) {
             key = m[1];
             i += m[0].length;
@@ -150,9 +167,8 @@ export function parseSavedVariables(input) {
         i += name.length;
         return v;
       }
-    const number = /^-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/.exec(
-      input.slice(i),
-    );
+    numberToken.lastIndex = i;
+    const number = numberToken.exec(input);
     if (number) {
       i += number[0].length;
       const n = Number(number[0]);
