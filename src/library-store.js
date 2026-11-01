@@ -55,9 +55,11 @@ export function createLibraryStore(directory) {
         try { lua=JSON.stringify(readEventBundle(JSON.parse(lua))); }
         catch(error){throw new LibraryError(400,'Invalid event export: '+error.message);}
       }else{
-        try { if (!accounts(parseSavedVariables(lua)).length) throw Error('No accounts'); }
+        // Parse once: parsing is synchronous, so repeating it doubles the time the event loop is blocked.
+        let parsed;
+        try { parsed = parseSavedVariables(lua); if (!accounts(parsed).length) throw Error('No accounts'); }
         catch { throw new LibraryError(400, 'Provide valid SmartChatMsg SavedVariables containing an account.'); }
-        try { validateCommandNamesForAddon(requireCurrentScheduleFormat(parseSavedVariables(lua))); } catch(error) { throw new LibraryError(400,error.message); }
+        try { validateCommandNamesForAddon(requireCurrentScheduleFormat(parsed)); } catch(error) { throw new LibraryError(400,error.message); }
       }
       const id = createHash('sha256').update(name.toLowerCase().normalize('NFC')).digest('hex');
       return exclusive(id,async()=>{
