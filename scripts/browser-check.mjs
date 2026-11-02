@@ -94,8 +94,8 @@ function fixture() {
           guildSchedulingTimeZones: {},
           commandGuildSettings: {
             "command-one": {
-              alpha: { runAt: "SCHEDULED", schedule: schedule() },
-              beta: { runAt: "SCHEDULED", schedule: schedule() },
+              alpha: { runAt: "SCHEDULED", condensedDateTime:false, schedule: schedule() },
+              beta: { runAt: "SCHEDULED", condensedDateTime:false, schedule: schedule() },
             },
           },
         },
@@ -1315,6 +1315,34 @@ async function libraryCategoriesAndDeletion(){
  }finally{if(page)await page.close();if(server.listening)await new Promise(resolve=>server.close(resolve));for(const name of await readdir(directory))await unlink(resolve(directory,name));await rmdir(directory);}
 }
 
+async function protectedLoadsAndMessageLocks(){
+ const directory=await mkdtemp(resolve(temp,'library-private-')),server=createServer({libraryDir:directory});let page;
+ try{
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const origin=`http://127.0.0.1:${server.address().port}`;
+  const config=fixture(),a=config.Default['@fixture'].$AccountWide;a.commands[1].name='FromProtected';
+  setLuaValue(a.messages,2,{id:'second-message',commandId:'command-one',guildName:'alpha',text:'Another message',useCount:0});setLuaValue(a.commandGuildSettings['command-one'].alpha.schedule.reminders[1].messageIds,2,'second-message');
+  const result=await fetch(origin+'/api/library',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify({name:'Protected settings',lua:writeSavedVariables(config),password:'load secret'})});const file=(await result.json()).file;
+  page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());await page.goto(origin);
+  await page.locator('#open').setInputFiles({name:'SmartChatMsg.lua',mimeType:'text/plain',buffer:Buffer.from(writeSavedVariables(fixture()))});await page.locator('#workspace').waitFor();await page.locator('#server-library').click();await page.locator(`[data-library-id="${file.id}"]`).click();await page.locator('#library-cancel-load').click();assert.equal(await page.locator('[data-field=commandName]').inputValue(),'Example');
+  await page.locator(`[data-library-id="${file.id}"]`).click();await page.locator('#library-load-password').fill('wrong');await page.locator('#library-confirm-load').click();await page.waitForFunction(()=>document.querySelector('#library-status').textContent.includes('Incorrect load password'));assert.equal(await page.locator('[data-field=commandName]').inputValue(),'Example');
+  await page.locator(`[data-library-id="${file.id}"]`).click();await page.locator('#library-load-password').fill('load secret');await page.locator('#library-load-password').press('Enter');await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('Loaded shared configuration'));assert.equal(await page.locator('[data-field=commandName]').inputValue(),'FromProtected');
+  const message=page.locator('.message[data-id="message-one"]');await message.locator('summary').click();await message.locator('[data-action=toggle-message-lock]').click();
+  assert.equal(await message.locator('textarea').evaluate(e=>e.readOnly),true);assert.equal(await message.locator('[data-field=messageName]').evaluate(e=>e.readOnly),true);assert.equal(await message.locator('[data-action=delete-message]').isDisabled(),true);assert.equal(await message.locator('[data-action=save-message]').isDisabled(),true);assert.match(await message.locator('summary').textContent(),/Locked/);
+  await page.locator('.reminder [data-message="message-one"]').uncheck();await page.locator('.reminder [data-action=save]').click();
+  let saved=await downloadData(page),entry=saved.Default['@fixture'].$AccountWide.messages[1];assert.equal(entry.locked,true);assert.equal(entry.text,'Hello %guild%');assert.equal(saved.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule.reminders[1].messageIds[1],'second-message');assert.ok(!writeSavedVariables(saved).includes('load secret'));
+  await message.locator('[data-action=toggle-message-lock]').click();await message.locator('textarea').fill('New unlocked message');await message.locator('[data-action=toggle-message-lock]').click();assert.match(await page.locator('#status').textContent(),/Apply the message changes before locking/);assert.equal(await message.locator('textarea').evaluate(e=>e.readOnly),false);await message.locator('[data-action=save-message]').click();await message.locator('[data-action=toggle-message-lock]').click();
+  saved=await downloadData(page);assert.equal(saved.Default['@fixture'].$AccountWide.messages[1].text,'New unlocked message');assert.equal(saved.Default['@fixture'].$AccountWide.messages[1].locked,true);
+    await page.locator('[data-field=settingsRunAt]').selectOption('ON_DEMAND');await page.locator('#save-event').click();await page.locator('[data-ordinary-message="message-one"]').uncheck();saved=await downloadData(page);assert.equal(saved.Default['@fixture'].$AccountWide.messages[1].locked,true);assert.equal(saved.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.disabledMessageIds['message-one'],true);assert.deepEqual(errors,[]);
+ }finally{if(page)await page.close();if(server.listening)await new Promise(resolve=>server.close(resolve));for(const name of await readdir(directory))await unlink(resolve(directory,name));await rmdir(directory);}
+}
+async function condensedDefaultSelection(){
+ const d=fixture();delete d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.condensedDateTime;
+ const {page,errors}=await open(d);try{
+  const toggle=page.locator('[data-field=condensedDateTime]');assert.equal(await toggle.isChecked(),true);await page.locator('#save-event').click();let saved=await downloadData(page);assert.equal(saved.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.condensedDateTime,true);
+  await toggle.uncheck();await page.locator('#save-event').click();saved=await downloadData(page);assert.equal(saved.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.condensedDateTime,false);assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 async function libraryHttpIntegration(){
  const directory=await mkdtemp(resolve(temp,'library-http-')),server=createServer({libraryDir:directory});
  let page;
@@ -1357,6 +1385,8 @@ try {
   await libraryIncompleteDraft();
   await libraryCategoriesAndDeletion();
   await libraryExportsAndPasswords();
+  await protectedLoadsAndMessageLocks();
+  await condensedDefaultSelection();
   await libraryHttpIntegration();
   await sharedServerLibrary();
   await onceNoticeIgnoresInactiveFields();

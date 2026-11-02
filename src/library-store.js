@@ -137,14 +137,22 @@ export function createLibraryStore(directory, {maxFiles = DEFAULT_MAX_FILES, max
       });
     },
     async describe(id) {if(!validId(id))throw new LibraryError(404,'Shared file not found.');try{return publicMetadata(await metadata(filename(id)));}catch(error){if(error.code==='ENOENT')throw new LibraryError(404,'Shared file not found.');throw error;}},
-    async load(id) {
+    async load(id,{password=''}={}) {
       if (!validId(id)) throw new LibraryError(404, 'Shared file not found.');
-      let data;
-      try { data = await readFile(filename(id)); }
-      catch (error) { if (error.code === 'ENOENT') throw new LibraryError(404, 'Shared file not found.'); throw error; }
-      const newline = data.indexOf(10);
-      if (newline < 0) throw Error('Invalid library record');
-      return data.subarray(newline + 1);
+      if(typeof password!=='string'||Buffer.byteLength(password)>1024)throw new LibraryError(400,'Password must be text of at most 1024 bytes.');
+      return exclusive(id,async()=>{
+        let record,data;
+        try {record=await metadata(filename(id));}
+        catch(error){if(error.code==='ENOENT')throw new LibraryError(404,'Shared file not found.');throw error;}
+        if((record.kind||'configuration')==='configuration'&&record.passwordHash){
+          if(!password)throw new LibraryError(403,'Password required to load this configuration.');
+          await verifyPassword(id,record,password,'load');
+        }
+        try {data=await readFile(filename(id));}
+        catch(error){if(error.code==='ENOENT')throw new LibraryError(404,'Shared file not found.');throw error;}
+        const newline=data.indexOf(10);if(newline<0)throw Error('Invalid library record');
+        return data.subarray(newline+1);
+      });
     },
   };
 }
