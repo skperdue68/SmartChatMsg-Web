@@ -228,7 +228,7 @@ async function overviewPeriodNavigationAndSharedCooldowns(){
  assert.equal(await page.locator('.calendar-day').count(),7);assert.match(await page.locator('[data-period-viewed-date]').textContent(),/Nov 7, 2026.*Nov 13, 2026/);
  for(const [key,value] of [['channel','Officer'],['kind','windows'],['state','all']])assert.equal(await field(key).inputValue(),value);
  await page.locator('.day-drilldown').nth(2).click();assert.equal(await field('view').inputValue(),'day');assert.equal(await field('date').inputValue(),'2026-11-09');
- assert.match(await page.locator('footer').textContent(),/SmartChatMsg 3.02\+ for all editor features/);assert.deepEqual(errors,[]);
+ assert.match(await page.locator('footer').textContent(),/SmartChatMsg 3.03\+ for all editor features/);assert.deepEqual(errors,[]);
  }finally{await page.close();}
 }
 

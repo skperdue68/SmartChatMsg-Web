@@ -180,7 +180,7 @@ Message-pool previews open only from the eye icon (hover, keyboard focus, or cli
 Explicit event countdowns (`%eventcountdown%`, offsets such as `%eventcountdown-60m%`, and named deadlines) retain day/hour/minute precision even far ahead of the event. For example, `10d 6h 17m` versus `10d 5h 17m` for ticket sales closing one hour earlier. Positive countdowns round up to the next minute; a reached/past deadline shows `now`/`passed`. Automatic event-time countdown insertion keeps its approximate display.
 
 
-### Server-saved event exports and overwrite passwords (3.01)
+### Server-saved event exports and overwrite passwords (3.03)
 
 In Import / export, select events (or all events) and choose **Save selected export to server**. These entries are labeled **Event export — review and merge** in Server library. Click one to review available events for the currently loaded account, then **Import selected events → Merge events**. This updates selected matching command/guild settings while retaining unrelated events, account defaults, runtime history and private locked content. Guilds map by name and unknown guilds are skipped. Loading an export never replaces the full workspace. Download event JSON from **Export selected events** in Import / export; Server Library no longer has a separate download-export button.
 
@@ -190,7 +190,7 @@ When saving either type, an optional **Overwrite password** protects later repla
 
 ### Condensed substitutions
 
-**Use condensed dates and times** in Event settings is stored per command + guild and defaults on when no preference has been saved; an explicit unchecked preference is preserved. Dates become `11/07`, clocks become `8PM ET` or `645PM ET`, and weekday references become `Sat 11/07`; today/tomorrow wording stays relative. Signed offsets and named important times follow the same format. Previews reflect the checkbox immediately; Apply event settings saves it. Literal template text is not rewritten. The setting travels through JSON and Lua transfers. Use SmartChatMsg **3.01** for matching in-game output and duplicate recognition of either format.
+**Use condensed dates and times** in Event settings is stored per command + guild and defaults on when no preference has been saved; an explicit unchecked preference is preserved. Dates become `11/07`, clocks become `8PM ET` or `645PM ET`, and weekday references become `Sat 11/07`; today/tomorrow wording stays relative. Signed offsets and named important times follow the same format. Previews reflect the checkbox immediately; Apply event settings saves it. Literal template text is not rewritten. The setting travels through JSON and Lua transfers. Use SmartChatMsg **3.03** for matching in-game output and duplicate recognition of either format.
 
 In **Save to server**, click an existing file in the list to copy its exact name into the save field. This selects a name only; it does not load or overwrite the file. Only compatible file types are shown (full configuration or event export). Click Save to server afterward to confirm replacement and supply its password if protected. In the regular Server library browser, clicking an entry still opens the configuration or export review.
 
@@ -199,7 +199,7 @@ In **Save to server**, click an existing file in the list to copy its exact name
 
 Server Library separates **Configurations** from **Exports** and sorts names alphabetically within each category. Save dialogs retain compatible-type filtering and clicking a filename still selects its exact save name. Delete requires confirmation; protected entries use their existing overwrite password. Password attempts are throttled jointly across overwrite and delete, and deleting a file frees its library quota. Protected configurations require the password to load, including direct file requests. Export read access remains public.
 
-In Import / export, **Import from Saved Server Export** and **Choose import file** are separate, spaced actions. Week and Month overview views now have previous/next controls and a visible period label; filters remain selected and month navigation advances from the first day of the month to avoid 29th–31st rollover. Day drilldown remains available. The footer reads **SmartChatMsg 3.02+** and the calculated field is labeled **Next Event Occurrence**.
+In Import / export, **Import from Saved Server Export** and **Choose import file** are separate, spaced actions. Week and Month overview views now have previous/next controls and a visible period label; filters remain selected and month navigation advances from the first day of the month to avoid 29th–31st rollover. Day drilldown remains available. The footer reads **SmartChatMsg 3.03+** and the calculated field is labeled **Next Event Occurrence**.
 
 ### Sharing Guild and Officer cooldowns
 
