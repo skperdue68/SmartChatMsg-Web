@@ -63,7 +63,7 @@ location / {
 
 If Node runs in a container or the proxy is on another machine, set `HOST=0.0.0.0` and use the reachable service address/port in your proxy. For a direct LAN test, set `PUBLIC_ORIGIN=http://YOUR-SERVER-IP:4173` and open that exact address. Do not use `0.0.0.0` as the browser URL.
 
-The public deployment includes an optional shared configuration library without logins. Save to server explicitly uploads the complete Lua configuration, including account names, locked content and runtime history. Anyone using the library can load it. Hostnames and Origin headers must match the configured public origin or the local workspace. `.env` is ignored by Git.
+The public deployment includes an optional shared configuration library without logins. Save to server explicitly uploads the complete Lua configuration, including account names, locked content and runtime history. Unprotected configurations and event exports are publicly readable. Protected full configurations require their password to load. Hostnames and Origin headers must match the configured public origin or the local workspace. `.env` is ignored by Git.
 
 ## Migrating a legacy schedule
 
@@ -186,21 +186,27 @@ In Import / export, select events (or all events) and choose **Save selected exp
 
 Full configuration entries remain a separate type: opening one loads a copy of all its stored accounts into the editor. Download updated Lua includes applied changes. Names are shared across both entry types; an existing name cannot be changed to the other type.
 
-When saving either type, an optional **Overwrite password** protects later replacement. Enter that password in the overwrite confirmation. Passwords are salted and hashed with scrypt, kept only in server metadata, and never included in public lists, exported JSON or Lua downloads. Passwords do not restrict reading or merging. Existing unprotected entries can acquire a password on overwrite; protected entries keep their password. There is no password reset or removal UI. Cancel preserves the server copy; use another name to publish a separate version.
+When saving either type, an optional **Overwrite password** protects later replacement. Enter that password in the overwrite confirmation. Passwords are salted and hashed with scrypt, kept only in server metadata, and never included in public lists, exported JSON or Lua downloads. Protected full configurations require this password to load; event exports remain readable for review and merging. Existing unprotected entries can acquire a password on overwrite; protected entries keep their password. There is no password reset or removal UI. Cancel preserves the server copy; use another name to publish a separate version.
 
 ### Condensed substitutions
 
-**Use condensed dates and times** in Event settings is stored per command + guild and defaults off. Dates become `11/07`, clocks become `8PM ET` or `645PM ET`, and weekday references become `Sat 11/07`; today/tomorrow wording stays relative. Signed offsets and named important times follow the same format. Previews reflect the checkbox immediately; Apply event settings saves it. Literal template text is not rewritten. The setting travels through JSON and Lua transfers. Use SmartChatMsg **3.01** for matching in-game output and duplicate recognition of either format.
+**Use condensed dates and times** in Event settings is stored per command + guild and defaults on when no preference has been saved; an explicit unchecked preference is preserved. Dates become `11/07`, clocks become `8PM ET` or `645PM ET`, and weekday references become `Sat 11/07`; today/tomorrow wording stays relative. Signed offsets and named important times follow the same format. Previews reflect the checkbox immediately; Apply event settings saves it. Literal template text is not rewritten. The setting travels through JSON and Lua transfers. Use SmartChatMsg **3.01** for matching in-game output and duplicate recognition of either format.
 
 In **Save to server**, click an existing file in the list to copy its exact name into the save field. This selects a name only; it does not load or overwrite the file. Only compatible file types are shown (full configuration or event export). Click Save to server afterward to confirm replacement and supply its password if protected. In the regular Server library browser, clicking an entry still opens the configuration or export review.
 
 
 ### Library organization and overview navigation
 
-Server Library separates **Configurations** from **Exports** and sorts names alphabetically within each category. Save dialogs retain compatible-type filtering and clicking a filename still selects its exact save name. Delete requires confirmation; protected entries use their existing overwrite password. Password attempts are throttled jointly across overwrite and delete, and deleting a file frees its library quota. Reading protected files remains public at this stage.
+Server Library separates **Configurations** from **Exports** and sorts names alphabetically within each category. Save dialogs retain compatible-type filtering and clicking a filename still selects its exact save name. Delete requires confirmation; protected entries use their existing overwrite password. Password attempts are throttled jointly across overwrite and delete, and deleting a file frees its library quota. Protected configurations require the password to load, including direct file requests. Export read access remains public.
 
 In Import / export, **Import from Saved Server Export** and **Choose import file** are separate, spaced actions. Week and Month overview views now have previous/next controls and a visible period label; filters remain selected and month navigation advances from the first day of the month to avoid 29th–31st rollover. Day drilldown remains available. The footer reads **SmartChatMsg 3.02+** and the calculated field is labeled **Next Event Occurrence**.
 
 ### Sharing Guild and Officer cooldowns
 
 **Share cooldowns between Guild and Officer chat** is optional per command + guild, default off, and saved with ordinary/Startup and scheduled settings. With a Guild or Officer output, matching incoming announcements in either of those channels for the same guild reset that command/guild’s cooldown and normal observed usage. Other guilds, Zone and Group chat remain separate. It does not change outgoing routing, and the client must receive the incoming channel; read permission is sufficient even if the player cannot send there. The native addon implements detection, and both Lua and JSON transfers retain the setting. Latest-snapshot merging treats this checkbox as configuration, not runtime history.
+
+### Protected loading and message locks
+
+Protected configurations open through a styled password prompt. Passwords are sent in the request body, never in the URL, and failed guesses share the overwrite/delete throttle.
+
+In Message library, **Lock** makes the name, text and variant read-only and prevents deletion. **Unlock** restores editing. Pool checkboxes remain available, so a locked message can still be disabled. Apply pending edits before locking. Full Lua configurations retain locked content; portable event exports exclude it as before.

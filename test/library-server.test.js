@@ -81,7 +81,7 @@ test('confirmed overwrite replaces the named file while preserving its identity 
  }finally{await app.stop();await rm(directory,{recursive:true,force:true});}
 });
 
-test('both library kinds protect overwrite without exposing secrets or blocking public loads',async()=>{
+test('both library kinds protect overwrite without exposing secrets and configuration reads require credentials',async()=>{
  const directory=await mkdtemp(join(tmpdir(),'scm-passwords-'));let app=await start(directory);
  const bundle={format:'SmartChatMsgEvents',version:1,items:[{eventName:'Ad',guild:'Alpha',settings:{runAt:'ON_DEMAND'},outputChannel:'Guild',schedule:null,messages:[{id:'m',text:'Hello Alpha',variant:'ALL'}]}]};
  const secret='rainbow test password';
@@ -91,9 +91,10 @@ test('both library kinds protect overwrite without exposing secrets or blocking 
    const payload={name:kind,kind,...(kind==='export'?{bundle}:{lua}),password:secret};
    const saved=await post(payload);assert.equal(saved.status,201);const file=(await saved.json()).file;
    assert.equal(file.protected,true);assert.equal(file.kind,kind);assert.equal(file.passwordHash,undefined);assert.equal(file.passwordSalt,undefined);
-   const original=await(await fetch(app.root+'/api/library/'+file.id)).text();
+   const retrieve=()=>fetch(app.root+'/api/library/'+file.id+(kind==='configuration'?'/load':''),kind==='configuration'?{method:'POST',headers:{origin:app.root,'content-type':'application/json'},body:JSON.stringify({password:secret})}:{});
+   const original=await(await retrieve()).text();
    for(const password of ['', 'wrong'])assert.equal((await post({...payload,overwrite:true,password})).status,403);
-   assert.equal(await(await fetch(app.root+'/api/library/'+file.id)).text(),original);
+   assert.equal(await(await retrieve()).text(),original);
    assert.equal((await post({...payload,overwrite:true})).status,201);
    const publicList=await(await fetch(app.root+'/api/library')).text();assert.ok(!publicList.includes(secret));assert.ok(!publicList.includes('passwordHash'));assert.ok(!publicList.includes('passwordSalt'));
    if(kind==='export')assert.equal(JSON.parse(original).format,'SmartChatMsgEvents');
@@ -120,7 +121,7 @@ test('deleting configurations and exports requires confirmation credentials and 
   assert.equal((await remove(a.id,'',{origin:'https://wrong.example'})).status,403);
   assert.equal((await remove(b.id)).status,403);assert.equal((await remove(b.id,'wrong')).status,403);
   assert.equal((await remove(c.id,'wrong')).status,403);
-  assert.equal((await fetch(app.root+'/api/library/'+b.id)).status,200,'Protected loads stay public for now');
+  assert.equal((await fetch(app.root+'/api/library/'+b.id)).status,403,'Protected configurations require a load password');
   assert.equal((await remove(b.id,'secret')).status,200);
   assert.equal((await fetch(app.root+'/api/library/'+b.id)).status,404);
   assert.equal((await remove(b.id,'secret')).status,404);
@@ -130,5 +131,24 @@ test('deleting configurations and exports requires confirmation credentials and 
   assert.equal((await remove('%2e%2e%2fanything')).status,404);
   assert.equal((await remove('a'.repeat(64),{})).status,400);
   assert.deepEqual((await(await fetch(app.root+'/api/library')).json()).files,[]);
+ }finally{await app.stop();await rm(directory,{recursive:true,force:true});}
+});
+
+test('protected configuration loads require authenticated POST while event exports remain shareable',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'scm-load-auth-'));const app=await start(directory);
+ const post=body=>fetch(app.root+'/api/library',{method:'POST',headers:{origin:app.root,'content-type':'application/json'},body:JSON.stringify(body)});
+ const load=(id,password='',headers={})=>fetch(app.root+'/api/library/'+id+'/load',{method:'POST',headers:{origin:app.root,'content-type':'application/json',...headers},body:JSON.stringify({password})});
+ try{
+  const file=(await(await post({name:'Private config',lua,password:'secret'})).json()).file;
+  assert.equal((await fetch(app.root+'/api/library/'+file.id)).status,403);
+  assert.equal((await fetch(app.root+'/api/library/'+file.id,{method:'HEAD'})).status,403);
+  assert.equal((await load(file.id)).status,403);assert.equal((await load(file.id,'wrong')).status,403);
+  assert.equal((await load(file.id,'secret',{origin:'https://wrong.example'})).status,403);
+  assert.equal((await load(file.id,'secret',{'content-type':'text/plain'})).status,415);
+  const response=await load(file.id,'secret');assert.equal(response.status,200);assert.equal(await response.text(),lua);
+  const publicFile=(await(await post({name:'Public config',lua})).json()).file;
+  assert.equal((await fetch(app.root+'/api/library/'+publicFile.id)).status,200);
+  assert.equal((await load(publicFile.id)).status,200);
+  assert.equal((await load('a'.repeat(64),'secret')).status,404);
  }finally{await app.stop();await rm(directory,{recursive:true,force:true});}
 });

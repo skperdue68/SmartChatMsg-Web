@@ -752,3 +752,5 @@ label.check>.help-icon{flex:none;margin-left:4px}
 .library-record .library-file strong { overflow-wrap:anywhere; }
 .library-record .library-delete { flex:none; }
 .library-confirm-panel:not([hidden]) { margin:16px 0; padding:16px; border:1px solid var(--gold); border-radius:8px; background:#203247; box-shadow:0 5px 18px #0004; }
+
+.message-locked textarea,.message-locked input[readonly] { background:#142334; color:var(--muted); border-style:dashed; }
