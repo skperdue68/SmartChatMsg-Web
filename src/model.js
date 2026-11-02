@@ -114,7 +114,7 @@ const equal = (a, b) => {
   );
 };
 const runtime = (k) =>
-  /^(scheduledSendingEnabled|lastUsedAt|useCount|lastUsedParamText|lastUsedGuildIndex|lastAutoPopulateSentAtByZone|observedChatCooldowns|completedOccurrences|timelineDeliveries|timelineHistory|timelineUsage|availabilityUsage|nextDue.*|completed|last.*At|.*Cooldowns)$/.test(
+  k !== 'shareGuildOfficerCooldowns' && /^(scheduledSendingEnabled|lastUsedAt|useCount|lastUsedParamText|lastUsedGuildIndex|lastAutoPopulateSentAtByZone|observedChatCooldowns|completedOccurrences|timelineDeliveries|timelineHistory|timelineUsage|availabilityUsage|nextDue.*|completed|last.*At|.*Cooldowns)$/.test(
     k,
   );
 export function orderedMessageEntries(messages){

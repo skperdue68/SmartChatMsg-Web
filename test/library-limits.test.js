@@ -80,3 +80,12 @@ test('quota settings are read from the environment and validated', () => {
   assert.equal(readConfig({ LIBRARY_MAX_FILES: '10', LIBRARY_MAX_BYTES: '2048', MAX_CONCURRENT_UPLOADS: '2' }).libraryMaxBytes, 2048);
   for (const value of ['0', '-1', '1.5', 'many']) assert.throws(() => readConfig({ LIBRARY_MAX_FILES: value }), /LIBRARY_MAX_FILES/);
 });
+
+test('deletion shares password throttling with overwrite and frees the entry quota',()=>withDirectory(async directory=>{
+ let clock=1000000;const store=createLibraryStore(directory,{maxFiles:1,now:()=>clock});
+ const file=await store.save('protected',lua,{password:'correct'});
+ for(let i=0;i<5;i++)assert.equal(await status(store.remove(file.id,'wrong')),403);
+ assert.equal(await status(store.save('protected',lua,{overwrite:true,password:'correct'})),429);
+ clock+=31000;assert.equal((await store.remove(file.id,'correct')).id,file.id);
+ assert.equal(await status(store.save('replacement',lua)),201);
+}));
