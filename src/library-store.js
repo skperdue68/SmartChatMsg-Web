@@ -10,6 +10,17 @@ export const MAX_LUA_BYTES = 20 * 1024 * 1024;
 export class LibraryError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
+// Windows scanners/readers can briefly deny replacing or deleting a closed file.
+// Retry only transient Windows errors; publication stays an atomic rename.
+export async function retryLibraryFileOperation(operation,{platform=process.platform,delay=ms=>new Promise(resolve=>setTimeout(resolve,ms))}={}) {
+  for(let attempt=0;;attempt++){
+    try{return await operation();}
+    catch(error){
+      if(platform!=='win32'||!['EPERM','EACCES','EBUSY'].includes(error.code)||attempt>=5)throw error;
+      await delay(50*2**attempt);
+    }
+  }
+}
 const scrypt=promisify(scryptCallback);
 const publicMetadata=({passwordHash,passwordSalt,...record})=>({...record,kind:record.kind||'configuration',protected:Boolean(passwordHash)});
 const validId = id => /^[a-f0-9]{64}$/.test(id);
@@ -47,10 +58,23 @@ export function createLibraryStore(directory, {maxFiles = DEFAULT_MAX_FILES, max
     }
     return found;
   }
+  async function verifyPassword(id,existing,password,action){
+    if(existing?.passwordHash){
+        const lock=failures.get(id);
+        if(lock&&lock.until>now())throw new LibraryError(429,`Too many incorrect ${action} passwords. Try again in ${Math.ceil((lock.until-now())/1000)} seconds.`);
+        const hash=await scrypt(password,existing.passwordSalt,64);
+        if(!timingSafeEqual(hash,Buffer.from(existing.passwordHash,'hex'))){
+          const count=(lock?.count||0)+1;
+          failures.set(id,{count,until:count>=FREE_PASSWORD_ATTEMPTS?now()+Math.min(MAX_LOCKOUT_MS,BASE_LOCKOUT_MS*2**(count-FREE_PASSWORD_ATTEMPTS)):0});
+          throw new LibraryError(403,`Incorrect ${action} password.`);
+        }
+        failures.delete(id);
+      }
+  }
   return {
     async list() {
       const files = (await records()).map(publicMetadata);
-      return files.sort((a, b) => (b.updatedAt||b.createdAt).localeCompare(a.updatedAt||a.createdAt) || a.id.localeCompare(b.id));
+      return files.sort((a,b)=>a.name.localeCompare(b.name,'en',{sensitivity:'base',numeric:true})||a.id.localeCompare(b.id));
     },
     async save(name, lua, {overwrite=false,password='',kind='configuration'}={}) {
       if(typeof overwrite!=='boolean')throw new LibraryError(400, 'Overwrite must be true or false.');
@@ -78,17 +102,7 @@ export function createLibraryStore(directory, {maxFiles = DEFAULT_MAX_FILES, max
       try { existing=await metadata(filename(id)); }catch(error){if(error.code!=='ENOENT')throw error;}
       if(existing&&!overwrite)throw new LibraryError(409,'That name already exists; choose a unique name or confirm overwrite.');
       if(existing&&(existing.kind||'configuration')!==kind)throw new LibraryError(400,'That name belongs to a different file type. Choose another name.');
-      if(existing?.passwordHash){
-        const lock=failures.get(id);
-        if(lock&&lock.until>now())throw new LibraryError(429,`Too many incorrect overwrite passwords. Try again in ${Math.ceil((lock.until-now())/1000)} seconds.`);
-        const hash=await scrypt(password,existing.passwordSalt,64);
-        if(!timingSafeEqual(hash,Buffer.from(existing.passwordHash,'hex'))){
-          const count=(lock?.count||0)+1;
-          failures.set(id,{count,until:count>=FREE_PASSWORD_ATTEMPTS?now()+Math.min(MAX_LOCKOUT_MS,BASE_LOCKOUT_MS*2**(count-FREE_PASSWORD_ATTEMPTS)):0});
-          throw new LibraryError(403,'Incorrect overwrite password.');
-        }
-        failures.delete(id);
-      }
+      await verifyPassword(id,existing,password,'overwrite');
       // Anyone can publish, so bound what the library may grow to.
       const size=Buffer.byteLength(lua,'utf8'),used=(await records()).filter(record=>record.id!==id);
       if(used.length>=maxFiles)throw new LibraryError(507,'The shared library has reached its maximum number of files.');
@@ -105,10 +119,21 @@ export function createLibraryStore(directory, {maxFiles = DEFAULT_MAX_FILES, max
         await handle.writeFile(JSON.stringify(file) + '\n' + lua, 'utf8');
         await handle.sync();
         await handle.close(); handle = null;
-        try { if(overwrite)await rename(temporary,filename(id));else await link(temporary, filename(id)); }
+        try { if(overwrite)await retryLibraryFileOperation(()=>rename(temporary,filename(id)));else await link(temporary, filename(id)); }
         catch (error) { if (error.code === 'EEXIST') throw new LibraryError(409, 'That name already exists; choose a unique name.'); throw error; }
         return publicMetadata(file);
       } finally { if (handle) await handle.close(); await unlink(temporary).catch(() => {}); }
+      });
+    },
+    async remove(id,password='') {
+      if(!validId(id))throw new LibraryError(404,'Shared file not found.');
+      if(typeof password!=='string'||Buffer.byteLength(password)>1024)throw new LibraryError(400,'Password must be text of at most 1024 bytes.');
+      return exclusive(id,async()=>{
+        let existing;
+        try {existing=await metadata(filename(id));}catch(error){if(error.code==='ENOENT')throw new LibraryError(404,'Shared file not found.');throw error;}
+        await verifyPassword(id,existing,password,'delete');
+        await retryLibraryFileOperation(()=>unlink(filename(id)));failures.delete(id);
+        return publicMetadata(existing);
       });
     },
     async describe(id) {if(!validId(id))throw new LibraryError(404,'Shared file not found.');try{return publicMetadata(await metadata(filename(id)));}catch(error){if(error.code==='ENOENT')throw new LibraryError(404,'Shared file not found.');throw error;}},

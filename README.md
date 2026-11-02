@@ -77,7 +77,7 @@ Only relevant controls are shown: faction settings for faction rotation; repeat 
 
 ## Shared server library
 
-Use **Server library** to list saved configurations and click a name to load one, even before opening a local file. **Save to server** saves your applied editor changes under a friendly name. Names are case-insensitive. Saving an existing name opens an in-page confirmation: choose **Overwrite saved file** to replace it, or **Cancel** to keep the existing server copy. Replacement retains the library ID and original creation date, records its update time, and publishes the validated file atomically. Loading a file alone never overwrites it. Deletion is not offered.
+Use **Server library** to list saved configurations and click a name to load one, even before opening a local file. **Save to server** saves your applied editor changes under a friendly name. Names are case-insensitive. Saving an existing name opens an in-page confirmation: choose **Overwrite saved file** to replace it, or **Cancel** to keep the existing server copy. Replacement retains the library ID and original creation date, records its update time, and publishes the validated file atomically. Loading a file alone never overwrites it. Each entry has a Delete button. Deleting requires confirmation and its password when protected; your loaded workspace and local ESO files remain unchanged.
 
 Loading copies the configuration into the editor. **Download updated Lua** includes that configuration plus your applied changes; it never modifies the server copy or ESO files. Full-file loading retains the stored accounts and guilds. To transfer selected events between accounts, use the separate event import/export controls instead.
 
@@ -182,7 +182,7 @@ Explicit event countdowns (`%eventcountdown%`, offsets such as `%eventcountdown-
 
 ### Server-saved event exports and overwrite passwords (3.01)
 
-In Import / export, select events (or all events) and choose **Save selected export to server**. These entries are labeled **Event export — review and merge** in Server library. Click one to review available events for the currently loaded account, then **Import selected events → Merge events**. This updates selected matching command/guild settings while retaining unrelated events, account defaults, runtime history and private locked content. Guilds map by name and unknown guilds are skipped. Loading an export never replaces the full workspace. **Download export** also retrieves its JSON for later sharing.
+In Import / export, select events (or all events) and choose **Save selected export to server**. These entries are labeled **Event export — review and merge** in Server library. Click one to review available events for the currently loaded account, then **Import selected events → Merge events**. This updates selected matching command/guild settings while retaining unrelated events, account defaults, runtime history and private locked content. Guilds map by name and unknown guilds are skipped. Loading an export never replaces the full workspace. Download event JSON from **Export selected events** in Import / export; Server Library no longer has a separate download-export button.
 
 Full configuration entries remain a separate type: opening one loads a copy of all its stored accounts into the editor. Download updated Lua includes applied changes. Names are shared across both entry types; an existing name cannot be changed to the other type.
 
@@ -193,3 +193,14 @@ When saving either type, an optional **Overwrite password** protects later repla
 **Use condensed dates and times** in Event settings is stored per command + guild and defaults off. Dates become `11/07`, clocks become `8PM ET` or `645PM ET`, and weekday references become `Sat 11/07`; today/tomorrow wording stays relative. Signed offsets and named important times follow the same format. Previews reflect the checkbox immediately; Apply event settings saves it. Literal template text is not rewritten. The setting travels through JSON and Lua transfers. Use SmartChatMsg **3.01** for matching in-game output and duplicate recognition of either format.
 
 In **Save to server**, click an existing file in the list to copy its exact name into the save field. This selects a name only; it does not load or overwrite the file. Only compatible file types are shown (full configuration or event export). Click Save to server afterward to confirm replacement and supply its password if protected. In the regular Server library browser, clicking an entry still opens the configuration or export review.
+
+
+### Library organization and overview navigation
+
+Server Library separates **Configurations** from **Exports** and sorts names alphabetically within each category. Save dialogs retain compatible-type filtering and clicking a filename still selects its exact save name. Delete requires confirmation; protected entries use their existing overwrite password. Password attempts are throttled jointly across overwrite and delete, and deleting a file frees its library quota. Reading protected files remains public at this stage.
+
+In Import / export, **Import from Saved Server Export** and **Choose import file** are separate, spaced actions. Week and Month overview views now have previous/next controls and a visible period label; filters remain selected and month navigation advances from the first day of the month to avoid 29th–31st rollover. Day drilldown remains available. The footer reads **SmartChatMsg 3.02+** and the calculated field is labeled **Next Event Occurrence**.
+
+### Sharing Guild and Officer cooldowns
+
+**Share cooldowns between Guild and Officer chat** is optional per command + guild, default off, and saved with ordinary/Startup and scheduled settings. With a Guild or Officer output, matching incoming announcements in either of those channels for the same guild reset that command/guild’s cooldown and normal observed usage. Other guilds, Zone and Group chat remain separate. It does not change outgoing routing, and the client must receive the incoming channel; read permission is sufficient even if the player cannot send there. The native addon implements detection, and both Lua and JSON transfers retain the setting. Latest-snapshot merging treats this checkbox as configuration, not runtime history.

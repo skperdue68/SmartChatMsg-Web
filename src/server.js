@@ -55,7 +55,7 @@ export function createServer(options={}) {
     }
     if (api) {
       try {
-        if (path === '/api/library' && req.method === 'POST') {
+        if ((path === '/api/library' && req.method === 'POST') || (path.startsWith('/api/library/') && req.method === 'DELETE')) {
           if (!req.headers.origin) return json(403, {error:'A matching Origin is required.'});
           if (!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] || '')) return json(415, {error:'Use application/json.'});
           if (Number(req.headers['content-length']) > MAX_REQUEST_BYTES) return json(413, {error:'Request is too large.'});
@@ -73,10 +73,11 @@ export function createServer(options={}) {
             try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
             catch { return json(400, {error:'Provide valid JSON.'}); }
           } finally { activeUploads--; }
-          if (!body || typeof body !== 'object' || Array.isArray(body)) return json(400, {error:'Provide a name and Lua text.'});
+          if (!body || typeof body !== 'object' || Array.isArray(body)) return json(400, {error:'Provide a JSON object.'});
+          if(req.method==='DELETE')return json(200,{file:await library.remove(path.slice('/api/library/'.length),body.password??'')});
           return json(201, {file:await library.save(body.name, body.kind==='export'?JSON.stringify(body.bundle):body.lua, {overwrite:body.overwrite??false,password:body.password??'',kind:body.kind??'configuration'})});
         }
-        if (req.method !== 'GET' && req.method !== 'HEAD') return json(405, {error:'Method not allowed.'}, {Allow:path === '/api/library' ? 'GET, HEAD, POST' : 'GET, HEAD'});
+        if (req.method !== 'GET' && req.method !== 'HEAD') return json(405, {error:'Method not allowed.'}, {Allow:path === '/api/library' ? 'GET, HEAD, POST' : 'GET, HEAD, DELETE'});
         if (path === '/api/library') return json(200, {files:await library.list()});
         const id=path.slice('/api/library/'.length),record=await library.describe(id);
         const lua = await library.load(id);

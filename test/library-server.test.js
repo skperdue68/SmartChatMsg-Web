@@ -30,7 +30,7 @@ test('shared library persists full Lua and publishes unique names atomically', a
     await app.stop(); app = await start(directory);
     const files = (await (await fetch(app.root + '/api/library')).json()).files;
     assert.equal(files.length, 2);
-    assert.ok(files[0].createdAt >= files[1].createdAt);
+    assert.deepEqual(files.map(file=>file.name),['Café / schedule','race']);
     assert.equal(await (await fetch(app.root + '/api/library/' + file.id)).text(), lua);
     const head = await fetch(app.root + '/api/library/' + file.id, {method:'HEAD'});
     assert.equal(head.status, 200); assert.equal(await head.text(), '');
@@ -104,5 +104,31 @@ test('both library kinds protect overwrite without exposing secrets or blocking 
   assert.equal((await post({name:'configuration',lua,overwrite:true,password:'wrong'})).status,403);
   assert.equal((await post({name:'configuration',lua,overwrite:true,password:secret})).status,201);
   assert.equal((await post({name:'configuration',kind:'export',bundle,overwrite:true,password:secret})).status,400);
+ }finally{await app.stop();await rm(directory,{recursive:true,force:true});}
+});
+
+test('deleting configurations and exports requires confirmation credentials and retains unrelated records',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'scm-delete-'));const app=await start(directory);
+ const post=body=>fetch(app.root+'/api/library',{method:'POST',headers:{origin:app.root,'content-type':'application/json'},body:JSON.stringify(body)});
+ const remove=(id,password='',headers={})=>fetch(app.root+'/api/library/'+id,{method:'DELETE',headers:{origin:app.root,'content-type':'application/json',...headers},body:JSON.stringify({password})});
+ try{
+  const a=(await(await post({name:'Zulu',lua})).json()).file;
+  const b=(await(await post({name:'alpha',lua,password:'secret'})).json()).file;
+  const bundle={format:'SmartChatMsgEvents',version:1,items:[{eventName:'Ad',guild:'Alpha',settings:{runAt:'ON_DEMAND'},outputChannel:'Guild',schedule:null,messages:[{id:'m',text:'Hi',variant:'ALL'}]}]};
+  const c=(await(await post({name:'Beta export',kind:'export',bundle,password:'export-secret'})).json()).file;
+  assert.deepEqual((await(await fetch(app.root+'/api/library')).json()).files.map(f=>f.name),['alpha','Beta export','Zulu']);
+  assert.equal((await remove(a.id,'',{origin:'https://wrong.example'})).status,403);
+  assert.equal((await remove(b.id)).status,403);assert.equal((await remove(b.id,'wrong')).status,403);
+  assert.equal((await remove(c.id,'wrong')).status,403);
+  assert.equal((await fetch(app.root+'/api/library/'+b.id)).status,200,'Protected loads stay public for now');
+  assert.equal((await remove(b.id,'secret')).status,200);
+  assert.equal((await fetch(app.root+'/api/library/'+b.id)).status,404);
+  assert.equal((await remove(b.id,'secret')).status,404);
+  assert.equal((await remove(c.id,'export-secret')).status,200);
+  assert.equal((await fetch(app.root+'/api/library/'+a.id)).status,200);
+  assert.equal((await remove(a.id)).status,200);
+  assert.equal((await remove('%2e%2e%2fanything')).status,404);
+  assert.equal((await remove('a'.repeat(64),{})).status,400);
+  assert.deepEqual((await(await fetch(app.root+'/api/library')).json()).files,[]);
  }finally{await app.stop();await rm(directory,{recursive:true,force:true});}
 });

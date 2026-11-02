@@ -205,6 +205,33 @@ async function open(data) {
   await page.locator("#workspace").waitFor({ state: "visible" });
   return { page, errors };
 }
+async function overviewPeriodNavigationAndSharedCooldowns(){
+ const {page,errors}=await open(fixture());
+ try{
+ const toggle=()=>page.locator('[data-field=shareGuildOfficerCooldowns]');
+ assert.equal(await toggle().isChecked(),false);
+ for(const [mode,enabled] of [['SCHEDULED',true],['ON_DEMAND',false],['STARTUP',true]]){
+  await page.locator('[data-field=settingsRunAt]').selectOption(mode);assert.equal(await toggle().isVisible(),true);
+  await toggle().setChecked(enabled);await page.locator('#save-event').click();
+  const settings=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;
+  assert.equal(settings.shareGuildOfficerCooldowns,enabled);assert.equal(settings.schedule.shareGuildOfficerCooldowns,undefined);
+ }
+ await page.locator('[data-view=calendar]').click();
+ const field=key=>page.locator('#calendar [data-field='+key+']');
+ await field('view').selectOption('month');await field('date').fill('2026-12-31');
+ await field('channel').selectOption('Officer');await field('kind').selectOption('windows');await field('state').selectOption('all');
+ await page.locator('[data-period-step="1"]').click();assert.equal(await field('date').inputValue(),'2027-01-01');
+ assert.equal(await page.locator('[data-period-viewed-date]').textContent(),'January 2027');assert.equal(await page.locator('.calendar-day').count(),31);
+ await page.locator('[data-period-step="-1"]').click();assert.equal(await field('date').inputValue(),'2026-12-01');
+ await field('view').selectOption('week');await field('date').fill('2026-10-31');
+ await page.locator('[data-period-step="1"]').click();assert.equal(await field('date').inputValue(),'2026-11-07');
+ assert.equal(await page.locator('.calendar-day').count(),7);assert.match(await page.locator('[data-period-viewed-date]').textContent(),/Nov 7, 2026.*Nov 13, 2026/);
+ for(const [key,value] of [['channel','Officer'],['kind','windows'],['state','all']])assert.equal(await field(key).inputValue(),value);
+ await page.locator('.day-drilldown').nth(2).click();assert.equal(await field('view').inputValue(),'day');assert.equal(await field('date').inputValue(),'2026-11-09');
+ assert.match(await page.locator('footer').textContent(),/SmartChatMsg 3.02\+ for all editor features/);assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 async function condensedDateTimeSettings(){
  const d=fixture();d.Default['@fixture'].$AccountWide.messages[1].text='Meet %eventtime% %eventdate%.';const {page,errors}=await open(d);
  await page.locator('[data-view=editor]').click();
@@ -1257,12 +1284,34 @@ async function libraryExportsAndPasswords(){
   assert.equal(await page.locator('#library-list [data-library-id]').count(),1,'Export saving shows compatible export names');await page.locator(`[data-library-id="${file.id}"]`).click();assert.equal(await page.locator('#library-name').inputValue(),'Protected export');assert.equal(await page.locator('#dialog').isVisible(),true);await page.locator('#library-save').click();await page.locator('#library-cancel-overwrite').click();assert.equal(await page.locator('#library-overwrite').isHidden(),true);
   await page.locator('#library-save').click();await page.locator('#library-overwrite-password').fill('export secret');await page.locator('#library-confirm-overwrite').click();await page.waitForFunction(()=>document.querySelector('#library-status').textContent.includes('Overwrote “Protected export”'));
   const exported=JSON.parse(await(await fetch(origin+'/api/library/'+file.id)).text());assert.equal(exported.items.length,1);assert.equal(exported.items[0].eventName,'Example');
-  const downloading=page.waitForEvent('download');await page.locator(`[data-library-download="${file.id}"]`).click();assert.equal((await downloading).suggestedFilename(),'SmartChatMsg-events.json');await page.locator('#close-dialog').click();
+  assert.equal(await page.locator('[data-library-download]').count(),0);await page.locator('#close-dialog').click();
   const local=fixture();local.Default['@fixture'].$AccountWide.messages[1].useCount=123;setLuaValue(local.Default['@fixture'].$AccountWide.commands,2,{id:'personal',name:'Personal'});local.Default['@fixture'].$AccountWide.commandGuildSettings.personal={alpha:{runAt:'ON_DEMAND'}};
   await page.locator('#open').setInputFiles({name:'SmartChatMsg.lua',mimeType:'text/plain',buffer:Buffer.from(writeSavedVariables(local))});await page.locator('[data-view=transfer]').click();await page.locator('#import-server-export').click();await page.locator(`[data-library-id="${file.id}"]`).click();await page.locator('#import-event-review').waitFor();
   await page.locator('#apply-event-import').click();await page.locator('#cancel-event-merge').click();assert.equal(await page.locator('#import-event-review').isVisible(),true);
   await page.locator('#apply-event-import').click();await page.locator('#confirm-event-merge').click();assert.match(await page.locator('#status').textContent(),/Imported 1 event/);
   const saved=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(saved.messages[1].useCount,123);assert.ok(Object.values(saved.commands).some(c=>c.id==='personal'));assert.deepEqual(errors,[]);
+ }finally{if(page)await page.close();if(server.listening)await new Promise(resolve=>server.close(resolve));for(const name of await readdir(directory))await unlink(resolve(directory,name));await rmdir(directory);}
+}
+
+async function libraryCategoriesAndDeletion(){
+ const directory=await mkdtemp(resolve(temp,'library-delete-')),server=createServer({libraryDir:directory});let page;
+ try{
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const origin=`http://127.0.0.1:${server.address().port}`;
+  const config=writeSavedVariables(fixture()),bundle={format:'SmartChatMsgEvents',version:1,items:[{eventName:'Ad',guild:'Alpha',settings:{runAt:'ON_DEMAND'},outputChannel:'Guild',schedule:null,messages:[{id:'m',text:'Hi',variant:'ALL'}]}]};
+  const files=[];
+  for(const item of [{name:'zeta',lua:config},{name:'Alpha config',lua:config,password:'conf secret'},{name:'Zulu export',kind:'export',bundle},{name:'alpha export',kind:'export',bundle,password:'exp secret'}]){
+   const response=await fetch(origin+'/api/library',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify(item)});assert.equal(response.status,201);files.push((await response.json()).file);
+  }
+  page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto(origin);await page.locator('#server-library').click();await page.locator('[data-library-id]').first().waitFor();
+  const configurations=page.locator('[data-library-category=configuration]'),exports=page.locator('[data-library-category=export]');
+  assert.deepEqual(await configurations.locator('.library-file strong').allTextContents(),['Alpha config','zeta']);assert.deepEqual(await exports.locator('.library-file strong').allTextContents(),['alpha export','Zulu export']);assert.equal(await page.locator('[data-library-download]').count(),0);
+  const clickDelete=async id=>{await page.locator(`[data-library-delete="${id}"]`).click();await page.locator('#library-delete-panel').waitFor();};
+  await clickDelete(files[0].id);await page.locator('#library-cancel-delete').click();assert.equal(await page.locator(`[data-library-id="${files[0].id}"]`).count(),1);
+  await clickDelete(files[0].id);await page.locator('#library-confirm-delete').click();await page.locator(`[data-library-id="${files[0].id}"]`).waitFor({state:'detached'});
+  await clickDelete(files[1].id);await page.locator('#library-delete-password').fill('wrong');await page.locator('#library-confirm-delete').click();await page.waitForFunction(()=>document.querySelector('#library-delete-error').textContent.includes('Incorrect delete password'));assert.equal(await page.locator(`[data-library-id="${files[1].id}"]`).count(),1);
+  await page.locator('#library-delete-password').fill('conf secret');await page.locator('#library-confirm-delete').click();await page.locator(`[data-library-id="${files[1].id}"]`).waitFor({state:'detached'});
+  await clickDelete(files[3].id);await page.locator('#library-delete-password').fill('exp secret');await page.locator('#library-confirm-delete').click();await page.locator(`[data-library-id="${files[3].id}"]`).waitFor({state:'detached'});assert.equal(await page.locator(`[data-library-id="${files[2].id}"]`).count(),1);
+  assert.deepEqual(errors,[]);
  }finally{if(page)await page.close();if(server.listening)await new Promise(resolve=>server.close(resolve));for(const name of await readdir(directory))await unlink(resolve(directory,name));await rmdir(directory);}
 }
 
@@ -1306,6 +1355,7 @@ try {
   await runModeRelevantFields();
   await ordinaryLibraryWithoutSchedule();
   await libraryIncompleteDraft();
+  await libraryCategoriesAndDeletion();
   await libraryExportsAndPasswords();
   await libraryHttpIntegration();
   await sharedServerLibrary();
@@ -1334,6 +1384,7 @@ try {
   await relevantSettingsAndMigration();
   await preservationAndEditing();
   await condensedDateTimeSettings();
+  await overviewPeriodNavigationAndSharedCooldowns();
 
 
 

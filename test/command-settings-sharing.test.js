@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import {mergeSavedVariables} from '../src/model.js';
 import {setLuaValue,writeSavedVariables,parseSavedVariables,isLuaNumericKey} from '../src/lua-data.js';
 const portableSource=fs.readFileSync(new URL('../public/portable.js',import.meta.url),'utf8').replaceAll('"./model.js"',JSON.stringify(new URL('../src/model.js',import.meta.url).href)).replaceAll('"./lua-data.js"',JSON.stringify(new URL('../src/lua-data.js',import.meta.url).href));
 const {exportEventBundle,readEventBundle,reviewEventImport,importEventBundle}=await import('data:text/javascript;base64,'+Buffer.from(portableSource+'\n//# sourceURL=command-settings-sharing-test.js').toString('base64'));
@@ -68,3 +69,26 @@ test('omitted shared configuration resets only known command options and preserv
  const bundle=exportEventBundle(account('source',1,commandOptions),'shared guild',['source']);bundle.items[0].settings.condensedDateTime='true';
  assert.throws(()=>readEventBundle(bundle),/Invalid command option/);
  });
+
+test('Guild and Officer cooldown sharing is a validated command boolean across JSON, Lua, and import replacement',()=>{
+ for(const enabled of [true,false]){
+  const source=account('source',1,{shareGuildOfficerCooldowns:enabled}),bundle=JSON.parse(JSON.stringify(exportEventBundle(source,'shared guild',['source'])));
+  assert.equal(readEventBundle(bundle).items[0].settings.shareGuildOfficerCooldowns,enabled);
+  const imported=importEventBundle(account('recipient',4,{shareGuildOfficerCooldowns:!enabled}),bundle,[0]).account;
+  const result=parseSavedVariables(writeSavedVariables({Default:{'@Recipient':{$AccountWide:imported}}})).Default['@Recipient'].$AccountWide.commandGuildSettings.recipient['shared guild'];
+  assert.equal(result.shareGuildOfficerCooldowns,enabled);assert.equal(result.schedule?.shareGuildOfficerCooldowns,undefined);
+ }
+ const source=account('source',1),bundle=exportEventBundle(source,'shared guild',['source']);
+ const imported=importEventBundle(account('recipient',4,{shareGuildOfficerCooldowns:true}),bundle,[0]).account;
+ assert.equal(imported.commandGuildSettings.recipient['shared guild'].shareGuildOfficerCooldowns,undefined);
+ bundle.items[0].settings.shareGuildOfficerCooldowns='true';assert.throws(()=>readEventBundle(bundle),/Invalid command option/);
+});
+
+test('latest runtime merge retains changed cooldown sharing boolean and new peer history',()=>{
+ const base=account('source',1,{shareGuildOfficerCooldowns:false}),edited=structuredClone(base),latest=structuredClone(base);
+ edited.commandGuildSettings.source['shared guild'].shareGuildOfficerCooldowns=true;
+ latest.commandGuildSettings.source['shared guild'].observedChatCooldowns={newPeer:{at:999}};
+ const merged=mergeSavedVariables(base,edited,latest);assert.deepEqual(merged.conflicts,[]);
+ assert.equal(merged.data.commandGuildSettings.source['shared guild'].shareGuildOfficerCooldowns,true);
+ assert.equal(merged.data.commandGuildSettings.source['shared guild'].observedChatCooldowns.newPeer.at,999);
+});

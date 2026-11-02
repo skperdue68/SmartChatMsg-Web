@@ -99,6 +99,7 @@ const opts = (options, value) =>
     })
     .join("");
 const fieldHelp = {
+ shareGuildOfficerCooldowns:'Allow a matching Guild or Officer announcement in this same guild to reset this command’s cooldown. Outgoing messages still use the chosen channel. Read permission is required; send permission is not. Zone and Group chat stay separate.',
  condensedDateTime:'Shortens date/time substitutions for this command and guild: 11/07/2026 becomes 11/07; 08:00 PM EST becomes 8PM ET; 06:45 PM EST becomes 645PM ET. Literal message text is unchanged. Duplicate detection recognizes either format.',
  messageName:'Optional short editor label, up to 60 characters. It is saved with the message but is never included in outgoing chat.',
  eventDate:'The event date and recurrence starting point. For Monthly on weekday, the Monthly on and Weekday choices determine actual dates from this starting point. Reminder days do not change the actual event.',
@@ -702,7 +703,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
     rows = model.orderedReminderRows(s,projectedNext(s)??model.scheduleEventUtc(s));
   const monthlyRule=model.monthlyWeekdayRule(s);let monthlyRulePinned=s.monthlyWeek!==undefined||s.monthlyWeekday!==undefined;
   $("#detail").innerHTML =
-    `<section class="panel event-settings"><div class="heading"><div><p class="eyebrow">EVENT SETTINGS</p><h2>${esc(e.command?.name)}</h2></div><span class="badge">${"PERIOD TIMELINE"}</span></div><div class="grid">${input("Event name", "commandName", e.command.name)}${input("Event Date", "eventDate", s.eventDate || "", "date")}${input("Event Start Time", "eventTime", s.eventTime || "08:00 PM")}<label data-help="The next actual event occurrence, calculated live from the current unsaved date, clock, recurrence, interval and weekday controls.">Next Event Occurrence <span class="readonly-tag">Read only</span><input id="next-occurrence" readonly aria-live="polite"></label>${schedulingSlider("eventDurationMinutes",s.eventDurationMinutes)}<label title="Read only here. Change Guild timezone in the toolbar above; all event clocks use that timezone.">Scheduling timezone (guild) <span class="readonly-tag">Read only</span><input id="schedule-timezone" value="${esc(guildZone())}" readonly aria-description="Change Guild timezone in the toolbar above."><small class="help">Change using Guild timezone in the toolbar.</small></label>${select("Output channel", "outputChannel", account().chatChannels?.[e.commandId]?.[model.guildKey(account().chatChannels?.[e.commandId],guild)] || "Guild", ["Guild", "Officer", "Zone", "Group"])}${check("Use condensed dates and times", "condensedDateTime", e.settings.condensedDateTime===true)}${select(
+    `<section class="panel event-settings"><div class="heading"><div><p class="eyebrow">EVENT SETTINGS</p><h2>${esc(e.command?.name)}</h2></div><span class="badge">${"PERIOD TIMELINE"}</span></div><div class="grid">${input("Event name", "commandName", e.command.name)}${input("Event Date", "eventDate", s.eventDate || "", "date")}${input("Event Start Time", "eventTime", s.eventTime || "08:00 PM")}<label data-help="The next actual event occurrence, calculated live from the current unsaved date, clock, recurrence, interval and weekday controls.">Next Event Occurrence <span class="readonly-tag">Read only</span><input id="next-occurrence" readonly aria-live="polite"></label>${schedulingSlider("eventDurationMinutes",s.eventDurationMinutes)}<label title="Read only here. Change Guild timezone in the toolbar above; all event clocks use that timezone.">Scheduling timezone (guild) <span class="readonly-tag">Read only</span><input id="schedule-timezone" value="${esc(guildZone())}" readonly aria-description="Change Guild timezone in the toolbar above."><small class="help">Change using Guild timezone in the toolbar.</small></label>${select("Output channel", "outputChannel", account().chatChannels?.[e.commandId]?.[model.guildKey(account().chatChannels?.[e.commandId],guild)] || "Guild", ["Guild", "Officer", "Zone", "Group"])}${check("Share cooldowns between Guild and Officer chat", "shareGuildOfficerCooldowns", e.settings.shareGuildOfficerCooldowns===true)}${check("Use condensed dates and times", "condensedDateTime", e.settings.condensedDateTime===true)}${select(
       "Run at",
       "settingsRunAt",
       pendingRunAt || e.settings.runAt || "ON_DEMAND",
@@ -825,6 +826,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
     if(p.querySelector('[data-field=settingsRunAt]').value!=='SCHEDULED'){
       const name=p.querySelector('[data-field=commandName]').value.trim();if(name)e.command.name=name;
       account().chatChannels??={};account().chatChannels[e.commandId]??={};account().chatChannels[e.commandId][model.guildKey(account().chatChannels[e.commandId],guild)]=p.querySelector('[data-field=outputChannel]').value;
+      e.settings.shareGuildOfficerCooldowns=p.querySelector('[data-field=shareGuildOfficerCooldowns]').checked;
       e.settings.condensedDateTime=p.querySelector('[data-field=condensedDateTime]').checked;
       e.settings.runAt=p.querySelector('[data-field=settingsRunAt]').value;Object.assign(e.settings,delivery);if(delivery.reminderMinutes===null)delete e.settings.reminderMinutes;
       changed();renderList();return;
@@ -847,6 +849,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
     delete candidate.outputChannel;
     delete candidate.settingsRunAt;
     delete candidate.condensedDateTime;
+    delete candidate.shareGuildOfficerCooldowns;
     if(candidate.eventDurationMinutes===null)delete candidate.eventDurationMinutes;
     if(candidate.eventDurationMinutes===null)delete candidate.eventDurationMinutes;
     if(candidate.recurrence==='NONE')candidate.specialPattern='NONE';
@@ -859,6 +862,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
     account().chatChannels ??= {};
     account().chatChannels[e.commandId] ??= {};
     account().chatChannels[e.commandId][model.guildKey(account().chatChannels[e.commandId],guild)] = v.outputChannel;
+    e.settings.shareGuildOfficerCooldowns=v.shareGuildOfficerCooldowns;delete v.shareGuildOfficerCooldowns;
     e.settings.condensedDateTime=v.condensedDateTime;delete v.condensedDateTime;
     e.settings.runAt = v.settingsRunAt;Object.assign(e.settings,delivery);if(delivery.reminderMinutes===null)delete e.settings.reminderMinutes;
     delete v.outputChannel;
@@ -1422,6 +1426,21 @@ function calendarOccurrences(schedule,from,to){
  const results=new Set();for(let a=low;a<=high;){const b=Math.min(high,a+399*86400);for(const at of model.projectedOccurrences(schedule,a,b))results.add(at);a=b+1;}
  return [...results].sort((a,b)=>a-b);
 }
+function stepOverviewDate(dateKey, mode, direction) {
+  const civil = new Date(dateKey + "T12:00:00Z");
+  if (mode === "month") {
+    civil.setUTCDate(1);
+    civil.setUTCMonth(civil.getUTCMonth() + direction);
+  } else civil.setUTCDate(civil.getUTCDate() + direction * (mode === "week" ? 7 : 1));
+  return civil.toISOString().slice(0, 10);
+}
+function overviewPeriodLabel(dateKey, mode) {
+  const date = new Date(dateKey + "T12:00:00Z");
+  if (mode === "month") return date.toLocaleDateString("en-US", {timeZone:"UTC",month:"long",year:"numeric"});
+  const last = new Date(date); last.setUTCDate(last.getUTCDate() + 6);
+  const format = value => value.toLocaleDateString("en-US", {timeZone:"UTC",month:"short",day:"numeric",year:"numeric"});
+  return format(date) + " – " + format(last);
+}
 function renderCalendar() {
   const el = $("#calendar"),
     zone = guildZone(),
@@ -1566,6 +1585,15 @@ function renderCalendar() {
     }
   }
   if(calMode === "day"){renderDayTimeline(items,start,end,zone);return;}
+  const navigation=document.createElement('div');navigation.className='day-navigation';
+  const controls=document.createElement('div');controls.className='day-date-controls';
+  const prevButton=document.createElement('button');prevButton.dataset.periodStep='-1';prevButton.textContent=`← Previous ${calMode}`;
+  const viewedDate=document.createElement('span');viewedDate.className='day-viewed-date';viewedDate.setAttribute('data-period-viewed-date','');viewedDate.setAttribute('role','status');viewedDate.setAttribute('aria-live','polite');viewedDate.textContent=overviewPeriodLabel(calDate,calMode);
+  const nextButton=document.createElement('button');nextButton.dataset.periodStep='1';nextButton.textContent=`Next ${calMode} →`;
+  controls.append(prevButton,viewedDate,nextButton);
+  navigation.append(controls);
+  navigation.querySelectorAll('[data-period-step]').forEach(button=>button.onclick=()=>{calDate=stepOverviewDate(calDate,calMode,Number(button.dataset.periodStep));renderCalendar();});
+  el.querySelector('#calendar-grid').before(navigation);
   for (let i = 0; i < days; i++) {
     const date = new Date(civil);
     date.setUTCDate(date.getUTCDate() + i);
@@ -1750,7 +1778,7 @@ function renderSharingPanels(){
   const exportable=(exportAllGuilds?all():guildEvents()).filter(e=>!e.schedule.mergedInto);
   const unavailable=e=>e.command.locked?'Locked command':e.settings.runAt==='SCHEDULED'&&e.schedule.timelineVersion!==1?'Unsupported schedule format':null;
   let review=[];if(pendingEventImport)review=reviewEventImport(pendingEventImport,account());
-  $('#transfer').insertAdjacentHTML('afterbegin',`<section class="sharing-panel"><p class="eyebrow">SHARE YOUR PLANS</p><h2>Export events</h2><p class="help">Share selected events or all events. Includes messages, announcement periods, recurrence, output channel, sound and command options. Private locked messages and cooldown history stay on your machine.</p><label class="check"><input id="export-all-guilds" type="checkbox" ${exportAllGuilds?'checked':''}>Include all guilds in this account</label><div class="actions"><button id="select-all-export">Select all</button><button id="clear-export">Clear selection</button></div><div class="sharing-list">${exportable.map(e=>`<label class="check"><input class="bulk-export-choice" type="checkbox" value="${esc(e.commandId+'|'+e.guild.toLowerCase())}" ${unavailable(e)?'disabled':'checked'}><span><strong>${esc(e.command.name)}</strong> · ${esc(e.guild)}<small>${esc(unavailable(e)||e.settings.runAt||'On demand')}</small></span></label>`).join('')||'<p class="help">No events in this account/guild.</p>'}</div><div class="actions"><button id="export-events" class="gold">Export selected events</button><button id="server-export-events">Save selected export to server</button></div></section><section class="sharing-panel"><h2>Import events</h2><p class="help">Destination account: <strong>${esc(accountName)}</strong>. Load an event JSON export, review the list, then choose what to import. Guilds match by name, events by command name. Nothing changes until you apply the selection.</p><button id="import-server-export">Choose saved server export</button><label class="button gold">Choose import file<input id="import-events-file" type="file" accept=".json" hidden></label>${pendingEventImport?`<div class="actions"><button id="select-all-import">Select all available</button><button id="clear-import">Clear selection</button></div><div class="sharing-list" id="import-event-review">${review.map(r=>`<label class="check"><input class="bulk-import-choice" type="checkbox" value="${r.index}" ${r.reason?'disabled':'checked'}><span><strong>${esc(r.entry.eventName)}</strong> · ${esc(r.entry.guild)}<small>${esc(r.action)} · ${esc(r.reason||r.entry.messages.length+' message(s)')}${r.entry.outputChannel?' · '+esc(r.entry.outputChannel):''}</small></span></label>`).join('')}</div><p class="help">Updates replace the selected event configuration. Local runtime history, locked messages and unselected events remain. Imports do not change account-wide defaults. Skipped items are not imported.</p><button id="apply-event-import" class="gold">Import selected events</button>`:''}</section><p class="help">For a full backup or editing your own file, use Open SavedVariables and Download updated Lua in the top toolbar. Shared event JSON is a separate format.</p>`);
+  $('#transfer').insertAdjacentHTML('afterbegin',`<section class="sharing-panel"><p class="eyebrow">SHARE YOUR PLANS</p><h2>Export events</h2><p class="help">Share selected events or all events. Includes messages, announcement periods, recurrence, output channel, sound and command options. Private locked messages and cooldown history stay on your machine.</p><label class="check"><input id="export-all-guilds" type="checkbox" ${exportAllGuilds?'checked':''}>Include all guilds in this account</label><div class="actions"><button id="select-all-export">Select all</button><button id="clear-export">Clear selection</button></div><div class="sharing-list">${exportable.map(e=>`<label class="check"><input class="bulk-export-choice" type="checkbox" value="${esc(e.commandId+'|'+e.guild.toLowerCase())}" ${unavailable(e)?'disabled':'checked'}><span><strong>${esc(e.command.name)}</strong> · ${esc(e.guild)}<small>${esc(unavailable(e)||e.settings.runAt||'On demand')}</small></span></label>`).join('')||'<p class="help">No events in this account/guild.</p>'}</div><div class="actions"><button id="export-events" class="gold">Export selected events</button><button id="server-export-events">Save selected export to server</button></div></section><section class="sharing-panel"><h2>Import events</h2><p class="help">Destination account: <strong>${esc(accountName)}</strong>. Load an event JSON export, review the list, then choose what to import. Guilds match by name, events by command name. Nothing changes until you apply the selection.</p><div class="actions import-source-actions"><button id="import-server-export">Import from Saved Server Export</button><label class="button gold">Choose import file<input id="import-events-file" type="file" accept=".json" hidden></label></div>${pendingEventImport?`<div class="actions"><button id="select-all-import">Select all available</button><button id="clear-import">Clear selection</button></div><div class="sharing-list" id="import-event-review">${review.map(r=>`<label class="check"><input class="bulk-import-choice" type="checkbox" value="${r.index}" ${r.reason?'disabled':'checked'}><span><strong>${esc(r.entry.eventName)}</strong> · ${esc(r.entry.guild)}<small>${esc(r.action)} · ${esc(r.reason||r.entry.messages.length+' message(s)')}${r.entry.outputChannel?' · '+esc(r.entry.outputChannel):''}</small></span></label>`).join('')}</div><p class="help">Updates replace the selected event configuration. Local runtime history, locked messages and unselected events remain. Imports do not change account-wide defaults. Skipped items are not imported.</p><button id="apply-event-import" class="gold">Import selected events</button>`:''}</section><p class="help">For a full backup or editing your own file, use Open SavedVariables and Download updated Lua in the top toolbar. Shared event JSON is a separate format.</p>`);
   $('#export-all-guilds').onchange=ev=>{exportAllGuilds=ev.target.checked;renderTransfer();};
   const checkAll=(selector,checked)=>document.querySelectorAll(selector+':not(:disabled)').forEach(el=>el.checked=checked);
   $('#select-all-export').onclick=()=>checkAll('.bulk-export-choice',true);$('#clear-export').onclick=()=>checkAll('.bulk-export-choice',false);
@@ -1832,19 +1860,42 @@ async function libraryRequest(path,options={}){
   return response;
 }
 async function showServerLibrary(focusSave=false,exportBundle=null,exportsOnly=false){
-  $('#dialog-body').innerHTML=`<h2>Shared server library</h2><p class="help">Library entries are public. Full configurations include every saved account and message, including locked messages. Event exports share only the selected exportable events and merge into the loaded account. Saving an existing name asks you to confirm before replacing that shared file. An optional password protects overwriting, not reading. Keep it safe: there is no password recovery. Apply editor changes before saving. Empty reminder timelines can be saved as drafts; finish them before downloading for ESO.</p><section class="library-save"><label>${exportBundle?'Save selected event export as':'Save current configuration as'}<input id="library-name" maxlength="120" placeholder="For example: Alphabet Mafia — November v1" ${data?'':'disabled'}></label><label>Overwrite password (optional)<input id="library-password" type="password" autocomplete="new-password" maxlength="256" placeholder="Leave blank for no password"></label><button id="library-save" class="gold" ${data?'':'disabled'}>Save to server</button></section>${data?'':'<p class="help">Open a local file or load a shared configuration before saving.</p>'}<div class="heading"><h3>${focusSave?'Choose an existing save name':'Saved configurations and exports'}</h3><button id="library-refresh">Refresh list</button></div><p id="library-status" role="status" class="help">Loading saved files…</p><div id="library-overwrite" hidden></div><div id="library-list"></div><p class="help">${focusSave?'Selecting a name does not load or change the saved file. Click Save to server to confirm an overwrite, or type a new name for a separate file.':'Loading opens a copy in this editor. It does not change your ESO files or remap accounts. Use event import/export to transfer events into another account. Download updated Lua when you are ready to install it.'}</p>`;
-  $('#dialog').showModal();let requestVersion=0;const listNode=$('#library-list');
+  $('#dialog-body').innerHTML=`<h2>Shared server library</h2><p class="help">Library entries are public. Full configurations include every saved account and message, including locked messages. Event exports share only the selected exportable events and merge into the loaded account. Saving an existing name asks you to confirm before replacing that shared file. An optional password protects overwriting and deletion, not reading. Keep it safe: there is no password recovery. Apply editor changes before saving. Empty reminder timelines can be saved as drafts; finish them before downloading for ESO.</p><section class="library-save"><label>${exportBundle?'Save selected event export as':'Save current configuration as'}<input id="library-name" maxlength="120" placeholder="For example: Alphabet Mafia — November v1" ${data?'':'disabled'}></label><label>Overwrite password (optional)<input id="library-password" type="password" autocomplete="new-password" maxlength="256" placeholder="Leave blank for no password"></label><button id="library-save" class="gold" ${data?'':'disabled'}>Save to server</button></section>${data?'':'<p class="help">Open a local file or load a shared configuration before saving.</p>'}<div class="heading"><h3>${focusSave?'Choose an existing save name':'Saved configurations and exports'}</h3><button id="library-refresh">Refresh list</button></div><p id="library-status" role="status" class="help">Loading saved files…</p><div id="library-overwrite" hidden></div><div id="library-delete-panel" class="library-confirm-panel" hidden></div><div id="library-list"></div><p class="help">${focusSave?'Selecting a name does not load or change the saved file. Click Save to server to confirm an overwrite, or type a new name for a separate file.':'Loading opens a copy in this editor. It does not change your ESO files or remap accounts. Use event import/export to transfer events into another account. Download updated Lua when you are ready to install it.'}</p>`;
+  $('#dialog').showModal();let requestVersion=0,deletionFile=null,deleting=false;const listNode=$('#library-list');
   const isActive=()=>$('#dialog').open&&$('#library-list')===listNode;
   const libraryStatus=(text,error=false)=>{const el=$('#library-status');if(isActive()&&el){el.textContent=text;el.classList.toggle('error',error);}};
+  function cancelDelete(){deletionFile=null;const panel=$('#library-delete-panel');if(panel){panel.hidden=true;panel.innerHTML='';}}
+  function confirmDelete(file){
+    if(deleting||(data&&$('#library-save').disabled)){libraryStatus('Finish or cancel the current operation first.');return;}
+    deletionFile=file;const panel=$('#library-delete-panel');panel.hidden=false;
+    panel.innerHTML=`<h3>Delete saved ${file.kind==='export'?'export':'configuration'}?</h3><p>Permanently remove <strong>${esc(file.name)}</strong> from the shared server library? Your loaded workspace and local ESO files will stay unchanged.</p>${file.protected?'<label>Password<input id="library-delete-password" type="password" autocomplete="current-password" maxlength="256"></label>':''}<p id="library-delete-error" class="error" role="alert"></p><div class="actions"><button id="library-confirm-delete" class="danger">Delete saved file</button><button id="library-cancel-delete">Cancel</button></div>`;
+    $('#library-cancel-delete').onclick=cancelDelete;
+    $('#library-confirm-delete').onclick=async()=>{
+      const password=$('#library-delete-password')?.value||'',confirm=$('#library-confirm-delete'),cancel=$('#library-cancel-delete');
+      deleting=true;confirm.disabled=true;cancel.disabled=true;
+      try{
+        await libraryRequest('/'+file.id,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({password})});
+        if(isActive()){cancelDelete();await refresh();libraryStatus(`Deleted “${file.name}”. Your loaded workspace is unchanged.`);}else status(`Deleted server file “${file.name}”. Your loaded workspace is unchanged.`);
+      }catch(error){if(isActive())$('#library-delete-error').textContent=error.message;else status(error.message,true);}
+      finally{deleting=false;confirm.disabled=false;cancel.disabled=false;}
+    };
+    (file.protected?$('#library-delete-password'):$('#library-cancel-delete')).focus();
+  }
   async function refresh(){
     if(!isActive())return;const version=++requestVersion;
     try{
       const payload=await(await libraryRequest('')).json();if(version!==requestVersion||!isActive())return;
       if(!Array.isArray(payload.files))throw Error('The server returned an invalid library list.');
-      const files=payload.files.filter(file=>/^[a-f0-9]{64}$/.test(file.id)&&typeof file.name==='string'&&(!exportsOnly||file.kind==='export')&&(!focusSave||(file.kind||'configuration')===(exportBundle?'export':'configuration')));
-      $('#library-list').innerHTML=files.map(file=>`<button class="library-file" data-library-id="${esc(file.id)}"><strong>${esc(file.name)}</strong><small>${focusSave?'Use this save name':file.kind==='export'?'Event export — review and merge':'Full configuration — open copy'}${file.protected?' · Password required to overwrite':''} · ${file.updatedAt?'Updated':'Saved'} ${esc(new Date(file.updatedAt||file.createdAt).toLocaleString())} · ${esc(Math.ceil(file.bytes/1024))} KB</small></button>`).join('')||'<p class="empty">No saved files of this type yet.</p>';
+      const files=payload.files.filter(file=>/^[a-f0-9]{64}$/.test(file.id)&&typeof file.name==='string'&&(!exportsOnly||file.kind==='export')&&(!focusSave||(file.kind||'configuration')===(exportBundle?'export':'configuration'))).sort((a,b)=>a.name.localeCompare(b.name,'en',{sensitivity:'base',numeric:true})||a.id.localeCompare(b.id));
+      const categories=[['configuration','Configurations'],['export','Exports']].filter(([kind])=>(!exportsOnly||kind==='export')&&(!focusSave||kind===(exportBundle?'export':'configuration')));
+      $('#library-list').innerHTML=categories.map(([kind,label])=>{
+        const entries=files.filter(file=>(file.kind||'configuration')===kind);
+        return `<section class="library-category" data-library-category="${kind}"><h3>${label}</h3>${entries.map(file=>`<div class="library-record"><button class="library-file" data-library-id="${esc(file.id)}"><strong>${esc(file.name)}</strong><small>${focusSave?'Use this save name':kind==='export'?'Review and merge':'Open copy'}${file.protected?' · Password required to overwrite or delete':''} · ${file.updatedAt?'Updated':'Saved'} ${esc(new Date(file.updatedAt||file.createdAt).toLocaleString())} · ${esc(Math.ceil(file.bytes/1024))} KB</small></button><button class="danger library-delete" data-library-delete="${esc(file.id)}" aria-label="Delete ${esc(file.name)}">Delete</button></div>`).join('')||`<p class="empty">No saved ${label.toLowerCase()} yet.</p>`}</section>`;
+      }).join('');
+      $('#library-list').querySelectorAll('[data-library-delete]').forEach(button=>button.onclick=()=>confirmDelete(files.find(file=>file.id===button.dataset.libraryDelete)));
       $('#library-list').querySelectorAll('[data-library-id]').forEach(button=>button.onclick=async()=>{
         const file=files.find(file=>file.id===button.dataset.libraryId);
+        if(deletionFile||deleting){libraryStatus('Finish or cancel deletion first.');return;}
         if(focusSave){
           const field=$('#library-name');if(field.disabled){libraryStatus('Finish or cancel the current save first.');return;}
           field.value=file.name;field.focus();field.select();
@@ -1867,17 +1918,12 @@ async function showServerLibrary(focusSave=false,exportBundle=null,exportsOnly=f
           installWorkspace(parsed,name+'.lua');$('#dialog').close();status(`Loaded shared configuration “${name}”. Choose the account and guild to edit; local ESO files are unchanged.`);
         }catch(error){libraryStatus(error.message,true);button.disabled=false;}
       });
-      for(const file of files.filter(file=>file.kind==='export')){
-        const item=$('#library-list').querySelector(`[data-library-id="${file.id}"]`),downloadButton=document.createElement('button');
-        downloadButton.textContent='Download export';downloadButton.dataset.libraryDownload=file.id;
-        downloadButton.onclick=async()=>{try{const text=await(await libraryRequest('/'+file.id)).text();const bundle=readEventBundle(JSON.parse(text));download(JSON.stringify(bundle,null,2),'SmartChatMsg-events.json','application/json');}catch(error){libraryStatus(error.message,true);}};
-        item.after(downloadButton);
-      }
       libraryStatus(focusSave?`${files.length} compatible saved file(s). Click a name to reuse it, or enter a new name to create a separate file.`:`${files.length} saved file(s). Event exports merge through review; full configurations open a separate copy.`);
     }catch(error){if(version===requestVersion)libraryStatus(error.message,true);}
   }
   $('#library-refresh').onclick=refresh;
   $('#library-save').onclick=async()=>{
+    if(deletionFile||deleting){libraryStatus('Finish or cancel deletion first.');return;}
     const button=$('#library-save'),field=$('#library-name'),name=field.value.trim();
     if(!name){libraryStatus('Enter a name for this configuration.',true);field.focus();return;}
     button.disabled=true;field.disabled=true;
