@@ -1600,7 +1600,12 @@ function renderCalendar() {
   }
   if(calMode === "day"){renderDayTimeline(items,start,end,zone);return;}
   const navigation=document.createElement('div');navigation.className='day-navigation';
-  navigation.innerHTML=`<div class="day-date-controls"><button data-period-step="-1">← Previous ${calMode}</button><span class="day-viewed-date" data-period-viewed-date role="status" aria-live="polite">${esc(overviewPeriodLabel(calDate,calMode))}</span><button data-period-step="1">Next ${calMode} →</button></div>`;
+  const controls=document.createElement('div');controls.className='day-date-controls';
+  const prevButton=document.createElement('button');prevButton.dataset.periodStep='-1';prevButton.textContent=`← Previous ${calMode}`;
+  const viewedDate=document.createElement('span');viewedDate.className='day-viewed-date';viewedDate.setAttribute('data-period-viewed-date','');viewedDate.setAttribute('role','status');viewedDate.setAttribute('aria-live','polite');viewedDate.textContent=overviewPeriodLabel(calDate,calMode);
+  const nextButton=document.createElement('button');nextButton.dataset.periodStep='1';nextButton.textContent=`Next ${calMode} →`;
+  controls.append(prevButton,viewedDate,nextButton);
+  navigation.append(controls);
   navigation.querySelectorAll('[data-period-step]').forEach(button=>button.onclick=()=>{calDate=stepOverviewDate(calDate,calMode,Number(button.dataset.periodStep));renderCalendar();});
   el.querySelector('#calendar-grid').before(navigation);
   for (let i = 0; i < days; i++) {
