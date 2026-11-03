@@ -1699,3 +1699,11 @@ export function messageSelectionStats(message, pool) {
  const weight=index<0?0:ranked.length-index;
  return {lastUsedAt:timestamp(message),useCount:count(message),rank:index<0?null:index+1,weight,totalWeight,chance:totalWeight?100*weight/totalWeight:0};
 }
+
+export function recurrenceDescription(schedule){
+ const recurrence=schedule.recurrence||'NONE';if(recurrence==='NONE')return 'One-time event';
+ const interval=Math.max(1,Math.floor(Number(schedule.interval||schedule.recurrenceInterval||1)));
+ const count=interval*(recurrence==='BIWEEKLY'?2:1);
+ const unit=recurrence==='DAILY'?'day':['WEEKLY','BIWEEKLY'].includes(recurrence)?'week':['MONTHLY_DATE','MONTHLY_WEEKDAY'].includes(recurrence)?'month':null;
+ return unit?(count===1?'Every '+unit:'Every '+count+' '+unit+'s'):'Check recurrence';
+}

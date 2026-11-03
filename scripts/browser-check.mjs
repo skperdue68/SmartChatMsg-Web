@@ -212,7 +212,7 @@ async function monthFinalLabelsAndNextSidebar(){
   await page.clock.install({time:new Date('2026-10-11T12:00:00Z')});
   await page.locator('[data-field=regularEventLabel]').fill('Bi-weekly raffle');await page.locator('[data-field=monthFinalEventLabel]').fill('Bi-weekly + 50/50');
   await page.locator('#save-event').click();
-  const sidebar=page.locator('#events .event-item.active');assert.match(await sidebar.textContent(),/2026-10-24.*Bi-weekly \+ 50\/50/);assert.doesNotMatch(await sidebar.textContent(),/2026-10-10/);
+  const sidebar=page.locator('#events .event-item.active');assert.match(await sidebar.textContent(),/2026-10-24.*Bi-weekly \+ 50\/50/);assert.doesNotMatch(await sidebar.textContent(),/2026-10-10/);assert.equal(await sidebar.locator('.event-frequency').textContent(),'Every 2 weeks');const dateLine=await sidebar.locator('span').first().boundingBox(),frequency=await sidebar.locator('.event-frequency').boundingBox();assert.ok(frequency.y>=dateLine.y+dateLine.height,'frequency appears below next-event information');
   assert.match(await page.locator('#rotation-occurrences .rotation-occurrence').first().textContent(),/Bi-weekly \+ 50\/50/);assert.match(await page.locator('#rotation-occurrences .rotation-occurrence').nth(1).textContent(),/Bi-weekly raffle/);
   const saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(saved.regularEventLabel,'Bi-weekly raffle');assert.equal(saved.monthFinalEventLabel,'Bi-weekly + 50/50');
   await page.locator('[data-field=specialPattern]').selectOption('FACTION_ROTATION');await page.locator('#save-event').click();assert.match(await sidebar.textContent(),/Aldmeri Dominion/);
