@@ -400,7 +400,7 @@ function renderList() {
     entries
       .map(
         (e) =>
-          `<button class="event-item ${selected === e.commandId ? "active" : ""}" data-id="${esc(e.commandId)}"><strong>${esc((e.command?.name || "Unnamed event") + (e.schedule.mergedInto ? " [Combined]" : ""))}</strong><span>${esc(sidebarEventSummary(e))}</span></button>`,
+          `<button class="event-item ${selected === e.commandId ? "active" : ""}" data-id="${esc(e.commandId)}"><strong>${esc((e.command?.name || "Unnamed event") + (e.schedule.mergedInto ? " [Combined]" : ""))}</strong><span>${esc(sidebarEventSummary(e))}</span>${e.settings.runAt==='SCHEDULED'?`<span class="event-frequency">${esc(model.recurrenceDescription(e.schedule))}</span>`:''}</button>`,
       )
       .join("") || '<p class="empty">No events for this guild.</p>';
   $("#events")
