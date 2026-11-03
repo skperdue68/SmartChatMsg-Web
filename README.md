@@ -224,3 +224,9 @@ For a repeating **Last event of month** pattern, expand **Last event of month la
 The left event list shows the next actual scheduled date in the event scheduling timezone, plus the faction, rotating activity or regular/month-final label when applicable. This replaces the original anchor date in that list; the editable Event Date remains the recurrence anchor. Past one-off events show No upcoming event. On Demand and On Startup entries keep their run-mode labels. Upcoming dates and descriptions refresh after applying event settings.
 
 Scheduled sidebar entries keep their recurrence frequency on a separate line below the next date/type, for example Every week, Every 2 weeks or Every 3 months. One-off schedules show One-time event.
+
+### Friendly display names and slash identities
+
+The **Display name** allows 1–80 characters, including spaces and punctuation. The separate **Slash-command name** accepts 1–25 letters/numbers, is generated from the display name until customized, and is cleaned in the field on blur and before applying. For example, Sunday Fishing can use fftg. Changing the title after customizing fftg keeps that identity. Reserved and duplicate slash names are rejected after cleaning.
+
+The sidebar, headings, calendar and transfer lists show display names; imports continue matching slash identities. Both fields apply account-wide to that command, across its guild configurations. Existing IDs, schedules, messages and runtime history remain unchanged. Full Lua and portable event JSON retain displayName; older records fall back to name. Scheduled entries retain an identity for sharing but do not register a slash command. The companion native update is required to edit and retain the friendly names in ESO.

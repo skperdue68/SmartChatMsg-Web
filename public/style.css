@@ -761,3 +761,6 @@ label.check>.help-icon{flex:none;margin-left:4px}
 .message-usage-trigger{flex:none;margin-left:auto;padding:4px 8px;line-height:1;border:1px solid #405770;border-radius:5px;background:#20354a;color:var(--gold);}
 .message-usage-trigger:hover,.message-usage-trigger:focus-visible{background:#2d4963;outline:1px solid var(--gold);}
 .message-usage-tooltip{width:360px;}
+
+.command-name-row{grid-column:1/-1;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px;}
+@media(max-width:650px){.command-name-row{grid-template-columns:1fr;}}

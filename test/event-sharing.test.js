@@ -49,3 +49,12 @@ test('month-final occurrence labels survive portable exports and merges',()=>{
  assert.equal(saved.regularEventLabel,'Bi-weekly raffle');assert.equal(saved.monthFinalEventLabel,'Raffle + 50/50');
  bundle.items[0].schedule.regularEventLabel=123;assert.throws(()=>readEventBundle(bundle),/labels.*text/);
 });
+
+test('friendly display names travel separately from slash merge identity',()=>{
+ const source=fixture('remote');source.commands[1].name='fftg';source.commands[1].displayName='Sunday Fishing';
+ const local=fixture('local');local.commands[1].name='fftg';local.commands[1].displayName='Personal old title';
+ const bundle=readEventBundle(exportEventBundle(source,'alphabet mafia',['remote']));assert.equal(bundle.items[0].eventName,'fftg');assert.equal(bundle.items[0].displayName,'Sunday Fishing');
+ const result=importEventBundle(local,bundle,[0]).account;assert.equal(Object.keys(result.commands).length,1);assert.equal(result.commands[1].id,'local');assert.equal(result.commands[1].name,'fftg');assert.equal(result.commands[1].displayName,'Sunday Fishing');assert.equal(result.messages[1].useCount,7);
+ delete bundle.items[0].displayName;assert.equal(importEventBundle(result,bundle,[0]).account.commands[1].displayName,'Sunday Fishing');
+ bundle.items[0].displayName='x'.repeat(81);assert.throws(()=>readEventBundle(bundle),/display name/i);
+});

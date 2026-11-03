@@ -1,4 +1,4 @@
-import { isReservedCommandName, validateTimelineForAddon, cloneSavedData, events, timelineConflicts, orderedReminderRows, orderedMessageEntries, guildNames, guildIndexFromRoster, guildKey, monthlyWeekdayRule, normalizeReminderAvailability } from "./model.js";
+import { sanitizeCommandName, commandDisplayName, validateCommandIdentity, isReservedCommandName, validateTimelineForAddon, cloneSavedData, events, timelineConflicts, orderedReminderRows, orderedMessageEntries, guildNames, guildIndexFromRoster, guildKey, monthlyWeekdayRule, normalizeReminderAvailability } from "./model.js";
 import { setLuaValue } from "./lua-data.js";
 const values = (x) => Object.values(x || {});
 const scheduleKeys = [
@@ -129,7 +129,8 @@ export function portableEvent(event, messages) {
   return {
     format: "SmartChatMsgTimeline",
     version: 1,
-    eventName: event.command.name,
+    eventName: sanitizeCommandName(event.command.name),
+    ...(event.command.displayName!==undefined||sanitizeCommandName(event.command.name)!==event.command.name?{displayName:commandDisplayName(event.command)}:{}),
     guild: event.guild,
     schedule,
     messages: unlocked.map((m,index) => ({
@@ -143,12 +144,14 @@ export function portableEvent(event, messages) {
 export function validatePortable(p) {
   exact(
     p,
-    ["format", "version", "eventName", "guild", "schedule", "messages"],
+    ["format", "version", "eventName", "displayName", "guild", "schedule", "messages"],
     "portable document",
   );
   if (p.format !== "SmartChatMsgTimeline" || p.version !== 1)
     throw Error("Unsupported portable timeline.");
   text(p.eventName, "event name");
+  if(p.displayName!==undefined)text(p.displayName,"display name",80);
+  const identity=validateCommandIdentity({name:p.eventName,displayName:p.displayName||p.eventName});
   if(isReservedCommandName(p.eventName))throw Error('That command name is reserved for SmartChatMsg.');
   text(p.guild, "guild");
   exact(p.schedule, scheduleKeys, "schedule");
@@ -313,7 +316,7 @@ export function validatePortable(p) {
   const errors = validateTimelineForAddon(result);
   if (errors.length) throw Error(errors.join(" "));
   return {
-    ...p,
+    ...p,eventName:identity.name,...(p.displayName!==undefined||identity.name!==p.eventName?{displayName:identity.displayName}:{}),
     schedule: result,
   };
 }
@@ -402,7 +405,7 @@ export function exportEventBundle(account,guild,selectedIds){
     if(settings.disabledMessageIds){const sharedIds=new Set(messages.map(message=>message.id));settings.disabledMessageIds=Object.fromEntries(Object.entries(settings.disabledMessageIds).filter(([id])=>sharedIds.has(id)));if(!Object.keys(settings.disabledMessageIds).length)delete settings.disabledMessageIds;}
     if(scheduled&&event.schedule.timelineVersion!==1)throw Error('Unsupported schedule format: '+event.command.name);
     const portable=scheduled?portableEvent(event,messages):null;
-    items.push({eventName:event.command.name,guild:event.guild,settings,outputChannel:account.chatChannels?.[event.commandId]?.[event.guild]||'Guild',schedule:portable?.schedule||null,messages:portable?.messages||orderedMessageEntries(messages).map((m,index)=>({id:m.id,text:m.text,variant:'ALL',...messageMetadata(m,index)}))});
+    items.push({eventName:sanitizeCommandName(event.command.name),...(event.command.displayName!==undefined||sanitizeCommandName(event.command.name)!==event.command.name?{displayName:commandDisplayName(event.command)}:{}),guild:event.guild,settings,outputChannel:account.chatChannels?.[event.commandId]?.[event.guild]||'Guild',schedule:portable?.schedule||null,messages:portable?.messages||orderedMessageEntries(messages).map((m,index)=>({id:m.id,text:m.text,variant:'ALL',...messageMetadata(m,index)}))});
   }
   if(!items.length)throw Error('Select at least one exportable event.');
   return {format:'SmartChatMsgEvents',version:1,items};
@@ -410,15 +413,16 @@ export function exportEventBundle(account,guild,selectedIds){
 export function readEventBundle(document){
   if(document?.format==='SmartChatMsgTimeline'){
     const p=validatePortable(document);
-    document={format:'SmartChatMsgEvents',version:1,items:[{eventName:p.eventName,guild:p.guild,settings:{runAt:'SCHEDULED'},schedule:p.schedule,messages:p.messages}]};
+    document={format:'SmartChatMsgEvents',version:1,items:[{eventName:p.eventName,...(p.displayName!==undefined?{displayName:p.displayName}:{}),guild:p.guild,settings:{runAt:'SCHEDULED'},schedule:p.schedule,messages:p.messages}]};
   }
   exact(document,['format','version','items'],'event bundle');
   if(document.format!=='SmartChatMsgEvents'||document.version!==1||!Array.isArray(document.items)||document.items.length<1||document.items.length>1000)throw Error('Choose a SmartChatMsg event export.');
   const seen=new Set();
   return {format:document.format,version:1,items:document.items.map(item=>{
-    exact(item,['eventName','guild','settings','outputChannel','schedule','messages'],'event');
+    exact(item,['eventName','displayName','guild','settings','outputChannel','schedule','messages'],'event');
     text(item.eventName,'event name',200);text(item.guild,'guild name',200);if(isReservedCommandName(item.eventName))throw Error('That command name is reserved for SmartChatMsg.');
-    const key=normalized(item.guild)+'|'+normalized(item.eventName);if(seen.has(key))throw Error('Duplicate guild/event name in import: '+item.eventName);seen.add(key);
+    const identity=validateCommandIdentity({name:item.eventName,displayName:item.displayName||item.eventName});if(item.displayName!==undefined)text(item.displayName,'display name',80);
+    const key=normalized(item.guild)+'|'+normalized(identity.name);if(seen.has(key))throw Error('Duplicate guild/event name in import: '+item.eventName);seen.add(key);
     exact(item.settings,commandKeys,'command settings');const settings=commandConfig(item.settings);
     if(item.outputChannel!==undefined&&!['Guild','Officer','Zone','Group'].includes(item.outputChannel))throw Error('Invalid output channel.');
     let schedule=null,messages=item.messages;
@@ -431,7 +435,7 @@ export function readEventBundle(document){
     }
     const sharedIds=new Set(messages.map(message=>message.id));
     for(const id of Object.keys(item.settings.disabledMessageIds||{}))if(!sharedIds.has(id))throw Error('Disabled message pool references an unknown message ID.');
-    return {...item,settings,schedule,messages};
+    return {...item,eventName:identity.name,...(item.displayName!==undefined||identity.name!==item.eventName?{displayName:identity.displayName}:{}),settings,schedule,messages};
   })};
 }
 function knownGuilds(account){
@@ -446,7 +450,7 @@ export function reviewEventImport(document,account){
   const bundle=readEventBundle(document),guilds=knownGuilds(account);
   return bundle.items.map((entry,index)=>{
     const guild=guilds.get(normalized(entry.guild));
-    const matches=values(account.commands).filter(c=>normalized(c.name)===normalized(entry.eventName));
+    const matches=values(account.commands).filter(c=>normalized(sanitizeCommandName(c.name))===normalized(entry.eventName));
     let reason=!guild?'No such guild: '+entry.guild:matches.length>1?'Ambiguous command name':matches[0]?.locked?'Local command is locked':null;
     const zone=account.guildSchedulingTimeZones?.[guildKey(account.guildSchedulingTimeZones,guild)]||account.schedulingTimeZone||'ET';
     if(!reason&&entry.schedule?.timeZone!==undefined&&entry.schedule.timeZone!==zone)reason='Timezone differs: import '+entry.schedule.timeZone+', destination '+zone;
@@ -482,8 +486,9 @@ export function importEventBundle(account,document,selectedIndices){
   for(const record of review){
     if(!selection.has(record.index))continue;
     if(record.reason){skipped.push(record.entry.eventName+': '+record.reason);continue;}
-    const {guild}=record,entry={...record.entry,schedule:record.entry.schedule?cloneSavedData(record.entry.schedule):null,messages:record.entry.messages.map(m=>({...m}))};let commandId=record.commandId||values(result.commands).find(c=>normalized(c.name)===normalized(entry.eventName))?.id;
-    if(!commandId){commandId=crypto.randomUUID();append(result.commands,{id:commandId,name:entry.eventName});}
+    const {guild}=record,entry={...record.entry,schedule:record.entry.schedule?cloneSavedData(record.entry.schedule):null,messages:record.entry.messages.map(m=>({...m}))};let commandId=record.commandId||values(result.commands).find(c=>normalized(sanitizeCommandName(c.name))===normalized(entry.eventName))?.id;
+    if(!commandId){commandId=crypto.randomUUID();append(result.commands,{id:commandId,name:entry.eventName,...(entry.displayName!==undefined?{displayName:entry.displayName}:{})});}
+    else if(entry.displayName!==undefined)values(result.commands).find(c=>c.id===commandId).displayName=entry.displayName;
     result.commandGuildSettings[commandId]??={};
     const settings=result.commandGuildSettings[commandId][guildKey(result.commandGuildSettings[commandId],guild)]??={},prior=settings.schedule||{},destination=events(result).find(e=>e.commandId===commandId&&normalized(e.guild)===normalized(guild)),oldMessages=destination?.messages||[];
     reconcileRotationActivities(entry,prior,oldMessages);

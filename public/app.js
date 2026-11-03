@@ -99,6 +99,8 @@ const opts = (options, value) =>
     })
     .join("");
 const fieldHelp = {
+ commandName:'Friendly name shown in the editor, lists and calendar. Spaces and punctuation are allowed; up to 80 characters. This applies to all guilds using the command.',
+ slashCommandName:'Generated from the display name until you edit it. Spaces and punctuation are removed before saving. Use 1–25 letters/numbers; reserved and duplicate names are blocked. Scheduled entries retain this identity for transfers but do not register a slash command.',
  shareGuildOfficerCooldowns:'Allow a matching Guild or Officer announcement in this same guild to reset this command’s cooldown. Outgoing messages still use the chosen channel. Read permission is required; send permission is not. Zone and Group chat stay separate.',
  condensedDateTime:'Shortens date/time substitutions for this command and guild: 11/07/2026 becomes 11/07; 08:00 PM EST becomes 8PM ET; 06:45 PM EST becomes 645PM ET. Literal message text is unchanged. Duplicate detection recognizes either format.',
  messageName:'Optional short editor label, up to 60 characters. It is saved with the message but is never included in outgoing chat.',
@@ -156,7 +158,7 @@ function wireWholeNumberInputs(root,selector='input[type=number]'){
   input.addEventListener('input',()=>{if(/^\d*$/.test(input.value))previous=input.value;else {input.value=previous;reject();}});
  });
 }
-function showInputModal({title,intro,fields,submitLabel,onSubmit}){
+function showInputModal({title,intro,fields,submitLabel,onSubmit,onReady}){
  const modal=document.querySelector('#dialog'),close=document.querySelector('#close-dialog');
  $('#dialog-body').innerHTML=`<form id="site-input-form" novalidate><h2>${esc(title)}</h2><p class="help">${esc(intro||'')}</p>${fields.map(field=>`<label>${esc(field.label)}<input id="form-${esc(field.key)}" data-modal-field="${esc(field.key)}" value="${esc(field.value||'')}" maxlength="${field.maxLength||160}" ${field.readonly?'readonly aria-readonly="true"':''} autocomplete="off"></label>`).join('')}<p id="modal-error" role="alert" class="modal-error"></p><div class="actions"><button id="modal-submit" type="submit" class="gold">${esc(submitLabel||'Create')}</button><button id="modal-cancel" type="button">Cancel</button></div></form>`;
  close.hidden=true;modal.addEventListener('close',()=>{close.hidden=false;},{once:true});
@@ -164,7 +166,7 @@ function showInputModal({title,intro,fields,submitLabel,onSubmit}){
  $('#site-input-form').onsubmit=ev=>{ev.preventDefault();const values={};for(const field of fields){const input=document.getElementById('form-'+field.key);values[field.key]=input.value.trim();if(!values[field.key]){$('#modal-error').textContent=field.label+' is required.';input.setAttribute('aria-invalid','true');input.focus();return;}input.removeAttribute('aria-invalid');}
   try{onSubmit(values);modal.close();}catch(error){$('#modal-error').textContent=error.message;}
  };
- modal.showModal();requestAnimationFrame(()=>$('#site-input-form input:not([readonly])')?.focus());
+ onReady?.();modal.showModal();requestAnimationFrame(()=>$('#site-input-form input:not([readonly])')?.focus());
 }
 const commandSoundKeys=['NONE','DUEL_START','DEFAULT_CLICK','POSITIVE_CLICK','NEGATIVE_CLICK','DIALOG_ACCEPT','DIALOG_DECLINE','NEW_NOTIFICATION','QUEST_SHARE_ACCEPTED','BOOK_ACQUIRED','ACHIEVEMENT_AWARDED','BATTLEGROUND_CAPTURE_FLAG_TAKEN','BATTLEGROUND_CAPTURE_FLAG_RETURNED','BATTLEGROUND_MEDAL_AWARDED','CHAMPION_POINT_GAINED','TELVAR_GAINED','TELVAR_LOST','TRADE_INVITE','GROUP_INVITE','LFG_ACCEPTED','JUSTICE_NOW_KOS','JUSTICE_STATE_CHANGED'];
 function minuteSliderMarkup({key,label,help,value,min,max,ticks,exactMin=0}){
@@ -390,7 +392,7 @@ function sidebarEventSummary(event){
 }
 function renderList() {
   const entries = list().filter((e) =>
-    (e.command?.name || "")
+    (model.commandDisplayName(e.command)+' '+(e.command?.name||''))
       .toLowerCase()
       .includes($("#search").value.toLowerCase()),
   );
@@ -400,7 +402,7 @@ function renderList() {
     entries
       .map(
         (e) =>
-          `<button class="event-item ${selected === e.commandId ? "active" : ""}" data-id="${esc(e.commandId)}"><strong>${esc((e.command?.name || "Unnamed event") + (e.schedule.mergedInto ? " [Combined]" : ""))}</strong><span>${esc(sidebarEventSummary(e))}</span>${e.settings.runAt==='SCHEDULED'?`<span class="event-frequency">${esc(model.recurrenceDescription(e.schedule))}</span>`:''}</button>`,
+          `<button class="event-item ${selected === e.commandId ? "active" : ""}" data-id="${esc(e.commandId)}"><strong>${esc((model.commandDisplayName(e.command) || "Unnamed event") + (e.schedule.mergedInto ? " [Combined]" : ""))}</strong><span>${esc(sidebarEventSummary(e))}</span>${e.settings.runAt==='SCHEDULED'?`<span class="event-frequency">${esc(model.recurrenceDescription(e.schedule))}</span>`:''}</button>`,
       )
       .join("") || '<p class="empty">No events for this guild.</p>';
   $("#events")
@@ -481,7 +483,7 @@ function refreshEventRelevance(){
  const help=document.querySelector('#message-library-help');if(help)help.textContent=scheduled?'Drag and drop to reorder messages. Names are not sent in chat. Order is for display; eligible messages are selected at random.':'Edit the templates used by this command and guild. Choose which are eligible in Message pool above. Drag and drop changes display order, not selection order.';
  panel.querySelector('.eyebrow').textContent=scheduled?'EVENT SETTINGS':'COMMAND SETTINGS';
  const nameLabel=panel.querySelector('[data-field=commandName]').closest('label'),caption=nameLabel.querySelector('.field-caption');
- if(caption)caption.firstChild.textContent=scheduled?'Event name':'Command name';else if(nameLabel.firstChild?.nodeType===Node.TEXT_NODE)nameLabel.firstChild.textContent=scheduled?'Event name':'Command name';
+ if(caption)caption.firstChild.textContent='Display name';else if(nameLabel.firstChild?.nodeType===Node.TEXT_NODE)nameLabel.firstChild.textContent='Display name';
  panel.querySelector('#save-event').textContent=scheduled?'Apply event settings':'Apply command settings';
  const modeBadge=panel.querySelector('.heading>.badge');if(modeBadge)modeBadge.textContent=scheduled?('PERIOD TIMELINE'):(panel.querySelector('[data-field=settingsRunAt]').value==='STARTUP'?'STARTUP':'ON DEMAND');
  document.querySelectorAll('.message [data-insert-token]').forEach(menu=>{menu.innerHTML='<option value="">Insert substitution...</option>'+opts(insertableTokens(selectedEvent().schedule));});
@@ -714,7 +716,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
     rows = model.orderedReminderRows(s,projectedNext(s)??model.scheduleEventUtc(s));
   const monthlyRule=model.monthlyWeekdayRule(s);let monthlyRulePinned=s.monthlyWeek!==undefined||s.monthlyWeekday!==undefined;
   $("#detail").innerHTML =
-    `<section class="panel event-settings"><div class="heading"><div><p class="eyebrow">EVENT SETTINGS</p><h2>${esc(e.command?.name)}</h2></div><span class="badge">${"PERIOD TIMELINE"}</span></div><div class="grid">${input("Event name", "commandName", e.command.name)}${input("Event Date", "eventDate", s.eventDate || "", "date")}${input("Event Start Time", "eventTime", s.eventTime || "08:00 PM")}<label data-help="The next actual event occurrence, calculated live from the current unsaved date, clock, recurrence, interval and weekday controls.">Next Event Occurrence <span class="readonly-tag">Read only</span><input id="next-occurrence" readonly aria-live="polite"></label>${schedulingSlider("eventDurationMinutes",s.eventDurationMinutes)}<label title="Read only here. Change Guild timezone in the toolbar above; all event clocks use that timezone.">Scheduling timezone (guild) <span class="readonly-tag">Read only</span><input id="schedule-timezone" value="${esc(guildZone())}" readonly aria-description="Change Guild timezone in the toolbar above."><small class="help">Change using Guild timezone in the toolbar.</small></label>${select("Output channel", "outputChannel", account().chatChannels?.[e.commandId]?.[model.guildKey(account().chatChannels?.[e.commandId],guild)] || "Guild", ["Guild", "Officer", "Zone", "Group"])}${check("Share cooldowns between Guild and Officer chat", "shareGuildOfficerCooldowns", e.settings.shareGuildOfficerCooldowns!==false)}${check("Use condensed dates and times", "condensedDateTime", e.settings.condensedDateTime!==false)}${select(
+    `<section class="panel event-settings"><div class="heading"><div><p class="eyebrow">EVENT SETTINGS</p><h2>${esc(model.commandDisplayName(e.command))}</h2></div><span class="badge">${"PERIOD TIMELINE"}</span></div><div class="grid"><div class="command-name-row">${input("Display name", "commandName", model.commandDisplayName(e.command))}${input("Slash-command name", "slashCommandName",model.sanitizeCommandName(e.command.name))}</div>${input("Event Date", "eventDate", s.eventDate || "", "date")}${input("Event Start Time", "eventTime", s.eventTime || "08:00 PM")}<label data-help="The next actual event occurrence, calculated live from the current unsaved date, clock, recurrence, interval and weekday controls.">Next Event Occurrence <span class="readonly-tag">Read only</span><input id="next-occurrence" readonly aria-live="polite"></label>${schedulingSlider("eventDurationMinutes",s.eventDurationMinutes)}<label title="Read only here. Change Guild timezone in the toolbar above; all event clocks use that timezone.">Scheduling timezone (guild) <span class="readonly-tag">Read only</span><input id="schedule-timezone" value="${esc(guildZone())}" readonly aria-description="Change Guild timezone in the toolbar above."><small class="help">Change using Guild timezone in the toolbar.</small></label>${select("Output channel", "outputChannel", account().chatChannels?.[e.commandId]?.[model.guildKey(account().chatChannels?.[e.commandId],guild)] || "Guild", ["Guild", "Officer", "Zone", "Group"])}${check("Share cooldowns between Guild and Officer chat", "shareGuildOfficerCooldowns", e.settings.shareGuildOfficerCooldowns!==false)}${check("Use condensed dates and times", "condensedDateTime", e.settings.condensedDateTime!==false)}${select(
       "Run at",
       "settingsRunAt",
       pendingRunAt || e.settings.runAt || "ON_DEMAND",
@@ -834,15 +836,22 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
   refreshEventRelevance();
   eventPanel.querySelectorAll('input,select').forEach(el=>{el.addEventListener('input',refreshNextOccurrence);el.addEventListener('change',refreshNextOccurrence);});refreshNextOccurrence();
   const settingsSnapshot=()=>JSON.stringify([...eventPanel.querySelectorAll('input:not([readonly]),select')].map(el=>[el.dataset.field||el.dataset.commandOption||el.id,el.type==='checkbox'?el.checked:el.value]));
+  const displayInput=eventPanel.querySelector('[data-field=commandName]'),slashInput=eventPanel.querySelector('[data-field=slashCommandName]');
+  displayInput.maxLength=80;
+  let slashCustomized=model.sanitizeCommandName(e.command.name)!==model.sanitizeCommandName(model.commandDisplayName(e.command));
+  displayInput.addEventListener('input',()=>{if(!slashCustomized)slashInput.value=model.sanitizeCommandName(displayInput.value);});
+  slashInput.addEventListener('input',()=>{slashCustomized=true;});slashInput.addEventListener('blur',()=>{slashInput.value=model.sanitizeCommandName(slashInput.value);});
   const appliedSettingsSnapshot=settingsSnapshot();
   const refreshSettingsBorder=()=>eventPanel.classList.toggle('has-unapplied-changes',settingsSnapshot()!==appliedSettingsSnapshot);
   eventPanel.addEventListener('input',refreshSettingsBorder);eventPanel.addEventListener('change',refreshSettingsBorder);
   $("#save-event").onclick = () => {
     const p = $("#detail>.panel");
-    if(model.isReservedCommandName(p.querySelector('[data-field=commandName]').value)){status('That name is reserved for a built-in SmartChatMsg command.',true);return;}
+    slashInput.value=model.sanitizeCommandName(slashInput.value);
+    let identity;try{identity=model.validateCommandIdentity({name:slashInput.value,displayName:displayInput.value},vals(account().commands),e.commandId);}catch(error){status(error.message,true);return;}
+
     let delivery;try{delivery=readCommandDelivery(p);}catch(error){status(error.message,true);return;}
     if(p.querySelector('[data-field=settingsRunAt]').value!=='SCHEDULED'){
-      const name=p.querySelector('[data-field=commandName]').value.trim();if(name)e.command.name=name;
+      Object.assign(e.command,identity);
       account().chatChannels??={};account().chatChannels[e.commandId]??={};account().chatChannels[e.commandId][model.guildKey(account().chatChannels[e.commandId],guild)]=p.querySelector('[data-field=outputChannel]').value;
       e.settings.shareGuildOfficerCooldowns=p.querySelector('[data-field=shareGuildOfficerCooldowns]').checked;
       e.settings.condensedDateTime=p.querySelector('[data-field=condensedDateTime]').checked;
@@ -863,7 +872,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
     const candidate = { ...clone(s), timelineVersion:1, mode:"EVENT", reminders:s.reminders||{}, importantTimes:s.importantTimes||{}, ...v, timeZone: guildZone() };
     candidate.weekdays=currentEventDraft().weekdays;
     if(candidate.specialPattern==='EVENT_ROTATION'){const ids=new Set(vals(candidate.rotationEvents).map(a=>a.id));candidate.messageVariants=clone(s.messageVariants||{});for(const [id,variant] of Object.entries(candidate.messageVariants))if(variant!=='ALL'&&!ids.has(variant))candidate.messageVariants[id]='ALL';v.messageVariants=candidate.messageVariants;}
-    delete candidate.commandName;
+    delete candidate.commandName;delete candidate.slashCommandName;
     delete candidate.outputChannel;
     delete candidate.settingsRunAt;
     delete candidate.condensedDateTime;
@@ -886,7 +895,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
     delete v.outputChannel;
     delete v.settingsRunAt;
     v.timeZone = guildZone();
-    e.command.name = v.commandName.trim() || e.command.name;
+    Object.assign(e.command,identity);delete v.slashCommandName;
     delete v.commandName;
     v.weekdays=clone(s.weekdays||{});
     if(['DAILY','WEEKLY','BIWEEKLY'].includes(v.recurrence)){
@@ -1232,15 +1241,14 @@ function fields(root) {
 }
 $("#new-event").onclick = () => {
   const a=account(),target=accountName,currentGuild=guild;
-  showInputModal({title:'New guild entry',intro:'Create a command and message pool. New entries start as On Demand; choose Scheduled later if you need event reminders.',fields:[{key:'guild',label:'Guild name',value:currentGuild?(model.guildNames(a).get(currentGuild)||currentGuild):'',readonly:!!currentGuild},{key:'name',label:'Command / event name'}],submitLabel:'Create entry',onSubmit:values=>{
+  showInputModal({title:'New guild entry',intro:'Create a command and message pool. New entries start as On Demand; choose Scheduled later if you need event reminders.',fields:[{key:'guild',label:'Guild name',value:currentGuild?(model.guildNames(a).get(currentGuild)||currentGuild):'',readonly:!!currentGuild},{key:'name',label:'Display name',maxLength:80},{key:'slashName',label:'Slash-command name'}],submitLabel:'Create entry',onReady:()=>{let customized=false;const display=$('#form-name'),slash=$('#form-slashName');display.oninput=()=>{if(!customized)slash.value=model.sanitizeCommandName(display.value);};slash.oninput=()=>{customized=true;};slash.onblur=()=>{slash.value=model.sanitizeCommandName(slash.value);};},onSubmit:values=>{
   if(accountName!==target)throw Error('The selected account changed. Reopen this form.');
-  const g=values.guild.toLowerCase(),name=values.name;
-  if(model.isReservedCommandName(name))throw Error('That name is reserved for a built-in SmartChatMsg command.');
+  const g=values.guild.toLowerCase();$('#form-slashName').value=model.sanitizeCommandName(values.slashName);const identity=model.validateCommandIdentity({displayName:values.name,name:values.slashName},vals(a.commands));
   const id = crypto.randomUUID();
   a.commands ??= {};
   append(a.commands, {
     id,
-    name: name.trim(),
+    ...identity,
   });
   a.commandGuildSettings ??= {};
   a.commandGuildSettings[id] = {
@@ -1724,7 +1732,7 @@ function renderCalendar() {
         " " +
         zone +
         "; estimated eligibility, not guaranteed delivery.";
-      button.innerHTML = `${item.milestone ? "◆" : "↻"} ${esc(item.e.command.name)}<small>${esc(item.label)}${item.interval ? " / Every " + model.formatRepeatInterval(item.interval) : ""}</small><small>${esc(clock)}</small>`;
+      button.innerHTML = `${item.milestone ? "◆" : "↻"} ${esc(model.commandDisplayName(item.e.command))}<small>${esc(item.label)}${item.interval ? " / Every " + model.formatRepeatInterval(item.interval) : ""}</small><small>${esc(clock)}</small>`;
       button.onclick = () => {
         selected = item.e.commandId;
         document.querySelector("[data-view=editor]").click();
@@ -1782,7 +1790,7 @@ function renderDayTimeline(items,from,until,zone){
     for(const item of group){
       const reminderLabel=dayReminderLabel(item.e.command.name,item.label);
       const row=document.createElement('div');row.className='day-timeline-row';
-      const label=document.createElement('div');label.className='day-row-label';label.innerHTML=`<strong>${esc(item.e.command.name)}</strong><small>${esc(reminderLabel)}</small>`;
+      const label=document.createElement('div');label.className='day-row-label';label.innerHTML=`<strong>${esc(model.commandDisplayName(item.e.command))}</strong><small>${esc(reminderLabel)}</small>`;
       const track=document.createElement('div');track.className='day-track';addContext(track);
       ticks.forEach(t=>{const line=document.createElement('span');line.className='day-gridline';line.style.left=x(t)+'%';track.append(line);});
       if(item.blocked){
@@ -1856,7 +1864,7 @@ function renderSharingPanels(){
   const exportable=(exportAllGuilds?all():guildEvents()).filter(e=>!e.schedule.mergedInto);
   const unavailable=e=>e.command.locked?'Locked command':e.settings.runAt==='SCHEDULED'&&e.schedule.timelineVersion!==1?'Unsupported schedule format':null;
   let review=[];if(pendingEventImport)review=reviewEventImport(pendingEventImport,account());
-  $('#transfer').insertAdjacentHTML('afterbegin',`<section class="sharing-panel"><p class="eyebrow">SHARE YOUR PLANS</p><h2>Export events</h2><p class="help">Share selected events or all events. Includes messages, announcement periods, recurrence, output channel, sound and command options. Private locked messages and cooldown history stay on your machine.</p><label class="check"><input id="export-all-guilds" type="checkbox" ${exportAllGuilds?'checked':''}>Include all guilds in this account</label><div class="actions"><button id="select-all-export">Select all</button><button id="clear-export">Clear selection</button></div><div class="sharing-list">${exportable.map(e=>`<label class="check"><input class="bulk-export-choice" type="checkbox" value="${esc(e.commandId+'|'+e.guild.toLowerCase())}" ${unavailable(e)?'disabled':'checked'}><span><strong>${esc(e.command.name)}</strong> · ${esc(e.guild)}<small>${esc(unavailable(e)||e.settings.runAt||'On demand')}</small></span></label>`).join('')||'<p class="help">No events in this account/guild.</p>'}</div><div class="actions"><button id="export-events" class="gold">Export selected events</button><button id="server-export-events">Save selected export to server</button></div></section><section class="sharing-panel"><h2>Import events</h2><p class="help">Destination account: <strong>${esc(accountName)}</strong>. Load an event JSON export, review the list, then choose what to import. Guilds match by name, events by command name. Nothing changes until you apply the selection.</p><div class="actions import-source-actions"><button id="import-server-export">Import from Saved Server Export</button><label class="button gold">Choose import file<input id="import-events-file" type="file" accept=".json" hidden></label></div>${pendingEventImport?`<div class="actions"><button id="select-all-import">Select all available</button><button id="clear-import">Clear selection</button></div><div class="sharing-list" id="import-event-review">${review.map(r=>`<label class="check"><input class="bulk-import-choice" type="checkbox" value="${r.index}" ${r.reason?'disabled':'checked'}><span><strong>${esc(r.entry.eventName)}</strong> · ${esc(r.entry.guild)}<small>${esc(r.action)} · ${esc(r.reason||r.entry.messages.length+' message(s)')}${r.entry.outputChannel?' · '+esc(r.entry.outputChannel):''}</small></span></label>`).join('')}</div><p class="help">Updates replace the selected event configuration. Local runtime history, locked messages and unselected events remain. Imports do not change account-wide defaults. Skipped items are not imported.</p><button id="apply-event-import" class="gold">Import selected events</button>`:''}</section><p class="help">For a full backup or editing your own file, use Open SavedVariables and Download updated Lua in the top toolbar. Shared event JSON is a separate format.</p>`);
+  $('#transfer').insertAdjacentHTML('afterbegin',`<section class="sharing-panel"><p class="eyebrow">SHARE YOUR PLANS</p><h2>Export events</h2><p class="help">Share selected events or all events. Includes messages, announcement periods, recurrence, output channel, sound and command options. Private locked messages and cooldown history stay on your machine.</p><label class="check"><input id="export-all-guilds" type="checkbox" ${exportAllGuilds?'checked':''}>Include all guilds in this account</label><div class="actions"><button id="select-all-export">Select all</button><button id="clear-export">Clear selection</button></div><div class="sharing-list">${exportable.map(e=>`<label class="check"><input class="bulk-export-choice" type="checkbox" value="${esc(e.commandId+'|'+e.guild.toLowerCase())}" ${unavailable(e)?'disabled':'checked'}><span><strong>${esc(model.commandDisplayName(e.command))}</strong> · ${esc(e.guild)}<small>${esc(unavailable(e)||e.settings.runAt||'On demand')}</small></span></label>`).join('')||'<p class="help">No events in this account/guild.</p>'}</div><div class="actions"><button id="export-events" class="gold">Export selected events</button><button id="server-export-events">Save selected export to server</button></div></section><section class="sharing-panel"><h2>Import events</h2><p class="help">Destination account: <strong>${esc(accountName)}</strong>. Load an event JSON export, review the list, then choose what to import. Guilds match by name, events by command name. Nothing changes until you apply the selection.</p><div class="actions import-source-actions"><button id="import-server-export">Import from Saved Server Export</button><label class="button gold">Choose import file<input id="import-events-file" type="file" accept=".json" hidden></label></div>${pendingEventImport?`<div class="actions"><button id="select-all-import">Select all available</button><button id="clear-import">Clear selection</button></div><div class="sharing-list" id="import-event-review">${review.map(r=>`<label class="check"><input class="bulk-import-choice" type="checkbox" value="${r.index}" ${r.reason?'disabled':'checked'}><span><strong>${esc(r.entry.displayName||r.entry.eventName)}</strong> · ${esc(r.entry.guild)}<small>${esc(r.action)} · ${esc(r.reason||r.entry.messages.length+' message(s)')}${r.entry.outputChannel?' · '+esc(r.entry.outputChannel):''}</small></span></label>`).join('')}</div><p class="help">Updates replace the selected event configuration. Local runtime history, locked messages and unselected events remain. Imports do not change account-wide defaults. Skipped items are not imported.</p><button id="apply-event-import" class="gold">Import selected events</button>`:''}</section><p class="help">For a full backup or editing your own file, use Open SavedVariables and Download updated Lua in the top toolbar. Shared event JSON is a separate format.</p>`);
   $('#export-all-guilds').onchange=ev=>{exportAllGuilds=ev.target.checked;renderTransfer();};
   const checkAll=(selector,checked)=>document.querySelectorAll(selector+':not(:disabled)').forEach(el=>el.checked=checked);
   $('#select-all-export').onclick=()=>checkAll('.bulk-export-choice',true);$('#clear-export').onclick=()=>checkAll('.bulk-export-choice',false);

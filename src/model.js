@@ -13,9 +13,20 @@ const norm = (x) =>
     .trim()
     .toLowerCase();
 const reservedCommandNames=new Set(['scm','scmdebug','on','off','schedule','status','retry','resetcooldowns','send']);
+export const sanitizeCommandName=value=>String(value??'').replace(/[^a-z0-9]/gi,'');
+export const commandDisplayName=command=>typeof command?.displayName==='string'&&command.displayName.trim()?command.displayName.trim():String(command?.name??'');
+export function validateCommandIdentity(identity,commands=[],excludeId){
+ const displayName=String(identity.displayName??'').trim(),name=sanitizeCommandName(identity.name);
+ if(!displayName||Array.from(displayName).length>80)throw Error('Display name must contain 1 to 80 characters.');
+ if(!name)throw Error('Slash-command name must contain letters or numbers.');
+ if(name.length>25)throw Error('Slash-command name must be 25 characters or less.');
+ if(isReservedCommandName(name))throw Error('That slash-command name is reserved for SmartChatMsg.');
+ if(commands.some(command=>command.id!==excludeId&&sanitizeCommandName(command.name).toLowerCase()===name.toLowerCase()))throw Error('That slash-command name already exists.');
+ return {name,displayName};
+}
 export function isReservedCommandName(name){return reservedCommandNames.has(String(name??'').replace(/[^a-z0-9]/gi,'').toLowerCase());}
 export function validateCommandNamesForAddon(data){
- for(const account of accounts(data))for(const command of Object.values(account.value.commands||{}))if(isReservedCommandName(command.name))throw Error(`Command name "${command.name}" is reserved for SmartChatMsg. Choose another name.`);
+ for(const account of accounts(data))for(const command of Object.values(account.value.commands||{})){const identity=validateCommandIdentity({name:command.name,displayName:commandDisplayName(command)},Object.values(account.value.commands||{}),command.id);if(identity.name!==command.name||command.displayName!==undefined)command.displayName=identity.displayName;command.name=identity.name;}
  return data;
 }
 export function accounts(data) {
