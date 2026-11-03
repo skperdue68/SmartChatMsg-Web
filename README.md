@@ -232,3 +232,7 @@ The **Display name** allows 1–80 characters, including spaces and punctuation.
 The sidebar, headings, calendar and transfer lists show display names; imports continue matching slash identities. Both fields apply account-wide to that command, across its guild configurations. Existing IDs, schedules, messages and runtime history remain unchanged. Full Lua and portable event JSON retain displayName; older records fall back to name. Scheduled entries retain an identity for sharing but do not register a slash command. The companion native update is required to edit and retain the friendly names in ESO.
 
 Sidebar headings show the display name first. A muted Command: alias line appears below it only when the alias differs, ignoring capitalization. Next-occurrence and recurrence details stay below the names.
+
+### Styled confirmations
+
+Removing rotation activities, undoing occurrence cancellations, deleting messages, and discarding edits to open local/shared files use styled in-page confirmation dialogs. Cancel and Escape leave the data unchanged; focus starts on Cancel and returns to the previous control. Confirmations opened from Server Library keep that library dialog intact underneath. The browser-controlled close/refresh warning for unsaved work remains because browsers cannot replace it with a custom modal.

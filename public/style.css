@@ -764,3 +764,8 @@ label.check>.help-icon{flex:none;margin-left:4px}
 
 .command-name-row{grid-column:1/-1;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px;}
 @media(max-width:650px){.command-name-row{grid-template-columns:1fr;}}
+
+.site-confirmation{width:min(540px,calc(100vw - 32px));padding:24px;box-shadow:0 16px 50px #000a;}
+.site-confirmation h2{margin:0 0 14px;}
+.site-confirmation p{line-height:1.6;overflow-wrap:anywhere;}
+.site-confirmation .actions{justify-content:flex-end;margin-top:22px;gap:12px;}

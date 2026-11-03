@@ -158,6 +158,20 @@ function wireWholeNumberInputs(root,selector='input[type=number]'){
   input.addEventListener('input',()=>{if(/^\d*$/.test(input.value))previous=input.value;else {input.value=previous;reject();}});
  });
 }
+let activeSiteConfirmation=null;
+function confirmAction({title,message,confirmLabel='Continue',danger=false}){
+ if(activeSiteConfirmation)return Promise.resolve(false);
+ return new Promise(resolve=>{
+  const previous=document.activeElement,modal=document.createElement('dialog');activeSiteConfirmation=modal;
+  modal.id='site-confirmation';modal.className='site-confirmation';modal.setAttribute('aria-labelledby','site-confirm-title');modal.setAttribute('aria-describedby','site-confirm-message');
+  modal.innerHTML='<h2 id="site-confirm-title"></h2><p id="site-confirm-message"></p><div class="actions"><button id="site-confirm-accept" type="button"></button><button id="site-confirm-cancel" type="button">Cancel</button></div>';
+  modal.querySelector('h2').textContent=title;modal.querySelector('p').textContent=message;
+  const accept=modal.querySelector('#site-confirm-accept'),cancel=modal.querySelector('#site-confirm-cancel');accept.textContent=confirmLabel;accept.className=danger?'danger':'gold';
+  let finished=false;const finish=value=>{if(finished)return;finished=true;modal.close();modal.remove();activeSiteConfirmation=null;if(previous?.isConnected)previous.focus({preventScroll:true});resolve(value);};
+  accept.onclick=()=>finish(true);cancel.onclick=()=>finish(false);modal.addEventListener('cancel',event=>{event.preventDefault();finish(false);});modal.addEventListener('close',()=>finish(false));
+  document.body.append(modal);modal.showModal();cancel.focus();
+ });
+}
 function showInputModal({title,intro,fields,submitLabel,onSubmit,onReady}){
  const modal=document.querySelector('#dialog'),close=document.querySelector('#close-dialog');
  $('#dialog-body').innerHTML=`<form id="site-input-form" novalidate><h2>${esc(title)}</h2><p class="help">${esc(intro||'')}</p>${fields.map(field=>`<label>${esc(field.label)}<input id="form-${esc(field.key)}" data-modal-field="${esc(field.key)}" value="${esc(field.value||'')}" maxlength="${field.maxLength||160}" ${field.readonly?'readonly aria-readonly="true"':''} autocomplete="off"></label>`).join('')}<p id="modal-error" role="alert" class="modal-error"></p><div class="actions"><button id="modal-submit" type="submit" class="gold">${esc(submitLabel||'Create')}</button><button id="modal-cancel" type="button">Cancel</button></div></form>`;
@@ -266,7 +280,7 @@ $("#open").onchange = async (e) => {
   try {
     if (
       dirty &&
-      !confirm("Discard the current unsaved edits and open another file?")
+      !await confirmAction({title:'Discard unsaved edits?',message:'Discard the current unsaved edits and open another file?',confirmLabel:'Discard and open',danger:true})
     )
       return;
     const f = e.target.files[0];
@@ -530,13 +544,13 @@ function bindRotationEditor(event){
   const row=activityEditorRow({id:crypto.randomUUID(),name:'Activity '+(container.children.length+1)});container.append(row);editRevision++;refresh();row.querySelector('input').focus();
  };
  container.addEventListener('input',ev=>{if(ev.target.matches('input'))ev.target.setCustomValidity([...ev.target.value.trim()].length>80?'Use at most 80 characters.':'');refresh();});
- container.onclick=ev=>{
+ container.onclick=async ev=>{
   const button=ev.target.closest('[data-activity-action]');if(!button)return;
   const row=button.closest('[data-activity-id]'),action=button.dataset.activityAction;
   if(action==='up'&&row.previousElementSibling)container.insertBefore(row,row.previousElementSibling);
   else if(action==='down'&&row.nextElementSibling)container.insertBefore(row.nextElementSibling,row);
   else if(action==='remove'){
-   if(!confirm('Remove this activity? Messages assigned only to it will use All activities when you apply event settings.'))return;
+   if(!await confirmAction({title:'Remove rotation activity?',message:'Messages assigned only to this activity will use All activities when you apply event settings.',confirmLabel:'Remove activity',danger:true})||!row.isConnected)return;
    row.remove();document.querySelectorAll('.message [data-field=variant]').forEach(field=>{if(field.value===row.dataset.activityId)field.value='ALL';});
   }
   editRevision++;refresh();
@@ -575,7 +589,7 @@ function renderRotationOccurrences(event,s=currentEventDraft()){
    $('#dialog-body').innerHTML=`<h2>Cancel ${esc(date)}</h2><p>Only this occurrence is cancelled. Messages and the recurring schedule stay saved.</p><label>Rotation after cancellation<select id="cancel-rotation-action"><option value="KEEP">Keep rotation moving</option><option value="POSTPONE">Postpone selection</option></select></label><p class="help">Keep rotation moving skips this selection. Postpone selection delays progression by one scheduled occurrence. For faction blocks, that postpones the rotation by the time between this date and the next scheduled occurrence.</p><button id="confirm-cancel-occurrence" class="danger">Cancel this occurrence</button>`;
    $('#confirm-cancel-occurrence').onclick=()=>{updateOccurrence(date,$('#cancel-rotation-action').value);$('#dialog').close();};$('#dialog').showModal();
   });
-  panel.querySelectorAll('[data-undo-occurrence]').forEach(button=>button.onclick=()=>{if(confirm('Undo cancellation for '+button.dataset.undoOccurrence+'? Future rotation selections will be recalculated.'))updateOccurrence(button.dataset.undoOccurrence,null);});
+  panel.querySelectorAll('[data-undo-occurrence]').forEach(button=>button.onclick=async()=>{if(await confirmAction({title:'Undo occurrence cancellation?',message:'Restore '+button.dataset.undoOccurrence+'? Future rotation selections will be recalculated.',confirmLabel:'Undo cancellation'})&&button.isConnected)updateOccurrence(button.dataset.undoOccurrence,null);});
   function updateOccurrence(date,action){
    const candidate=clone(event.schedule);candidate.occurrenceExceptions??={};if(action)candidate.occurrenceExceptions[date]={action};else delete candidate.occurrenceExceptions[date];
    try{requireValidTimeline(candidate);}catch(error){status(error.message,true);return;}
@@ -1166,15 +1180,14 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
         area.focus();
         ev.target.value = "";
       };
-      el.querySelector("[data-action=delete-message]").onclick = () => {
+      el.querySelector("[data-action=delete-message]").onclick = async () => {
         const m = messages.find((m) => m.id === el.dataset.id);
         if (
           m.locked ||
-          !confirm(
-            editorIsScheduled()?"Delete this message and remove it from every reminder pool?":"Delete this message from this command and guild?",
-          )
+          !await confirmAction({title:'Delete message?',message:editorIsScheduled()?'Delete this message and remove it from every period pool?':'Delete this message from this command and guild?',confirmLabel:'Delete message',danger:true})
         )
           return;
+        if(!el.isConnected||m.locked)return;
         account().messages = tableArray(
           vals(account().messages).filter((item) => item.id !== m.id),
         );
@@ -1999,7 +2012,8 @@ async function showServerLibrary(focusSave=false,exportBundle=null,exportsOnly=f
           libraryStatus(`Selected “${file.name}”. Click Save to server to review replacing it${file.protected?' and enter its password':''}.`);return;
         }
         if(file.kind==='export'&&!data){libraryStatus('Open your SavedVariables file first, then merge this event export into its selected account.',true);return;}
-        if(file.kind!=='export'&&dirty&&!confirm('Discard unsaved edits and load this shared configuration?'))return;
+        if(file.kind!=='export'&&dirty&&!await confirmAction({title:'Load shared configuration?',message:'Discard unsaved edits and load this shared configuration?',confirmLabel:'Discard and load',danger:true}))return;
+        if(!isActive())return;
         button.disabled=true;const revision=editRevision;
         try{
           let response;

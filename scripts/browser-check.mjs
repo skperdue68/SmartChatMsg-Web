@@ -205,6 +205,19 @@ async function open(data) {
   await page.locator("#workspace").waitFor({ state: "visible" });
   return { page, errors };
 }
+async function styledActionConfirmations(){
+ const d=fixture(),settings=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;
+ settings.schedule.specialPattern='EVENT_ROTATION';settings.schedule.recurrence='WEEKLY';settings.schedule.rotationEvery=1;settings.schedule.rotationEvents=numeric([{id:'a',name:'First activity'},{id:'b',name:'Second activity'}]);
+ const {page,errors}=await open(d);let native=0;page.removeAllListeners('dialog');page.on('dialog',dialog=>{native++;dialog.dismiss();});
+ try{
+  const remove=()=>page.locator('#rotation-activities [data-activity-action=remove]').last();await remove().click();assert.equal(await page.locator('#site-confirmation').isVisible(),true);assert.equal(await page.locator('#site-confirm-cancel').evaluate(el=>el===document.activeElement),true);await page.locator('#site-confirm-cancel').click();assert.equal(await page.locator('#rotation-activities [data-activity-id]').count(),2);
+  await remove().click();await page.keyboard.press('Escape');assert.equal(await page.locator('#rotation-activities [data-activity-id]').count(),2);
+  await remove().click();await page.locator('#site-confirm-accept').click();assert.equal(await page.locator('#rotation-activities [data-activity-id]').count(),1);
+  const message=page.locator('.message').first();await message.locator('summary').click();await message.locator('[data-action=delete-message]').click();await page.locator('#site-confirm-cancel').click();assert.equal(await page.locator('.message').count(),1);await message.locator('[data-action=delete-message]').click();await page.locator('#site-confirm-accept').click();assert.equal(await page.locator('.message').count(),0);
+  const file={name:'SmartChatMsg.lua',mimeType:'text/plain',buffer:Buffer.from(writeSavedVariables(fixture()))};await page.locator('#open').setInputFiles(file);await page.locator('#site-confirm-cancel').click();assert.equal(await page.locator('.message').count(),0);await page.locator('#open').setInputFiles(file);await page.locator('#site-confirm-accept').click();await page.locator('.message').waitFor();assert.equal(await page.locator('.message').count(),1);assert.equal(native,0);assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 async function separateDisplayAndSlashNames(){
  const {page,errors}=await open(fixture());try{
   const display=page.locator('[data-field=commandName]'),slash=page.locator('[data-field=slashCommandName]');assert.equal(await page.locator('#events .event-command-name').count(),0);
@@ -463,7 +476,7 @@ async function preservationAndEditing() {
       [added.id],
     );
     await page.locator("details.message").last().evaluate(el=>el.open=true);
-    await page.locator("[data-action=delete-message]").last().click();
+    await page.locator("[data-action=delete-message]").last().click();await page.locator('#site-confirm-accept').click();
     assert.equal(await page.locator("details.message").count(), 1);
     const removed = (await downloadData(page)).Default["@fixture"].$AccountWide;
     assert.equal(Object.keys(removed.messages).length, 1);
@@ -884,7 +897,7 @@ async function rotatingEventControls(){
  assert.equal(await page.locator('[data-undo-occurrence="'+firstDate+'"]').count(),1);assert.match(await page.locator('.rotation-upcoming .rotation-occurrence').nth(1).textContent(),/Aetherian Archive/);
  let saved=(await downloadData(page)).Default['@fixture'].$AccountWide;let out=saved.commandGuildSettings['command-one'].alpha.schedule;
  assert.equal(out.occurrenceExceptions[firstDate].action,'POSTPONE');assert.equal(out.rotationEvents[1].name,'Aetherian Archive');assert.equal(saved.messages[1].useCount,5);assert.equal(saved.messages[1].lastUsedAt,123);
- await page.locator('[data-undo-occurrence="'+firstDate+'"]').click();assert.match(await page.locator('.rotation-upcoming .rotation-occurrence').nth(1).textContent(),/Hel Ra Citadel/);
+ await page.locator('[data-undo-occurrence="'+firstDate+'"]').click();await page.locator('#site-confirm-accept').click();assert.match(await page.locator('.rotation-upcoming .rotation-occurrence').nth(1).textContent(),/Hel Ra Citadel/);
  await page.locator('#rotation-activities [data-activity-action=up]').nth(1).click();await page.locator('#save-event').click();
  assert.match(await page.locator('.rotation-upcoming .rotation-occurrence').nth(0).textContent(),/Hel Ra Citadel/);
  const message=page.locator('.message').first();await message.locator('summary').click();
@@ -897,7 +910,7 @@ async function rotatingEventControls(){
  assert.equal(out.rotationEvery,1);assert.equal(out.rotationEvents[1].name,'Hel Ra Citadel');assert.deepEqual(errors,[]);
  // Existing faction schedules expose exactly the same per-occurrence controls.
  await page.locator('[data-field=specialPattern]').selectOption('FACTION_ROTATION');await page.locator('#save-event').click();
- assert.equal(await page.locator('#event-rotation-settings').isVisible(),false);assert.equal(await page.locator('[data-undo-occurrence="'+firstDate+'"]').count(),1);await page.locator('[data-undo-occurrence="'+firstDate+'"]').click();
+ assert.equal(await page.locator('#event-rotation-settings').isVisible(),false);assert.equal(await page.locator('[data-undo-occurrence="'+firstDate+'"]').count(),1);await page.locator('[data-undo-occurrence="'+firstDate+'"]').click();await page.locator('#site-confirm-accept').click();
  assert.equal(await page.locator('[data-cancel-occurrence]').count()>0,true);
  }finally{await page.close();}
 }
@@ -1058,11 +1071,11 @@ async function sharedServerLibrary(){
    let releaseSave,saveStarted;state.saveGate=new Promise(resolve=>releaseSave=resolve);const saving=new Promise(resolve=>saveStarted=resolve);state.onSave=saveStarted;
    await page.locator('#library-save').click();await saving;await page.locator('#close-dialog').click();await page.locator('[data-field=commandName]').fill('Newer unsaved edit');await page.locator('#save-event').click();releaseSave();await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('earlier copy'));state.saveGate=null;state.onSave=null;
    assert.equal(parseSavedVariables([...files.values()].find(file=>file.name==='Delayed save').lua).Default['@fixture'].$AccountWide.commands[1].name,'Beforerequest');
-   page.removeAllListeners('dialog');let declined=0;page.on('dialog',async dialog=>{declined++;await dialog.dismiss();});await page.locator('#server-library').click();await page.locator(`[data-library-id="${existing.id}"]`).waitFor();await page.locator(`[data-library-id="${existing.id}"]`).click();assert.equal(declined,1,'newer edits still trigger unsaved confirmation after an earlier save completes');assert.equal(await page.locator('[data-field=commandName]').inputValue(),'Newer unsaved edit');await page.locator('#close-dialog').click();
+   page.removeAllListeners('dialog');let declined=0;page.on('dialog',async dialog=>{declined++;await dialog.dismiss();});await page.locator('#server-library').click();await page.locator(`[data-library-id="${existing.id}"]`).waitFor();await page.locator(`[data-library-id="${existing.id}"]`).click();assert.equal(await page.locator('#site-confirmation').isVisible(),true);await page.locator('#site-confirm-cancel').click();assert.equal(declined,0,'unsaved confirmation stays inside the site');assert.equal(await page.locator('[data-field=commandName]').inputValue(),'Newer unsaved edit');await page.locator('#close-dialog').click();
    page.removeAllListeners('dialog');page.on('dialog',dialog=>dialog.accept());await downloadData(page);
    await page.locator('#server-library').click();await page.locator(`[data-library-id="${existing.id}"]`).waitFor();let releaseLoad,loadStarted;state.loadGate=new Promise(resolve=>releaseLoad=resolve);const loading=new Promise(resolve=>loadStarted=resolve);state.onLoad=loadStarted;
    await page.locator(`[data-library-id="${existing.id}"]`).click();await loading;await page.locator('#close-dialog').click();await page.locator('[data-field=commandName]').fill('Edit while loading');await page.locator('#save-event').click();releaseLoad();await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('Server load canceled'));state.loadGate=null;state.onLoad=null;assert.equal(await page.locator('[data-field=commandName]').inputValue(),'Edit while loading');
-   await page.locator('#server-library').click();await page.locator(`[data-library-id="${saved.id}"]`).waitFor();await page.locator(`[data-library-id="${saved.id}"]`).click();await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('Loaded shared configuration'));
+   await page.locator('#server-library').click();await page.locator(`[data-library-id="${saved.id}"]`).waitFor();await page.locator(`[data-library-id="${saved.id}"]`).click();await page.locator('#site-confirm-accept').click();await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('Loaded shared configuration'));
    assert.equal(await page.locator('[data-field=commandName]').inputValue(),'Shared edit');await page.locator('[data-field=commandName]').fill('Changed after loading');await page.locator('#save-event').click();const downloaded=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(downloaded.commands[1].name,'Changedafterloading');assert.equal(downloaded.messages[1].useCount,99);assert.equal(files.get(saved.id).lua,saved.lua,'loading/editing/downloading does not overwrite the server copy');
    await page.reload();await page.locator('#server-library').click();await page.locator(`[data-library-id="${existing.id}"]`).waitFor();assert.equal(await page.locator('#library-save').isDisabled(),true);await page.locator(`[data-library-id="${existing.id}"]`).click();await page.locator('#workspace').waitFor({state:'visible'});assert.equal(await page.locator('[data-field=commandName]').inputValue(),'Example');assert.deepEqual(errors,[]);
  }finally{await page.close();}
@@ -1403,7 +1416,7 @@ async function libraryHttpIntegration(){
    await page.goto(origin);await page.locator('#open').setInputFiles({name:'SmartChatMsg.lua',mimeType:'text/plain',buffer:Buffer.from(writeSavedVariables(fixture()))});await page.locator('#workspace').waitFor({state:'visible'});
    await page.locator('[data-field=commandName]').fill('Real HTTP save');await page.locator('#save-event').click();await page.locator('#save-server').click();await page.locator('#library-name').fill('HTTP snapshot');await page.locator('#library-save').click();await page.waitForFunction(()=>document.querySelector('#library-status')?.textContent.includes('Saved “HTTP snapshot”'));
    const files=(await(await fetch(origin+'/api/library')).json()).files;assert.equal(files.length,1);const stored=await(await fetch(origin+'/api/library/'+files[0].id)).text();assert.equal(parseSavedVariables(stored).Default['@fixture'].$AccountWide.commands[1].name,'RealHTTPsave');
-   await page.locator('#close-dialog').click();await page.locator('[data-field=commandName]').fill('Temporary local edit');await page.locator('#save-event').click();await page.locator('#server-library').click();await page.locator('[data-library-id]').waitFor();await page.locator('[data-library-id]').click();await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('Loaded shared configuration'));assert.equal(await page.locator('[data-field=commandName]').inputValue(),'Real HTTP save');assert.deepEqual(errors,[]);
+   await page.locator('#close-dialog').click();await page.locator('[data-field=commandName]').fill('Temporary local edit');await page.locator('#save-event').click();await page.locator('#server-library').click();await page.locator('[data-library-id]').waitFor();await page.locator('[data-library-id]').click();await page.locator('#site-confirm-accept').click();await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('Loaded shared configuration'));assert.equal(await page.locator('[data-field=commandName]').inputValue(),'Real HTTP save');assert.deepEqual(errors,[]);
  }finally{
    if(page)await page.close();if(server.listening)await new Promise(resolve=>server.close(resolve));
    for(const name of await readdir(directory))await unlink(resolve(directory,name));await rmdir(directory);
@@ -1464,6 +1477,7 @@ try {
   await relevantSettingsAndMigration();
   await preservationAndEditing();
   await condensedDateTimeSettings();
+  await styledActionConfirmations();
   await separateDisplayAndSlashNames();
   await monthFinalLabelsAndNextSidebar();
   await commandFieldPresentationAndUsage();
