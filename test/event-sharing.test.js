@@ -40,3 +40,12 @@ test('legacy slot-only messages retain usage and private pool membership on impo
 });
 
 test('message labels and display order share across accounts while local locks protect metadata',()=>{const source=fixture('remote'),message=source.messages[1];message.name='Gathering reminder';message.displayOrder=7;const bundle=exportEventBundle(source,'alphabet mafia',['remote']);assert.equal(bundle.items[0].messages[0].name,'Gathering reminder');assert.equal(bundle.items[0].messages[0].displayOrder,7);const local=fixture('dest',4),imported=importEventBundle(local,bundle,[0]).account;assert.equal(imported.messages[1].name,'Gathering reminder');assert.equal(imported.messages[1].displayOrder,7);local.messages[1].locked=true;local.messages[1].name='Private label';local.messages[1].displayOrder=2;const locked=importEventBundle(local,bundle,[0]).account;assert.equal(locked.messages[1].name,'Private label');assert.equal(locked.messages[1].displayOrder,2);assert.equal(locked.messages[1].useCount,7);});
+
+test('month-final occurrence labels survive portable exports and merges',()=>{
+ const source=fixture('remote');source.commandGuildSettings.remote['alphabet mafia'].runAt='SCHEDULED';
+ source.commandGuildSettings.remote['alphabet mafia'].schedule={...timeline(),specialPattern:'MONTH_FINAL',regularEventLabel:'Bi-weekly raffle',monthFinalEventLabel:'Raffle + 50/50'};
+ const bundle=readEventBundle(exportEventBundle(source,'alphabet mafia',['remote']));
+ const saved=importEventBundle(fixture('local'),bundle,[0]).account.commandGuildSettings.local['alphabet mafia'].schedule;
+ assert.equal(saved.regularEventLabel,'Bi-weekly raffle');assert.equal(saved.monthFinalEventLabel,'Raffle + 50/50');
+ bundle.items[0].schedule.regularEventLabel=123;assert.throws(()=>readEventBundle(bundle),/labels.*text/);
+});

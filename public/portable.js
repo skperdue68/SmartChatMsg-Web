@@ -12,6 +12,8 @@ const scheduleKeys = [
   "monthlyWeek",
   "monthlyWeekday",
   "specialPattern",
+  "regularEventLabel",
+  "monthFinalEventLabel",
   "rotationWeeks",
   "rotationEvents",
   "rotationEvery",
@@ -179,6 +181,7 @@ export function validatePortable(p) {
     )
   )
     throw Error("Unsupported special pattern.");
+  for(const key of ['regularEventLabel','monthFinalEventLabel'])if(s[key]!==undefined&&(typeof s[key]!=='string'||Array.from(s[key]).length>80))throw Error('Event labels must be text of up to 80 characters.');
   if (s.recurrenceInterval !== undefined)
     num(s.recurrenceInterval, "recurrence interval", 1, 999);
   if(s.rotationEvents!==undefined){
@@ -519,7 +522,7 @@ export function importEventBundle(account,document,selectedIndices){
       schedule.reminders=array(orderedReminderRows(schedule));
       settings.schedule={...prior,...schedule};
       delete settings.schedule.mergedInto;
-      for(const key of ['rotationEvents','rotationEvery','occurrenceExceptions','monthlyWeek','monthlyWeekday','dailyLimitShared','sharedDailyLimit'])if(schedule[key]===undefined)delete settings.schedule[key];
+      for(const key of ['regularEventLabel','monthFinalEventLabel','rotationEvents','rotationEvery','occurrenceExceptions','monthlyWeek','monthlyWeekday','dailyLimitShared','sharedDailyLimit'])if(schedule[key]===undefined)delete settings.schedule[key];
       // An imported duration can explicitly clear the old optional cap.
       if(schedule.eventDurationMinutes===undefined)delete settings.schedule.eventDurationMinutes;
       const errors=validateTimelineForAddon(settings.schedule);if(errors.length)throw Error(errors.join(' '));
