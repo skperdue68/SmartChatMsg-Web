@@ -754,3 +754,10 @@ label.check>.help-icon{flex:none;margin-left:4px}
 .library-confirm-panel:not([hidden]) { margin:16px 0; padding:16px; border:1px solid var(--gold); border-radius:8px; background:#203247; box-shadow:0 5px 18px #0004; }
 
 .message-locked textarea,.message-locked input[readonly] { background:#142334; color:var(--muted); border-style:dashed; }
+
+.command-output-row{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:15px;align-items:end;}
+.command-output-row>label.command-setting-toggle{align-self:end;min-height:40px;margin:0;}
+@media(max-width:900px){.command-output-row{grid-template-columns:1fr;}}
+.message-usage-trigger{flex:none;margin-left:auto;padding:4px 8px;line-height:1;border:1px solid #405770;border-radius:5px;background:#20354a;color:var(--gold);}
+.message-usage-trigger:hover,.message-usage-trigger:focus-visible{background:#2d4963;outline:1px solid var(--gold);}
+.message-usage-tooltip{width:360px;}

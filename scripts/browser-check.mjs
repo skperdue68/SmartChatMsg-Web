@@ -205,11 +205,34 @@ async function open(data) {
   await page.locator("#workspace").waitFor({ state: "visible" });
   return { page, errors };
 }
+async function commandFieldPresentationAndUsage(){
+ const d=fixture(),a=d.Default['@fixture'].$AccountWide,settings=a.commandGuildSettings['command-one'].alpha;
+ delete settings.shareGuildOfficerCooldowns;delete settings.condensedDateTime;
+ a.messages[1].lastUsedAt=1791449829;a.messages[1].useCount=7;
+ const {page,errors}=await open(d);
+ try{
+  assert.equal(await page.locator('[data-field=shareGuildOfficerCooldowns]').isChecked(),true);
+  assert.equal(await page.locator('[data-field=condensedDateTime]').isChecked(),true);
+  const channel=await page.locator('[data-field=outputChannel]').boundingBox();
+  for(const key of ['shareGuildOfficerCooldowns','condensedDateTime']){
+   const box=await page.locator('[data-field='+key+']').boundingBox();assert.ok(box.y>=channel.y&&box.y+box.height<=channel.y+channel.height,'checkbox aligns with channel control');
+  }
+  for(const [mode,label] of [['ON_DEMAND','On Demand'],['STARTUP','On Startup']]){
+   await page.locator('[data-field=settingsRunAt]').selectOption(mode);await page.locator('#save-event').click();assert.match(await page.locator('#events .event-item.active').textContent(),new RegExp(label));assert.doesNotMatch(await page.locator('#events .event-item.active').textContent(),/Unscheduled/);const savedDefaults=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;assert.equal(savedDefaults.shareGuildOfficerCooldowns,true);assert.equal(savedDefaults.condensedDateTime,true);
+  }
+  const trigger=page.locator('.message [data-message-usage]').first(),row=page.locator('.message summary').first();
+  await trigger.hover();const bubble=page.locator('#message-usage-tooltip');await bubble.waitFor();assert.match(await bubble.textContent(),/Last used:/);assert.match(await bubble.textContent(),/Used: 7 times/);assert.match(await bubble.textContent(),/Selection weight: 1 of 1/);
+  const b=await bubble.boundingBox(),r=await row.boundingBox();assert.ok(b.x>=r.x+r.width||b.x+b.width<=r.x||b.y>=r.y+r.height||b.y+b.height<=r.y,'usage popup avoids source row');
+  await page.locator('[data-ordinary-message="message-one"]').uncheck();await trigger.hover();assert.match(await page.locator('#message-usage-tooltip').textContent(),/Disabled.*not eligible/);
+  await page.mouse.move(0,0);await page.locator('[data-field=shareGuildOfficerCooldowns]').uncheck();await page.locator('[data-field=condensedDateTime]').uncheck();await page.locator('#save-event').click();const saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;assert.equal(saved.shareGuildOfficerCooldowns,false);assert.equal(saved.condensedDateTime,false);assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 async function overviewPeriodNavigationAndSharedCooldowns(){
  const {page,errors}=await open(fixture());
  try{
  const toggle=()=>page.locator('[data-field=shareGuildOfficerCooldowns]');
- assert.equal(await toggle().isChecked(),false);
+ assert.equal(await toggle().isChecked(),true);
  for(const [mode,enabled] of [['SCHEDULED',true],['ON_DEMAND',false],['STARTUP',true]]){
   await page.locator('[data-field=settingsRunAt]').selectOption(mode);assert.equal(await toggle().isVisible(),true);
   await toggle().setChecked(enabled);await page.locator('#save-event').click();
@@ -1414,6 +1437,7 @@ try {
   await relevantSettingsAndMigration();
   await preservationAndEditing();
   await condensedDateTimeSettings();
+  await commandFieldPresentationAndUsage();
   await overviewPeriodNavigationAndSharedCooldowns();
 
 

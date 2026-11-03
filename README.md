@@ -186,7 +186,7 @@ In Import / export, select events (or all events) and choose **Save selected exp
 
 Full configuration entries remain a separate type: opening one loads a copy of all its stored accounts into the editor. Download updated Lua includes applied changes. Names are shared across both entry types; an existing name cannot be changed to the other type.
 
-When saving either type, an optional **Overwrite password** protects later replacement. Enter that password in the overwrite confirmation. Passwords are salted and hashed with scrypt, kept only in server metadata, and never included in public lists, exported JSON or Lua downloads. Protected full configurations require this password to load; event exports remain readable for review and merging. Existing unprotected entries can acquire a password on overwrite; protected entries keep their password. There is no password reset or removal UI. Cancel preserves the server copy; use another name to publish a separate version.
+When saving either type, an optional **Password** protects later replacement. Enter that password in the overwrite confirmation. Passwords are salted and hashed with scrypt, kept only in server metadata, and never included in public lists, exported JSON or Lua downloads. Protected full configurations require this password to load; event exports remain readable for review and merging. Existing unprotected entries can acquire a password on overwrite; protected entries keep their password. There is no password reset or removal UI. Cancel preserves the server copy; use another name to publish a separate version.
 
 ### Condensed substitutions
 
@@ -197,16 +197,22 @@ In **Save to server**, click an existing file in the list to copy its exact name
 
 ### Library organization and overview navigation
 
-Server Library separates **Configurations** from **Exports** and sorts names alphabetically within each category. Save dialogs retain compatible-type filtering and clicking a filename still selects its exact save name. Delete requires confirmation; protected entries use their existing overwrite password. Password attempts are throttled jointly across overwrite and delete, and deleting a file frees its library quota. Protected configurations require the password to load, including direct file requests. Export read access remains public.
+Server Library separates **Configurations** from **Exports** and sorts names alphabetically within each category. Save dialogs retain compatible-type filtering and clicking a filename still selects its exact save name. Delete requires confirmation; protected entries use their existing password. Password attempts are throttled jointly across overwrite and delete, and deleting a file frees its library quota. Protected configurations require the password to load, including direct file requests. Export read access remains public.
 
 In Import / export, **Import from Saved Server Export** and **Choose import file** are separate, spaced actions. Week and Month overview views now have previous/next controls and a visible period label; filters remain selected and month navigation advances from the first day of the month to avoid 29th–31st rollover. Day drilldown remains available. The footer reads **SmartChatMsg 3.03+** and the calculated field is labeled **Next Event Occurrence**.
 
 ### Sharing Guild and Officer cooldowns
 
-**Share cooldowns between Guild and Officer chat** is optional per command + guild, default off, and saved with ordinary/Startup and scheduled settings. With a Guild or Officer output, matching incoming announcements in either of those channels for the same guild reset that command/guild’s cooldown and normal observed usage. Other guilds, Zone and Group chat remain separate. It does not change outgoing routing, and the client must receive the incoming channel; read permission is sufficient even if the player cannot send there. The native addon implements detection, and both Lua and JSON transfers retain the setting. Latest-snapshot merging treats this checkbox as configuration, not runtime history.
+**Share cooldowns between Guild and Officer chat** is optional per command + guild. In the web editor it defaults on when no preference is saved; an explicitly unchecked preference remains off. It is saved with ordinary/Startup and scheduled settings. With a Guild or Officer output, matching incoming announcements in either of those channels for the same guild reset that command/guild’s cooldown and normal observed usage. Other guilds, Zone and Group chat remain separate. It does not change outgoing routing, and the client must receive the incoming channel; read permission is sufficient even if the player cannot send there. The native addon implements detection, and both Lua and JSON transfers retain the setting. Latest-snapshot merging treats this checkbox as configuration, not runtime history.
 
 ### Protected loading and message locks
 
 Protected configurations open through a styled password prompt. Passwords are sent in the request body, never in the URL, and failed guesses share the overwrite/delete throttle.
 
 In Message library, **Lock** makes the name, text and variant read-only and prevents deletion. **Unlock** restores editing. Pool checkboxes remain available, so a locked message can still be disabled. Apply pending edits before locking. Full Lua configurations retain locked content; portable event exports exclude it as before.
+
+### Command fields and message usage
+
+The Output channel dropdown and its Guild/Officer cooldown-sharing and condensed-format checkboxes align on the same control row. Both options default checked for new/unset preferences, while explicit unchecked settings are preserved. The left command list identifies **On Demand** and **On Startup** entries instead of labeling them Unscheduled, including when an inactive schedule is retained.
+
+Use the information icon at the right of a Message library heading to inspect its saved last-used date/time (in the guild scheduling timezone), use count, and selection weight. The popup stays outside its originating row and also opens on keyboard focus. These values describe the loaded SavedVariables snapshot, not a live connection to ESO. Unused and older messages rank ahead of recently used messages; use count breaks equal-time ties, then stable ID. Weights descend from pool size to one. Ordinary entries use the currently enabled pool; disabled messages have zero weight. Scheduled messages show a library reference weight because each period and variant can select a different pool. Previews and viewing usage never consume a cooldown or update usage history.
