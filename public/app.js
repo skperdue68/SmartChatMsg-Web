@@ -1277,12 +1277,13 @@ function renderOrdinaryMessagePool(event){
  panel.querySelectorAll('[data-ordinary-message]').forEach(box=>box.onchange=()=>{const id=box.dataset.ordinaryMessage;event.settings.disabledMessageIds??={};if(box.checked)delete event.settings.disabledMessageIds[id];else event.settings.disabledMessageIds[id]=true;if(!Object.keys(event.settings.disabledMessageIds).length)delete event.settings.disabledMessageIds;changed();summary();updateMessageDisplayLabels(event);});
  summary();attachPoolPreviews(panel,event,null);
 }
-let messageUsageBubble=null;
+let messageUsageBubble=null,messageUsageSource=null;
 function closeMessageUsage(){
- messageUsageBubble?.remove();messageUsageBubble=null;
+ messageUsageBubble?.remove();messageUsageBubble=null;messageUsageSource=null;
  document.querySelectorAll('[aria-describedby="message-usage-tooltip"]').forEach(el=>el.removeAttribute('aria-describedby'));
 }
 function placeBesideRow(bubble,rect){
+ bubble.style.maxHeight='';
  const gap=10,margin=8,width=bubble.getBoundingClientRect().width,height=bubble.getBoundingClientRect().height;
  let left,top;
  if(rect.right+gap+width<=innerWidth-margin){left=rect.right+gap;top=rect.top;}
@@ -1306,12 +1307,19 @@ function attachMessageUsage(card,event,message){
   const last=stats.lastUsedAt===null?'Never recorded':new Date(stats.lastUsedAt*1000).toLocaleString('en-US',{timeZone:zoneNames[guildZone()],timeZoneName:'short'});
   for(const line of ['Last used: '+last,'Used: '+stats.useCount+' times',stats.weight?'Selection weight: '+stats.weight+' of '+stats.totalWeight+' ('+stats.chance.toFixed(1)+'%)':'Disabled — not eligible for this command pool']){const p=document.createElement('p');p.textContent=line;bubble.append(p);}
   const note=document.createElement('small');note.textContent=(scheduled?'Reference across this command/guild library. The active period and message variant determine the actual pool. ':'Weight within the currently enabled command/guild pool. ')+ 'Older and less-used messages are favored; selection is random. History is from the loaded file, not live ESO data.';bubble.append(note);
-  document.body.append(bubble);messageUsageBubble=bubble;trigger.setAttribute('aria-describedby',bubble.id);placeBesideRow(bubble,card.querySelector('summary').getBoundingClientRect());
+  document.body.append(bubble);messageUsageBubble=bubble;messageUsageSource=card.querySelector('summary');trigger.setAttribute('aria-describedby',bubble.id);placeBesideRow(bubble,messageUsageSource.getBoundingClientRect());
  };
- trigger.addEventListener('mouseenter',show);trigger.addEventListener('mouseleave',closeMessageUsage);trigger.addEventListener('focus',show);trigger.addEventListener('blur',closeMessageUsage);
+ trigger.addEventListener('mouseenter',show);trigger.addEventListener('mouseleave',()=>{if(document.activeElement!==trigger)closeMessageUsage();});trigger.addEventListener('focus',show);trigger.addEventListener('blur',closeMessageUsage);
  trigger.addEventListener('click',ev=>{ev.preventDefault();ev.stopPropagation();show();});trigger.addEventListener('keydown',ev=>{if(ev.key==='Escape')closeMessageUsage();});
 }
-document.addEventListener('scroll',closeMessageUsage,true);window.addEventListener('resize',closeMessageUsage);
+function repositionMessageUsage(){
+ if(!messageUsageBubble)return;
+ if(!messageUsageSource?.isConnected){closeMessageUsage();return;}
+ const rect=messageUsageSource.getBoundingClientRect();
+ if(rect.bottom<=0||rect.top>=innerHeight){closeMessageUsage();return;}
+ placeBesideRow(messageUsageBubble,rect);
+}
+document.addEventListener('scroll',repositionMessageUsage,true);window.addEventListener('resize',repositionMessageUsage);
 function attachPoolPreviews(card,event,row){
   let bubble;
   const close=()=>{bubble?.remove();bubble=null;card.querySelectorAll('[aria-describedby="pool-preview"]').forEach(el=>el.removeAttribute('aria-describedby'));};
