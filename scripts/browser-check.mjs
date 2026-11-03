@@ -205,6 +205,21 @@ async function open(data) {
   await page.locator("#workspace").waitFor({ state: "visible" });
   return { page, errors };
 }
+async function monthFinalLabelsAndNextSidebar(){
+ const d=fixture(),settings=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;
+ Object.assign(settings.schedule,{eventDate:'2026-10-10',eventTime:'08:00 PM',timeZone:'ET',recurrence:'BIWEEKLY',specialPattern:'MONTH_FINAL'});
+ const {page,errors}=await open(d);try{
+  await page.clock.install({time:new Date('2026-10-11T12:00:00Z')});
+  await page.locator('[data-field=regularEventLabel]').fill('Bi-weekly raffle');await page.locator('[data-field=monthFinalEventLabel]').fill('Bi-weekly + 50/50');
+  await page.locator('#save-event').click();
+  const sidebar=page.locator('#events .event-item.active');assert.match(await sidebar.textContent(),/2026-10-24.*Bi-weekly \+ 50\/50/);assert.doesNotMatch(await sidebar.textContent(),/2026-10-10/);
+  assert.match(await page.locator('#rotation-occurrences .rotation-occurrence').first().textContent(),/Bi-weekly \+ 50\/50/);assert.match(await page.locator('#rotation-occurrences .rotation-occurrence').nth(1).textContent(),/Bi-weekly raffle/);
+  const saved=(await downloadData(page)).Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha.schedule;assert.equal(saved.regularEventLabel,'Bi-weekly raffle');assert.equal(saved.monthFinalEventLabel,'Bi-weekly + 50/50');
+  await page.locator('[data-field=specialPattern]').selectOption('FACTION_ROTATION');await page.locator('#save-event').click();assert.match(await sidebar.textContent(),/Aldmeri Dominion/);
+  await page.locator('[data-field=specialPattern]').selectOption('NONE');await page.locator('[data-field=recurrence]').selectOption('NONE');await page.locator('#save-event').click();assert.match(await sidebar.textContent(),/No upcoming event/);assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 async function commandFieldPresentationAndUsage(){
  const d=fixture(),a=d.Default['@fixture'].$AccountWide,settings=a.commandGuildSettings['command-one'].alpha;
  delete settings.shareGuildOfficerCooldowns;delete settings.condensedDateTime;
@@ -1437,6 +1452,7 @@ try {
   await relevantSettingsAndMigration();
   await preservationAndEditing();
   await condensedDateTimeSettings();
+  await monthFinalLabelsAndNextSidebar();
   await commandFieldPresentationAndUsage();
   await overviewPeriodNavigationAndSharedCooldowns();
 

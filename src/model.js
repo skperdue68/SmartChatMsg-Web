@@ -766,6 +766,14 @@ export function eventVariant(schedule, eventAtUtc) {
   }
   return "ALL";
 }
+export function occurrenceTypeLabel(schedule,atUtc){
+ if(!Number.isFinite(atUtc))return '';
+ if(schedule.specialPattern==='EVENT_ROTATION')return rotationActivityName(schedule,atUtc)||'';
+ const variant=eventVariant(schedule,atUtc);
+ if(schedule.specialPattern==='FACTION_ROTATION')return {AD:'Aldmeri Dominion',EP:'Ebonheart Pact',DC:'Daggerfall Covenant'}[variant]||'';
+ if(schedule.specialPattern==='MONTH_FINAL')return variant==='FINAL'?(schedule.monthFinalEventLabel?.trim()||'Last event of month'):(schedule.regularEventLabel?.trim()||'Regular event');
+ return '';
+}
 export function messageVariant(schedule, messageId) {
   const v = schedule.messageVariants?.[messageId];
   if(schedule.specialPattern === "EVENT_ROTATION") return v === "ALL" || values(schedule.rotationEvents).some(a=>a.id===v) ? v : "ALL";
@@ -1139,6 +1147,7 @@ export function legacyToTimeline(
 }
 export function validateEventRotation(schedule = {}) {
   const errors=validateMonthlyWeekdayRule(schedule), activities=values(schedule.rotationEvents), ids=new Set();
+  for(const key of ['regularEventLabel','monthFinalEventLabel'])if(schedule[key]!==undefined&&(typeof schedule[key]!=='string'||Array.from(schedule[key]).length>80))errors.push('Event labels must be text of up to 80 characters.');
   if(schedule.specialPattern!==undefined && !['NONE','MONTH_FINAL','FACTION_ROTATION','EVENT_ROTATION'].includes(schedule.specialPattern)) errors.push('Choose a valid special pattern.');
   if(schedule.specialPattern==='EVENT_ROTATION' && ((schedule.mode||'EVENT')!=='EVENT'||(schedule.recurrence||'NONE')==='NONE'))errors.push('Rotating events require a recurring EVENT schedule.');
   if((schedule.rotationEvents!==undefined && activities.length>0) || schedule.specialPattern==='EVENT_ROTATION') {
