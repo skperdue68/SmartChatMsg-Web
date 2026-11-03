@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {sanitizeCommandName,commandDisplayName,validateCommandIdentity} from '../src/model.js';
+import {sanitizeCommandName,commandDisplayName,commandAliasLabel,validateCommandIdentity} from '../src/model.js';
 test('display names and slash names have separate identity rules',()=>{
  assert.equal(sanitizeCommandName('/ Sunday-Fishing_!? '),'SundayFishing');assert.equal(commandDisplayName({name:'fftg',displayName:'Sunday Fishing'}),'Sunday Fishing');assert.equal(commandDisplayName({name:'old'}),'old');
  assert.equal(validateCommandIdentity({displayName:'Sunday Fishing',name:' /ff-tg! '},[]).name,'fftg');
@@ -8,4 +8,11 @@ test('display names and slash names have separate identity rules',()=>{
  assert.throws(()=>validateCommandIdentity({displayName:'Anything',name:'a'.repeat(26)},[]),/25/);
  assert.throws(()=>validateCommandIdentity({displayName:'Other title',name:'FFTG'},[{id:'a',name:'fftg'}]),/already exists/);
  assert.equal(validateCommandIdentity({displayName:'Same title',name:'fftg'},[{id:'a',name:'fftg'}],'a').name,'fftg');
+});
+
+test('sidebar omits redundant aliases but retains distinct spellings',()=>{
+ assert.equal(commandAliasLabel({name:'fftg',displayName:'Sunday Fishing'}),'fftg');
+ assert.equal(commandAliasLabel({name:'recruit',displayName:'Recruit'}),'');
+ assert.equal(commandAliasLabel({name:'old'}),'');
+ assert.equal(commandAliasLabel({name:'SundayFishing',displayName:'Sunday Fishing'}),'SundayFishing');
 });

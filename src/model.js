@@ -15,6 +15,10 @@ const norm = (x) =>
 const reservedCommandNames=new Set(['scm','scmdebug','on','off','schedule','status','retry','resetcooldowns','send']);
 export const sanitizeCommandName=value=>String(value??'').replace(/[^a-z0-9]/gi,'');
 export const commandDisplayName=command=>typeof command?.displayName==='string'&&command.displayName.trim()?command.displayName.trim():String(command?.name??'');
+export function commandAliasLabel(command){
+ const name=sanitizeCommandName(command?.name);
+ return name&&commandDisplayName(command).toLowerCase()!==name.toLowerCase()?name:'';
+}
 export function validateCommandIdentity(identity,commands=[],excludeId){
  const displayName=String(identity.displayName??'').trim(),name=sanitizeCommandName(identity.name);
  if(!displayName||Array.from(displayName).length>80)throw Error('Display name must contain 1 to 80 characters.');

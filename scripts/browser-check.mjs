@@ -207,11 +207,11 @@ async function open(data) {
 }
 async function separateDisplayAndSlashNames(){
  const {page,errors}=await open(fixture());try{
-  const display=page.locator('[data-field=commandName]'),slash=page.locator('[data-field=slashCommandName]');
+  const display=page.locator('[data-field=commandName]'),slash=page.locator('[data-field=slashCommandName]');assert.equal(await page.locator('#events .event-command-name').count(),0);
   await display.fill('Sunday Fishing');assert.equal(await slash.inputValue(),'SundayFishing');
   await slash.fill(' /ff-tg! ');await page.locator('#save-event').click();assert.equal(await slash.inputValue(),'fftg');assert.equal(await display.inputValue(),'Sunday Fishing');
   await display.fill('Sunday Fishing for the Guild');assert.equal(await slash.inputValue(),'fftg');await page.locator('#save-event').click();
-  let saved=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(saved.commands[1].displayName,'Sunday Fishing for the Guild');assert.equal(saved.commands[1].name,'fftg');assert.equal(saved.commands[1].id,'command-one');assert.equal(saved.messages[1].useCount,5);assert.match(await page.locator('#events .event-item.active strong').textContent(),/Sunday Fishing for the Guild/);
+  let saved=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(saved.commands[1].displayName,'Sunday Fishing for the Guild');assert.equal(saved.commands[1].name,'fftg');assert.equal(saved.commands[1].id,'command-one');assert.equal(saved.messages[1].useCount,5);assert.match(await page.locator('#events .event-item.active strong').textContent(),/Sunday Fishing for the Guild/);assert.equal(await page.locator('#events .event-item.active .event-command-name').textContent(),'Command: fftg');
   await slash.fill('o f f');await page.locator('#save-event').click();assert.equal(await slash.inputValue(),'off');assert.match(await page.locator('#status').textContent(),/reserved/);
   await slash.fill('fftg');await page.locator('#new-event').click();await page.locator('#form-name').fill('Tuesday Tours');assert.equal(await page.locator('#form-slashName').inputValue(),'TuesdayTours');await page.locator('#form-slashName').fill('tours!');await page.locator('#modal-submit').click();saved=(await downloadData(page)).Default['@fixture'].$AccountWide;const added=Object.values(saved.commands).find(c=>c.name==='tours');assert.equal(added.displayName,'Tuesday Tours');assert.deepEqual(errors,[]);
  }finally{await page.close();}
