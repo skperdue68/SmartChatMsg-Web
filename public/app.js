@@ -390,7 +390,7 @@ function renderList() {
     entries
       .map(
         (e) =>
-          `<button class="event-item ${selected === e.commandId ? "active" : ""}" data-id="${esc(e.commandId)}"><strong>${esc((e.command?.name || "Unnamed event") + (e.schedule.mergedInto ? " [Combined]" : ""))}</strong><span>${esc(e.schedule?.eventDate || "Unscheduled")} · ${esc(e.schedule?.recurrence || "NONE")}</span></button>`,
+          `<button class="event-item ${selected === e.commandId ? "active" : ""}" data-id="${esc(e.commandId)}"><strong>${esc((e.command?.name || "Unnamed event") + (e.schedule.mergedInto ? " [Combined]" : ""))}</strong><span>${esc(e.settings.runAt==='SCHEDULED'?(e.schedule?.eventDate||"Date not set")+" · "+(e.schedule?.recurrence||"NONE"):e.settings.runAt==='STARTUP'?"On Startup":"On Demand")}</span></button>`,
       )
       .join("") || '<p class="empty">No events for this guild.</p>';
   $("#events")
@@ -683,7 +683,7 @@ function decorateFieldLabels(root=document.querySelector('#detail')){
   root.querySelectorAll('[data-help]').forEach(el=>{el.removeAttribute('title');if(el.dataset.help)el.setAttribute('aria-description',el.dataset.help);});
 }
 function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMessage = false) {
-  document.querySelector("#pool-preview")?.remove();
+  document.querySelector("#pool-preview")?.remove();closeMessageUsage();
   const renderKey = accountName + "|" + guild + "|" + selected,
     preserveScroll = lastRenderedKey === renderKey,
     scrollY = window.scrollY;
@@ -703,7 +703,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
     rows = model.orderedReminderRows(s,projectedNext(s)??model.scheduleEventUtc(s));
   const monthlyRule=model.monthlyWeekdayRule(s);let monthlyRulePinned=s.monthlyWeek!==undefined||s.monthlyWeekday!==undefined;
   $("#detail").innerHTML =
-    `<section class="panel event-settings"><div class="heading"><div><p class="eyebrow">EVENT SETTINGS</p><h2>${esc(e.command?.name)}</h2></div><span class="badge">${"PERIOD TIMELINE"}</span></div><div class="grid">${input("Event name", "commandName", e.command.name)}${input("Event Date", "eventDate", s.eventDate || "", "date")}${input("Event Start Time", "eventTime", s.eventTime || "08:00 PM")}<label data-help="The next actual event occurrence, calculated live from the current unsaved date, clock, recurrence, interval and weekday controls.">Next Event Occurrence <span class="readonly-tag">Read only</span><input id="next-occurrence" readonly aria-live="polite"></label>${schedulingSlider("eventDurationMinutes",s.eventDurationMinutes)}<label title="Read only here. Change Guild timezone in the toolbar above; all event clocks use that timezone.">Scheduling timezone (guild) <span class="readonly-tag">Read only</span><input id="schedule-timezone" value="${esc(guildZone())}" readonly aria-description="Change Guild timezone in the toolbar above."><small class="help">Change using Guild timezone in the toolbar.</small></label>${select("Output channel", "outputChannel", account().chatChannels?.[e.commandId]?.[model.guildKey(account().chatChannels?.[e.commandId],guild)] || "Guild", ["Guild", "Officer", "Zone", "Group"])}${check("Share cooldowns between Guild and Officer chat", "shareGuildOfficerCooldowns", e.settings.shareGuildOfficerCooldowns===true)}${check("Use condensed dates and times", "condensedDateTime", e.settings.condensedDateTime!==false)}${select(
+    `<section class="panel event-settings"><div class="heading"><div><p class="eyebrow">EVENT SETTINGS</p><h2>${esc(e.command?.name)}</h2></div><span class="badge">${"PERIOD TIMELINE"}</span></div><div class="grid">${input("Event name", "commandName", e.command.name)}${input("Event Date", "eventDate", s.eventDate || "", "date")}${input("Event Start Time", "eventTime", s.eventTime || "08:00 PM")}<label data-help="The next actual event occurrence, calculated live from the current unsaved date, clock, recurrence, interval and weekday controls.">Next Event Occurrence <span class="readonly-tag">Read only</span><input id="next-occurrence" readonly aria-live="polite"></label>${schedulingSlider("eventDurationMinutes",s.eventDurationMinutes)}<label title="Read only here. Change Guild timezone in the toolbar above; all event clocks use that timezone.">Scheduling timezone (guild) <span class="readonly-tag">Read only</span><input id="schedule-timezone" value="${esc(guildZone())}" readonly aria-description="Change Guild timezone in the toolbar above."><small class="help">Change using Guild timezone in the toolbar.</small></label>${select("Output channel", "outputChannel", account().chatChannels?.[e.commandId]?.[model.guildKey(account().chatChannels?.[e.commandId],guild)] || "Guild", ["Guild", "Officer", "Zone", "Group"])}${check("Share cooldowns between Guild and Officer chat", "shareGuildOfficerCooldowns", e.settings.shareGuildOfficerCooldowns!==false)}${check("Use condensed dates and times", "condensedDateTime", e.settings.condensedDateTime!==false)}${select(
       "Run at",
       "settingsRunAt",
       pendingRunAt || e.settings.runAt || "ON_DEMAND",
@@ -729,7 +729,13 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
       )
       .join(
         "",
-      )}</section><section class="panel" id="ordinary-message-pool"></section><section class="panel"><div class="heading"><h2 id="message-library-title">Message library <span class="badge">${messages.length} VARIANTS</span></h2><button id="add-message">+ Add message</button></div><p class="help" id="message-library-help">Drag and drop a message handle to reorder messages. Optional names are limited to 60 characters and are not sent in chat. Order is for display only; selection remains randomized.</p>${ambiguousMessages(e) ? '<p class="help" role="alert">Some legacy messages have no guild name and their guild slot cannot be resolved safely. They are omitted from this editor and remain untouched in the file.</p>' : ""}${messages.map((m, i) => `<details class="message" data-id="${esc(m.id)}"><summary><span class="message-drag-handle" draggable="true" tabindex="0" role="button" aria-label="Reorder ${esc(model.messageDisplayName(m,i))}; drag or use Up and Down arrows">↕</span><span class="message-summary-title">${esc(model.messageDisplayName(m,i))} ${m.locked ? " - Locked" : ""} - ${esc(m.text.slice(0, 65))}${m.text.length > 65 ? "..." : ""}</span></summary>${input("Message name (optional)","messageName",model.messageDisplayName(m,i))}${select("Variant", "variant", s.messageVariants?.[m.id] || "ALL", variantChoices(s,s.messageVariants?.[m.id]||"ALL"))}<textarea aria-label="Message ${i + 1}" ${m.locked ? "readonly" : ""}>${esc(m.text)}</textarea><div class="message-character-count" aria-live="polite" title="Template length before substitutions; the completed chat message may have a different length."></div><div class="actions"><button data-action="save-message" ${m.locked ? "disabled" : ""}>Apply message</button><button data-action="preview-message">Preview announcement</button><button data-action="toggle-message-lock" aria-pressed="${m.locked?'true':'false'}">${m.locked?'Unlock':'Lock'}</button><button data-action="delete-message" class="danger" ${m.locked ? "disabled" : ""}>Delete message</button><select data-insert-token aria-label="Insert substitution"><option value="">Insert substitution...</option>${opts(insertableTokens(s))}</select></div></details>`).join("")}</section>`;
+      )}</section><section class="panel" id="ordinary-message-pool"></section><section class="panel"><div class="heading"><h2 id="message-library-title">Message library <span class="badge">${messages.length} VARIANTS</span></h2><button id="add-message">+ Add message</button></div><p class="help" id="message-library-help">Drag and drop a message handle to reorder messages. Optional names are limited to 60 characters and are not sent in chat. Order is for display only; selection remains randomized.</p>${ambiguousMessages(e) ? '<p class="help" role="alert">Some legacy messages have no guild name and their guild slot cannot be resolved safely. They are omitted from this editor and remain untouched in the file.</p>' : ""}${messages.map((m, i) => `<details class="message" data-id="${esc(m.id)}"><summary><span class="message-drag-handle" draggable="true" tabindex="0" role="button" aria-label="Reorder ${esc(model.messageDisplayName(m,i))}; drag or use Up and Down arrows">↕</span><span class="message-summary-title">${esc(model.messageDisplayName(m,i))} ${m.locked ? " - Locked" : ""} - ${esc(m.text.slice(0, 65))}${m.text.length > 65 ? "..." : ""}</span><button type="button" class="message-usage-trigger" data-message-usage aria-label="Message usage and selection weight">ⓘ</button></summary>${input("Message name (optional)","messageName",model.messageDisplayName(m,i))}${select("Variant", "variant", s.messageVariants?.[m.id] || "ALL", variantChoices(s,s.messageVariants?.[m.id]||"ALL"))}<textarea aria-label="Message ${i + 1}" ${m.locked ? "readonly" : ""}>${esc(m.text)}</textarea><div class="message-character-count" aria-live="polite" title="Template length before substitutions; the completed chat message may have a different length."></div><div class="actions"><button data-action="save-message" ${m.locked ? "disabled" : ""}>Apply message</button><button data-action="preview-message">Preview announcement</button><button data-action="toggle-message-lock" aria-pressed="${m.locked?'true':'false'}">${m.locked?'Unlock':'Lock'}</button><button data-action="delete-message" class="danger" ${m.locked ? "disabled" : ""}>Delete message</button><select data-insert-token aria-label="Insert substitution"><option value="">Insert substitution...</option>${opts(insertableTokens(s))}</select></div></details>`).join("")}</section>`;
+  const outputRow=document.createElement('div');outputRow.className='command-output-row';
+  const eventGrid=document.querySelector('.event-settings>.grid');eventGrid.append(outputRow);
+  for(const key of ['outputChannel','shareGuildOfficerCooldowns','condensedDateTime']){
+    const label=eventGrid.querySelector('[data-field='+key+']').closest('label');
+    if(key!=='outputChannel')label.classList.add('command-setting-toggle');outputRow.append(label);
+  }
   renderOrdinaryMessagePool(e);
   function refreshOverlapWarning(){
     const note=document.querySelector('#timeline-conflicts'),cards=[...document.querySelectorAll('#rows .reminder')],byId=new Map(cards.map(card=>[card.dataset.row,card]));
@@ -1089,6 +1095,7 @@ function renderDetail(focusReminderId = null,focusMessageId = null,expandNewMess
     .querySelectorAll(".message")
     .forEach((el) => {
       const message=messages.find(m=>m.id===el.dataset.id),index=messages.indexOf(message),nameInput=el.querySelector('[data-field=messageName]'),handle=el.querySelector('.message-drag-handle');
+      attachMessageUsage(el,e,message);
       nameInput.maxLength=60;
       nameInput.oninput=()=>{
         if(message.locked){nameInput.value=model.messageDisplayName(message,index);return;}
@@ -1227,6 +1234,8 @@ $("#new-event").onclick = () => {
   a.commandGuildSettings[id] = {
     [g]: {
       runAt: "ON_DEMAND",
+      shareGuildOfficerCooldowns: true,
+      condensedDateTime: true,
       schedule: {
         enabled: true,
         paused: false,
@@ -1268,6 +1277,49 @@ function renderOrdinaryMessagePool(event){
  panel.querySelectorAll('[data-ordinary-message]').forEach(box=>box.onchange=()=>{const id=box.dataset.ordinaryMessage;event.settings.disabledMessageIds??={};if(box.checked)delete event.settings.disabledMessageIds[id];else event.settings.disabledMessageIds[id]=true;if(!Object.keys(event.settings.disabledMessageIds).length)delete event.settings.disabledMessageIds;changed();summary();updateMessageDisplayLabels(event);});
  summary();attachPoolPreviews(panel,event,null);
 }
+let messageUsageBubble=null,messageUsageSource=null;
+function closeMessageUsage(){
+ messageUsageBubble?.remove();messageUsageBubble=null;messageUsageSource=null;
+ document.querySelectorAll('[aria-describedby="message-usage-tooltip"]').forEach(el=>el.removeAttribute('aria-describedby'));
+}
+function placeBesideRow(bubble,rect){
+ bubble.style.maxHeight='';
+ const gap=10,margin=8,width=bubble.getBoundingClientRect().width,height=bubble.getBoundingClientRect().height;
+ let left,top;
+ if(rect.right+gap+width<=innerWidth-margin){left=rect.right+gap;top=rect.top;}
+ else if(rect.left-gap-width>=margin){left=rect.left-gap-width;top=rect.top;}
+ else {
+  left=Math.max(margin,Math.min(rect.left,innerWidth-width-margin));
+  const below=innerHeight-rect.bottom-gap-margin,above=rect.top-gap-margin;
+  if(below>=Math.min(height,above)){top=rect.bottom+gap;bubble.style.maxHeight=Math.max(1,below)+'px';}
+  else {bubble.style.maxHeight=Math.max(1,above)+'px';top=rect.top-gap-Math.min(height,above);}
+ }
+ bubble.style.left=left+'px';bubble.style.top=Math.max(margin,Math.min(top,innerHeight-bubble.getBoundingClientRect().height-margin))+'px';
+}
+function attachMessageUsage(card,event,message){
+ const trigger=card.querySelector('[data-message-usage]');
+ const show=()=>{
+  closeMessageUsage();const scheduled=editorIsScheduled();
+  const pool=eventMessages(event).filter(m=>scheduled||event.settings.disabledMessageIds?.[m.id]!==true);
+  const stats=model.messageSelectionStats(message,pool),bubble=document.createElement('div');
+  bubble.id='message-usage-tooltip';bubble.className='pool-preview-tooltip message-usage-tooltip';bubble.setAttribute('role','tooltip');
+  const heading=document.createElement('strong');heading.textContent='Saved message usage';bubble.append(heading);
+  const last=stats.lastUsedAt===null?'Never recorded':new Date(stats.lastUsedAt*1000).toLocaleString('en-US',{timeZone:zoneNames[guildZone()],timeZoneName:'short'});
+  for(const line of ['Last used: '+last,'Used: '+stats.useCount+' times',stats.weight?'Selection weight: '+stats.weight+' of '+stats.totalWeight+' ('+stats.chance.toFixed(1)+'%)':'Disabled — not eligible for this command pool']){const p=document.createElement('p');p.textContent=line;bubble.append(p);}
+  const note=document.createElement('small');note.textContent=(scheduled?'Reference across this command/guild library. The active period and message variant determine the actual pool. ':'Weight within the currently enabled command/guild pool. ')+ 'Older and less-used messages are favored; selection is random. History is from the loaded file, not live ESO data.';bubble.append(note);
+  document.body.append(bubble);messageUsageBubble=bubble;messageUsageSource=card.querySelector('summary');trigger.setAttribute('aria-describedby',bubble.id);placeBesideRow(bubble,messageUsageSource.getBoundingClientRect());
+ };
+ trigger.addEventListener('mouseenter',show);trigger.addEventListener('mouseleave',()=>{if(document.activeElement!==trigger)closeMessageUsage();});trigger.addEventListener('focus',show);trigger.addEventListener('blur',closeMessageUsage);
+ trigger.addEventListener('click',ev=>{ev.preventDefault();ev.stopPropagation();show();});trigger.addEventListener('keydown',ev=>{if(ev.key==='Escape')closeMessageUsage();});
+}
+function repositionMessageUsage(){
+ if(!messageUsageBubble)return;
+ if(!messageUsageSource?.isConnected){closeMessageUsage();return;}
+ const rect=messageUsageSource.getBoundingClientRect();
+ if(rect.bottom<=0||rect.top>=innerHeight){closeMessageUsage();return;}
+ placeBesideRow(messageUsageBubble,rect);
+}
+document.addEventListener('scroll',repositionMessageUsage,true);window.addEventListener('resize',repositionMessageUsage);
 function attachPoolPreviews(card,event,row){
   let bubble;
   const close=()=>{bubble?.remove();bubble=null;card.querySelectorAll('[aria-describedby="pool-preview"]').forEach(el=>el.removeAttribute('aria-describedby'));};
@@ -1874,7 +1926,7 @@ async function libraryRequest(path,options={}){
   return response;
 }
 async function showServerLibrary(focusSave=false,exportBundle=null,exportsOnly=false){
-  $('#dialog-body').innerHTML=`<h2>Shared server library</h2><p class="help">Library names are public. Protected full configurations require their password to load; event exports remain shareable. Full configurations include every saved account and message, including locked messages. Event exports share only the selected exportable events and merge into the loaded account. Saving an existing name asks you to confirm before replacing that shared file. An optional password protects overwriting and deletion, and loading a full configuration. Keep it safe: there is no password recovery. Apply editor changes before saving. Empty reminder timelines can be saved as drafts; finish them before downloading for ESO.</p><section class="library-save"><label>${exportBundle?'Save selected event export as':'Save current configuration as'}<input id="library-name" maxlength="120" placeholder="For example: Alphabet Mafia — November v1" ${data?'':'disabled'}></label><label>File password (optional)<input id="library-password" type="password" autocomplete="new-password" maxlength="256" placeholder="Leave blank for no password"></label><button id="library-save" class="gold" ${data?'':'disabled'}>Save to server</button></section>${data?'':'<p class="help">Open a local file or load a shared configuration before saving.</p>'}<div class="heading"><h3>${focusSave?'Choose an existing save name':'Saved configurations and exports'}</h3><button id="library-refresh">Refresh list</button></div><p id="library-status" role="status" class="help">Loading saved files…</p><div id="library-overwrite" hidden></div><div id="library-delete-panel" class="library-confirm-panel" hidden></div><div id="library-load-panel" class="library-confirm-panel" hidden></div><div id="library-list"></div><p class="help">${focusSave?'Selecting a name does not load or change the saved file. Click Save to server to confirm an overwrite, or type a new name for a separate file.':'Loading opens a copy in this editor. It does not change your ESO files or remap accounts. Use event import/export to transfer events into another account. Download updated Lua when you are ready to install it.'}</p>`;
+  $('#dialog-body').innerHTML=`<h2>Shared server library</h2><p class="help">Library names are public. Protected full configurations require their password to load; event exports remain shareable. Full configurations include every saved account and message, including locked messages. Event exports share only the selected exportable events and merge into the loaded account. Saving an existing name asks you to confirm before replacing that shared file. An optional password protects overwriting and deletion, and loading a full configuration. Keep it safe: there is no password recovery. Apply editor changes before saving. Empty reminder timelines can be saved as drafts; finish them before downloading for ESO.</p><section class="library-save"><label>${exportBundle?'Save selected event export as':'Save current configuration as'}<input id="library-name" maxlength="120" placeholder="For example: Alphabet Mafia — November v1" ${data?'':'disabled'}></label><label>Password (optional)<input id="library-password" type="password" autocomplete="new-password" maxlength="256" placeholder="Leave blank for no password"></label><button id="library-save" class="gold" ${data?'':'disabled'}>Save to server</button></section>${data?'':'<p class="help">Open a local file or load a shared configuration before saving.</p>'}<div class="heading"><h3>${focusSave?'Choose an existing save name':'Saved configurations and exports'}</h3><button id="library-refresh">Refresh list</button></div><p id="library-status" role="status" class="help">Loading saved files…</p><div id="library-overwrite" hidden></div><div id="library-delete-panel" class="library-confirm-panel" hidden></div><div id="library-load-panel" class="library-confirm-panel" hidden></div><div id="library-list"></div><p class="help">${focusSave?'Selecting a name does not load or change the saved file. Click Save to server to confirm an overwrite, or type a new name for a separate file.':'Loading opens a copy in this editor. It does not change your ESO files or remap accounts. Use event import/export to transfer events into another account. Download updated Lua when you are ready to install it.'}</p>`;
   $('#dialog').showModal();let requestVersion=0,deletionFile=null,deleting=false;const listNode=$('#library-list');
   const isActive=()=>$('#dialog').open&&$('#library-list')===listNode;
   const libraryStatus=(text,error=false)=>{const el=$('#library-status');if(isActive()&&el){el.textContent=text;el.classList.toggle('error',error);}};
@@ -1924,7 +1976,7 @@ async function showServerLibrary(focusSave=false,exportBundle=null,exportsOnly=f
         if(focusSave){
           const field=$('#library-name');if(field.disabled){libraryStatus('Finish or cancel the current save first.');return;}
           field.value=file.name;field.focus();field.select();
-          libraryStatus(`Selected “${file.name}”. Click Save to server to review replacing it${file.protected?' and enter its overwrite password':''}.`);return;
+          libraryStatus(`Selected “${file.name}”. Click Save to server to review replacing it${file.protected?' and enter its password':''}.`);return;
         }
         if(file.kind==='export'&&!data){libraryStatus('Open your SavedVariables file first, then merge this event export into its selected account.',true);return;}
         if(file.kind!=='export'&&dirty&&!confirm('Discard unsaved edits and load this shared configuration?'))return;
@@ -1969,7 +2021,7 @@ async function showServerLibrary(focusSave=false,exportBundle=null,exportsOnly=f
         if(error.httpStatus!==409||!isActive())throw error;
         const confirmed=await new Promise(resolve=>{
           const modal=$('#dialog'),panel=$('#library-overwrite');panel.hidden=false;
-          panel.innerHTML=`<h3>Overwrite saved file?</h3><p>Replace <strong>${esc(name)}</strong> on the shared server with this ${exportBundle?'event export':'configuration'}? Other people will load the replacement from now on.</p><label>Overwrite password (if protected)<input id="library-overwrite-password" type="password" autocomplete="current-password" maxlength="256"></label><div class="actions"><button id="library-confirm-overwrite" class="danger">Overwrite saved file</button><button id="library-cancel-overwrite">Cancel</button></div>`;
+          panel.innerHTML=`<h3>Overwrite saved file?</h3><p>Replace <strong>${esc(name)}</strong> on the shared server with this ${exportBundle?'event export':'configuration'}? Other people will load the replacement from now on.</p><label>Password<input id="library-overwrite-password" type="password" autocomplete="current-password" maxlength="256"></label><div class="actions"><button id="library-confirm-overwrite" class="danger">Overwrite saved file</button><button id="library-cancel-overwrite">Cancel</button></div>`;
           const finish=value=>{modal.removeEventListener('close',cancel);panel.hidden=true;panel.innerHTML='';resolve(value);};
           const cancel=()=>finish(false);modal.addEventListener('close',cancel,{once:true});
           $('#library-overwrite-password').value=password;

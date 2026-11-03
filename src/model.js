@@ -1673,3 +1673,20 @@ function decorateCommandTime(source,nowUtc){
   const duplicate=new RegExp(`^(\\s*)${zoneSuffix}(?![a-z])`,'i').exec(remainder);if(duplicate)remainder=duplicate[1]+remainder.slice(duplicate[0].length);
   return source.slice(0,core.start)+literal+assumed+(!displayed&&!extraZone?' '+canonical:'')+' ('+formatDurationMinutes(Math.floor((resolved.at-nowUtc)/60))+')'+remainder;
 }
+
+// Mirrors SmartChatMsg:SelectWeightedMessageEntry. Pool membership is supplied by
+// the caller: a scheduled period may use only a subset of the message library.
+export function messageSelectionStats(message, pool) {
+ const timestamp=m=>typeof m?.lastUsedAt==='number'&&Number.isFinite(m.lastUsedAt)&&m.lastUsedAt>=0?Math.floor(m.lastUsedAt):null;
+ const count=m=>typeof m?.useCount==='number'&&Number.isFinite(m.useCount)&&m.useCount>=0?Math.floor(m.useCount):0;
+ const ranked=[...pool].sort((a,b)=>{
+  const at=timestamp(a),bt=timestamp(b);
+  if(at===null&&bt!==null)return -1;if(bt===null&&at!==null)return 1;
+  if(at!==bt)return (at??0)-(bt??0);
+  const used=count(a)-count(b);if(used)return used;
+  const aid=String(a.id??''),bid=String(b.id??'');return aid<bid?-1:aid>bid?1:0;
+ });
+ const index=ranked.findIndex(entry=>entry===message||entry.id===message.id),totalWeight=ranked.length*(ranked.length+1)/2;
+ const weight=index<0?0:ranked.length-index;
+ return {lastUsedAt:timestamp(message),useCount:count(message),rank:index<0?null:index+1,weight,totalWeight,chance:totalWeight?100*weight/totalWeight:0};
+}
