@@ -205,6 +205,18 @@ async function open(data) {
   await page.locator("#workspace").waitFor({ state: "visible" });
   return { page, errors };
 }
+async function separateDisplayAndSlashNames(){
+ const {page,errors}=await open(fixture());try{
+  const display=page.locator('[data-field=commandName]'),slash=page.locator('[data-field=slashCommandName]');assert.equal(await page.locator('#events .event-command-name').count(),0);
+  await display.fill('Sunday Fishing');assert.equal(await slash.inputValue(),'SundayFishing');
+  await slash.fill(' /ff-tg! ');await page.locator('#save-event').click();assert.equal(await slash.inputValue(),'fftg');assert.equal(await display.inputValue(),'Sunday Fishing');
+  await display.fill('Sunday Fishing for the Guild');assert.equal(await slash.inputValue(),'fftg');await page.locator('#save-event').click();
+  let saved=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(saved.commands[1].displayName,'Sunday Fishing for the Guild');assert.equal(saved.commands[1].name,'fftg');assert.equal(saved.commands[1].id,'command-one');assert.equal(saved.messages[1].useCount,5);assert.match(await page.locator('#events .event-item.active strong').textContent(),/Sunday Fishing for the Guild/);assert.equal(await page.locator('#events .event-item.active .event-command-name').textContent(),'Command: fftg');
+  await slash.fill('o f f');await page.locator('#save-event').click();assert.equal(await slash.inputValue(),'off');assert.match(await page.locator('#status').textContent(),/reserved/);
+  await slash.fill('fftg');await page.locator('#new-event').click();await page.locator('#form-name').fill('Tuesday Tours');assert.equal(await page.locator('#form-slashName').inputValue(),'TuesdayTours');await page.locator('#form-slashName').fill('tours!');await page.locator('#modal-submit').click();saved=(await downloadData(page)).Default['@fixture'].$AccountWide;const added=Object.values(saved.commands).find(c=>c.name==='tours');assert.equal(added.displayName,'Tuesday Tours');assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
+
 async function monthFinalLabelsAndNextSidebar(){
  const d=fixture(),settings=d.Default['@fixture'].$AccountWide.commandGuildSettings['command-one'].alpha;
  Object.assign(settings.schedule,{eventDate:'2026-10-10',eventTime:'08:00 PM',timeZone:'ET',recurrence:'BIWEEKLY',specialPattern:'MONTH_FINAL'});
@@ -669,7 +681,7 @@ async function timelineOrderingAndPoolPreview(){
  assert.equal(await page.locator('[data-field=eventTime]').locator('xpath=ancestor::label').locator('.field-caption .help-icon').count(),1);
  assert.equal(await page.locator('#detail [data-help][title]').count(),0);
  const hint=page.locator('[data-field=eventTime]').locator('xpath=ancestor::label').locator('.help-icon');await hint.focus();assert.equal(await hint.locator('.help-bubble').isVisible(),true);
- const positions=await page.locator('[data-field=commandName],[data-field=eventDate],[data-field=eventTime]').evaluateAll(xs=>xs.map(x=>x.getBoundingClientRect().top));assert.ok(Math.max(...positions)-Math.min(...positions)<2,'first-row controls align with and without help icons');
+ const positions=await page.locator('[data-field=eventDate],[data-field=eventTime],#next-occurrence').evaluateAll(xs=>xs.map(x=>x.getBoundingClientRect().top));assert.ok(Math.max(...positions)-Math.min(...positions)<2,'first-row controls align with and without help icons');
  const second=page.locator('.reminder[data-row="row-two"]');
  await second.locator('[data-field=label]').fill('Start till 2 days before');assert.equal(await second.locator('.heading h3').textContent(),'2. Start till 2 days before');
  await second.locator('.row-advanced').evaluate(el=>el.open=true);
@@ -1039,19 +1051,19 @@ async function sharedServerLibrary(){
    const latest=parseSavedVariables(initialLua);latest.Default['@fixture'].$AccountWide.messages[1].useCount=99;
    await page.locator('#latest').setInputFiles({name:'SmartChatMsg.lua',mimeType:'text/plain',buffer:Buffer.from(writeSavedVariables(latest))});await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('for merging'));
    await page.locator('#save-server').click();await page.locator('#library-list [data-library-id]').first().waitFor();await page.locator('#library-name').fill('Shared version');await page.locator('#library-save').click();await page.waitForFunction(()=>document.querySelector('#library-status')?.textContent.includes('Saved “Shared version”'));
-   const saved=[...files.values()].find(file=>file.name==='Shared version'),savedData=parseSavedVariables(saved.lua).Default['@fixture'].$AccountWide;assert.equal(savedData.commands[1].name,'Shared edit');assert.equal(savedData.messages[1].useCount,99);
+   const saved=[...files.values()].find(file=>file.name==='Shared version'),savedData=parseSavedVariables(saved.lua).Default['@fixture'].$AccountWide;assert.equal(savedData.commands[1].name,'Sharededit');assert.equal(savedData.messages[1].useCount,99);
    await page.locator('#library-name').fill('SHARED VERSION');await page.locator('#library-save').click();await page.locator('#library-cancel-overwrite').click();await page.waitForFunction(()=>document.querySelector('#library-status')?.textContent.includes('Overwrite cancelled'));assert.equal(files.size,2);assert.equal(files.get(saved.id).lua,saved.lua);
    await page.locator('#library-save').click();await page.locator('#library-confirm-overwrite').click();await page.waitForFunction(()=>document.querySelector('#library-status')?.textContent.includes('Overwrote “SHARED VERSION”'));assert.equal(files.size,2);assert.equal(files.get(saved.id).updatedAt,'2026-10-30T12:00:00Z');await page.locator('#close-dialog').click();
    await page.locator('[data-field=commandName]').fill('Before request');await page.locator('#save-event').click();await page.locator('#save-server').click();await page.locator('#library-name').fill('Delayed save');
    let releaseSave,saveStarted;state.saveGate=new Promise(resolve=>releaseSave=resolve);const saving=new Promise(resolve=>saveStarted=resolve);state.onSave=saveStarted;
    await page.locator('#library-save').click();await saving;await page.locator('#close-dialog').click();await page.locator('[data-field=commandName]').fill('Newer unsaved edit');await page.locator('#save-event').click();releaseSave();await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('earlier copy'));state.saveGate=null;state.onSave=null;
-   assert.equal(parseSavedVariables([...files.values()].find(file=>file.name==='Delayed save').lua).Default['@fixture'].$AccountWide.commands[1].name,'Before request');
+   assert.equal(parseSavedVariables([...files.values()].find(file=>file.name==='Delayed save').lua).Default['@fixture'].$AccountWide.commands[1].name,'Beforerequest');
    page.removeAllListeners('dialog');let declined=0;page.on('dialog',async dialog=>{declined++;await dialog.dismiss();});await page.locator('#server-library').click();await page.locator(`[data-library-id="${existing.id}"]`).waitFor();await page.locator(`[data-library-id="${existing.id}"]`).click();assert.equal(declined,1,'newer edits still trigger unsaved confirmation after an earlier save completes');assert.equal(await page.locator('[data-field=commandName]').inputValue(),'Newer unsaved edit');await page.locator('#close-dialog').click();
    page.removeAllListeners('dialog');page.on('dialog',dialog=>dialog.accept());await downloadData(page);
    await page.locator('#server-library').click();await page.locator(`[data-library-id="${existing.id}"]`).waitFor();let releaseLoad,loadStarted;state.loadGate=new Promise(resolve=>releaseLoad=resolve);const loading=new Promise(resolve=>loadStarted=resolve);state.onLoad=loadStarted;
    await page.locator(`[data-library-id="${existing.id}"]`).click();await loading;await page.locator('#close-dialog').click();await page.locator('[data-field=commandName]').fill('Edit while loading');await page.locator('#save-event').click();releaseLoad();await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('Server load canceled'));state.loadGate=null;state.onLoad=null;assert.equal(await page.locator('[data-field=commandName]').inputValue(),'Edit while loading');
    await page.locator('#server-library').click();await page.locator(`[data-library-id="${saved.id}"]`).waitFor();await page.locator(`[data-library-id="${saved.id}"]`).click();await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('Loaded shared configuration'));
-   assert.equal(await page.locator('[data-field=commandName]').inputValue(),'Shared edit');await page.locator('[data-field=commandName]').fill('Changed after loading');await page.locator('#save-event').click();const downloaded=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(downloaded.commands[1].name,'Changed after loading');assert.equal(downloaded.messages[1].useCount,99);assert.equal(files.get(saved.id).lua,saved.lua,'loading/editing/downloading does not overwrite the server copy');
+   assert.equal(await page.locator('[data-field=commandName]').inputValue(),'Shared edit');await page.locator('[data-field=commandName]').fill('Changed after loading');await page.locator('#save-event').click();const downloaded=(await downloadData(page)).Default['@fixture'].$AccountWide;assert.equal(downloaded.commands[1].name,'Changedafterloading');assert.equal(downloaded.messages[1].useCount,99);assert.equal(files.get(saved.id).lua,saved.lua,'loading/editing/downloading does not overwrite the server copy');
    await page.reload();await page.locator('#server-library').click();await page.locator(`[data-library-id="${existing.id}"]`).waitFor();assert.equal(await page.locator('#library-save').isDisabled(),true);await page.locator(`[data-library-id="${existing.id}"]`).click();await page.locator('#workspace').waitFor({state:'visible'});assert.equal(await page.locator('[data-field=commandName]').inputValue(),'Example');assert.deepEqual(errors,[]);
  }finally{await page.close();}
 }
@@ -1390,7 +1402,7 @@ async function libraryHttpIntegration(){
    page=await browser.newPage();const errors=[];page.on('pageerror',error=>errors.push(error.message));page.on('dialog',dialog=>dialog.accept());
    await page.goto(origin);await page.locator('#open').setInputFiles({name:'SmartChatMsg.lua',mimeType:'text/plain',buffer:Buffer.from(writeSavedVariables(fixture()))});await page.locator('#workspace').waitFor({state:'visible'});
    await page.locator('[data-field=commandName]').fill('Real HTTP save');await page.locator('#save-event').click();await page.locator('#save-server').click();await page.locator('#library-name').fill('HTTP snapshot');await page.locator('#library-save').click();await page.waitForFunction(()=>document.querySelector('#library-status')?.textContent.includes('Saved “HTTP snapshot”'));
-   const files=(await(await fetch(origin+'/api/library')).json()).files;assert.equal(files.length,1);const stored=await(await fetch(origin+'/api/library/'+files[0].id)).text();assert.equal(parseSavedVariables(stored).Default['@fixture'].$AccountWide.commands[1].name,'Real HTTP save');
+   const files=(await(await fetch(origin+'/api/library')).json()).files;assert.equal(files.length,1);const stored=await(await fetch(origin+'/api/library/'+files[0].id)).text();assert.equal(parseSavedVariables(stored).Default['@fixture'].$AccountWide.commands[1].name,'RealHTTPsave');
    await page.locator('#close-dialog').click();await page.locator('[data-field=commandName]').fill('Temporary local edit');await page.locator('#save-event').click();await page.locator('#server-library').click();await page.locator('[data-library-id]').waitFor();await page.locator('[data-library-id]').click();await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('Loaded shared configuration'));assert.equal(await page.locator('[data-field=commandName]').inputValue(),'Real HTTP save');assert.deepEqual(errors,[]);
  }finally{
    if(page)await page.close();if(server.listening)await new Promise(resolve=>server.close(resolve));
@@ -1452,6 +1464,7 @@ try {
   await relevantSettingsAndMigration();
   await preservationAndEditing();
   await condensedDateTimeSettings();
+  await separateDisplayAndSlashNames();
   await monthFinalLabelsAndNextSidebar();
   await commandFieldPresentationAndUsage();
   await overviewPeriodNavigationAndSharedCooldowns();
