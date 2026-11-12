@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test",
-    "test:browser": "node scripts/browser-check.mjs"
+    "test:browser": "node scripts/browser-check.mjs",
+    "library:reset-password": "node --env-file-if-exists=.env scripts/reset-library-password.mjs"
   },
   "engines": {
     "node": ">=22"

@@ -236,3 +236,23 @@ Sidebar headings show the display name first. A muted Command: alias line appear
 ### Styled confirmations
 
 Removing rotation activities, undoing occurrence cancellations, deleting messages, and discarding edits to open local/shared files use styled in-page confirmation dialogs. Cancel and Escape leave the data unchanged; focus starts on Cancel and returns to the previous control. Confirmations opened from Server Library keep that library dialog intact underneath. The browser-controlled close/refresh warning for unsaved work remains because browsers cannot replace it with a custom modal.
+
+## Reset a forgotten server-library password (administrator)
+
+From the SmartChatMsg-Web repository directory on the hosting machine, run as the
+service user (or another administrator with write access to `LIBRARY_DIR`):
+
+```sh
+sudo systemctl stop scm-web
+npm run library:reset-password -- "Saved configuration name"
+sudo systemctl start scm-web
+```
+
+The command reads `.env` and uses the same `LIBRARY_DIR` as the server. Enter and
+confirm a new password at the hidden terminal prompts. The old password is not
+required. Use the exact library name (case does not matter), not a downloaded Lua
+filename. This also works for saved event exports. Only password protection is
+changed; saved contents, name, IDs, timestamps and cooldown history remain intact.
+The command requires terminal/filesystem access and is not exposed on the website.
+Keep the service stopped during the reset to prevent concurrent writes. If the
+command reports an error, correct it before starting the service again.
